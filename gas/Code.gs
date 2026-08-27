@@ -1,11 +1,14 @@
 /**
  * =====================================================================
- * KAROFI SALES FORECAST APP - GOOGLE APPS SCRIPT BACKEND (PHASE 1 - GAS)
- * Nguồn dữ liệu DB: Google Sheets (Tự động khởi tạo các Sheet/Bảng)
+ * KAROFI SALES FORECAST APP - GOOGLE APPS SCRIPT BACKEND (STANDALONE GAS)
+ * Nguồn dữ liệu CSDL: Google Sheets (ID: 1Iq9GTzTWI9A90DIKlAmK26GedaIymy-1bjy63rPuQZE)
  * =====================================================================
  */
 
-// 1. Cấu hình Tên Sheet tương ứng với Bảng CSDL
+// 1. ID Google Sheet CSDL của Karofi
+const SPREADSHEET_ID = '1Iq9GTzTWI9A90DIKlAmK26GedaIymy-1bjy63rPuQZE';
+
+// 2. Cấu hình Tên Sheet tương ứng với các Bảng CSDL
 const SHEETS = {
   PRODUCTS: 'Products',
   BUSINESS_UNITS: 'BusinessUnits',
@@ -15,6 +18,16 @@ const SHEETS = {
   WEEKLY_SPLITS: 'WeeklyRegionSplits',
   APPROVALS: 'Approvals'
 };
+
+/**
+ * Hàm hỗ trợ lấy kết nối Spreadsheet theo ID độc lập
+ */
+function getSpreadsheet() {
+  if (SPREADSHEET_ID && SPREADSHEET_ID !== 'YOUR_GOOGLE_SHEET_ID_HERE') {
+    return SpreadsheetApp.openById(SPREADSHEET_ID);
+  }
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
 
 /**
  * Main Web App Entry Point for HTTP GET requests
@@ -50,7 +63,11 @@ function doGet(e) {
         responseData = initDatabaseSheets();
         break;
       default:
-        responseData = { status: 'online', service: 'Karofi Sales Forecast GAS API v1.0' };
+        responseData = { 
+          status: 'online', 
+          service: 'Karofi Sales Forecast Standalone GAS API v1.0',
+          spreadsheetId: SPREADSHEET_ID
+        };
     }
   } catch (err) {
     responseData = { error: err.toString() };
@@ -237,7 +254,7 @@ function decideApproval(approvalId, decision, comment) {
 // ---------------------------------------------------------------------
 
 function getOrCreateSheet(sheetName) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet();
   let sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
@@ -261,10 +278,10 @@ function getSheetDataAsJson(sheet) {
 }
 
 /**
- * Hàm khởi tạo các cột bảng chuẩn tự động trên Google Sheets
+ * Hàm khởi tạo các cột bảng chuẩn tự động trên file Google Sheet ID: 1Iq9GTzTWI9A90DIKlAmK26GedaIymy-1bjy63rPuQZE
  */
 function initDatabaseSheets() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet();
   
   const schema = {
     [SHEETS.BUSINESS_UNITS]: ['code', 'name', 'is_active', 'created_at'],
@@ -285,5 +302,5 @@ function initDatabaseSheets() {
     }
   });
 
-  return { message: 'Google Sheets DB schema initialized successfully!' };
+  return { message: `Google Sheets DB schema initialized successfully for sheet ID: ${SPREADSHEET_ID}` };
 }
