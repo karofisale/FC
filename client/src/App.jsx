@@ -13,6 +13,7 @@ import WorkflowGuide from './pages/WorkflowGuide';
 import { api, clearBootstrapCache } from './services/api';
 import { getSession, clearSession, logout, allowedBUs } from './services/auth';
 import { onUnauthorized, onRetry } from './services/gasClient';
+import { confirmNavigateAway, isDirty } from './services/dirtyState';
 import { AlertCircle, LogIn } from 'lucide-react';
 
 export default function App() {
@@ -42,6 +43,20 @@ export default function App() {
   useEffect(() => onRetry(() => {
     setRetryNotice('Máy chủ đang khởi động lại, đang thử kết nối lại...');
   }), []);
+
+  // Đóng tab/tải lại trong lúc còn ô chưa lưu — trình duyệt tự hỏi xác
+  // nhận (nội dung cụ thể do trình duyệt quyết định, không hiển thị được
+  // message tuỳ ý ở đây, chỉ cần gọi preventDefault để kích hoạt hộp thoại).
+  useEffect(() => {
+    const handler = (e) => {
+      if (!isDirty()) return;
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, []);
 
   useEffect(() => {
     if (!loading) setRetryNotice(null);
@@ -84,6 +99,7 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    if (!confirmNavigateAway()) return;
     await logout();
     clearBootstrapCache();
     setSession(null);
@@ -110,7 +126,7 @@ export default function App() {
       <Header
         user={user}
         currentBU={currentBU}
-        setCurrentBU={setCurrentBU}
+        setCurrentBU={(bu) => { if (confirmNavigateAway()) setCurrentBU(bu); }}
         bus={bus}
         onLogout={handleLogout}
       />
@@ -118,7 +134,7 @@ export default function App() {
       <div className="flex-1 flex max-w-[1600px] w-full mx-auto">
         <Sidebar
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={(tab) => { if (confirmNavigateAway()) setActiveTab(tab); }}
           pendingCount={pendingApprovalsCount}
           role={user?.role}
         />

@@ -3,6 +3,7 @@ import { api } from '../services/api';
 import CycleBar from '../components/CycleBar';
 import { Save, Send, Search, Filter, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { monthsOfCycle, monthLabel } from '../utils/period';
+import { setDirty } from '../services/dirtyState';
 
 export default function MonthlyForecast({ currentBU, user }) {
   const [cycles, setCycles] = useState([]);
@@ -13,6 +14,12 @@ export default function MonthlyForecast({ currentBU, user }) {
   const [groups, setGroups] = useState([]);
   const [forecastMap, setForecastMap] = useState({});
   const [dirtyKeys, setDirtyKeys] = useState(() => new Set());
+
+  // Chặn đổi tab/đổi đơn vị làm mất ô chưa lưu mà không hỏi lại
+  useEffect(() => {
+    setDirty(dirtyKeys.size > 0, `Bảng Forecast tháng còn ${dirtyKeys.size} ô chưa lưu.`);
+    return () => setDirty(false);
+  }, [dirtyKeys]);
   const [search, setSearch] = useState('');
   const [selectedGroup, setSelectedGroup] = useState('ALL');
   const [loading, setLoading] = useState(true);

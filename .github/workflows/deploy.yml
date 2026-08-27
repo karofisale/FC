@@ -34,6 +34,9 @@ jobs:
       - name: Install Client Dependencies
         run: cd client && npm install
 
+      - name: Lint Client
+        run: npm run lint
+
       - name: Build Vite Client
         run: npm run build:client
 

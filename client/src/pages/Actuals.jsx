@@ -4,6 +4,7 @@ import {
   Save, Search, AlertCircle, CheckCircle2, Loader2, TrendingUp, TrendingDown, Minus
 } from 'lucide-react';
 import { monthLabel } from '../utils/period';
+import { setDirty } from '../services/dirtyState';
 
 function previousMonthISO() {
   const d = new Date();
@@ -19,6 +20,12 @@ export default function Actuals({ currentBU, user }) {
   const [actualsMap, setActualsMap] = useState({});
   const [dirtyKeys, setDirtyKeys] = useState(() => new Set());
   const [search, setSearch] = useState('');
+
+  // Chặn đổi tab/đổi đơn vị làm mất ô chưa lưu mà không hỏi lại
+  useEffect(() => {
+    setDirty(dirtyKeys.size > 0, `Bảng Sản lượng thực hiện còn ${dirtyKeys.size} ô chưa lưu.`);
+    return () => setDirty(false);
+  }, [dirtyKeys]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);

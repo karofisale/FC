@@ -4,6 +4,7 @@ import CycleBar from '../components/CycleBar';
 import ValidationAlert from '../components/ValidationAlert';
 import { Save, Send, Search, CheckCircle2, AlertCircle, Loader2, Wand2 } from 'lucide-react';
 import { monthsOfCycle, weeksOfMonth, weekLabel, monthLabel, normalizeMonth } from '../utils/period';
+import { setDirty } from '../services/dirtyState';
 
 export default function WeeklyForecast({ currentBU, user }) {
   const [cycles, setCycles] = useState([]);
@@ -15,6 +16,12 @@ export default function WeeklyForecast({ currentBU, user }) {
   const [monthlyMap, setMonthlyMap] = useState({});
   const [weeklyMap, setWeeklyMap] = useState({});
   const [dirtyKeys, setDirtyKeys] = useState(() => new Set());
+
+  // Chặn đổi tab/đổi đơn vị làm mất ô chưa lưu mà không hỏi lại
+  useEffect(() => {
+    setDirty(dirtyKeys.size > 0, `Bảng Forecast tuần/miền còn ${dirtyKeys.size} ô chưa lưu.`);
+    return () => setDirty(false);
+  }, [dirtyKeys]);
   const [validationResult, setValidationResult] = useState(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);

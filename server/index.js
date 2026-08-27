@@ -36,6 +36,13 @@ app.use('/api/summary', require('./routes/summary'));
 app.use('/api/approvals', require('./routes/approvals'));
 app.use('/api/actuals', require('./routes/actuals'));
 
+// Route /api sai (không khớp router nào ở trên) phải trả JSON 404, không
+// để lọt xuống catch-all bên dưới và trả về index.html với status 200 —
+// client gọi nhầm endpoint sẽ thấy res.ok=true rồi vỡ khi res.json().
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `Không có route API: ${req.method} ${req.originalUrl}` });
+});
+
 // Serve client build if available
 const clientBuildPath = path.join(__dirname, '../client/dist');
 if (require('fs').existsSync(clientBuildPath)) {

@@ -2,6 +2,17 @@
 -- KAROFI SALES FORECAST APP - DATABASE SCHEMA (PostgreSQL 14+)
 -- Nguon: thiet ke lai tu file "XK_OEM_GT2_Online_Sales_FC_2026.xlsx"
 -- Muc dich: quan ly ke hoach kinh doanh theo don vi, SKU, thang, tuan, mien
+--
+-- TRANG THAI (2026-08-27): day la THIET KE THAM CHIEU cho phuong an kien
+-- truc "B - Cloud Run + Cloud SQL Postgres" (xem gas/README.md), CHUA
+-- duoc trien khai. Backend dang chay thuc te la Google Apps Script + Sheet
+-- (thu muc gas/), dung SCHEMA rieng trong gas/Config.gs (khong co index,
+-- view, trigger nhu file nay mo ta). server/db/init.js la SQLite cho
+-- backend Express cu, cung khong con duoc app dung, giu tham chieu.
+-- Neu sau nay chuyen that sang Postgres, dung file nay lam diem bat dau
+-- nhung phai doi chieu lai voi gas/Config.gs SCHEMA vi hai ben da lech
+-- nhau (vd: cot updated_by, is_final, cac bang Users/ActualSalesResults
+-- da co them logic PIN auth khong nam trong thiet ke goc nay).
 -- =====================================================================
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";  -- cho gen_random_uuid()
