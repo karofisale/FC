@@ -1,3 +1,4 @@
+import { apiGAS } from './apiGAS';
 import { 
   initialBUs, 
   initialRegions, 
@@ -36,6 +37,21 @@ let localWeeklySplits = getLocalStore('weeklySplits', mockData.weeklySplits);
 let localApprovals = getLocalStore('approvals', mockData.approvals);
 
 export async function fetchJson(endpoint, options = {}) {
+  // 1. Try Google Apps Script (GAS) API first
+  try {
+    const gasRes = await handleGASRequest(endpoint, options);
+    if (gasRes !== null && gasRes !== undefined) {
+      if (Array.isArray(gasRes) && gasRes.length === 0) {
+        // Sheet empty -> fallback to local seed
+      } else {
+        return gasRes;
+      }
+    }
+  } catch (gasErr) {
+    console.warn('GAS API error, falling back to local data layer:', gasErr);
+  }
+
+  // 2. Try Local Express Backend
   try {
     const res = await fetch(`${API_BASE}${endpoint}`, {
       headers: {
@@ -44,12 +60,45 @@ export async function fetchJson(endpoint, options = {}) {
       },
       ...options
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
+    if (res.ok) return await res.json();
   } catch (err) {
-    // Fallback to local data layer for GitHub Pages / static hosting
-    return handleLocalFallback(endpoint, options);
+    // Express backend not available
   }
+
+  // 3. Fallback to local data layer
+  return handleLocalFallback(endpoint, options);
+}
+
+async function handleGASRequest(endpoint, options = {}) {
+  const [path, queryString] = endpoint.split('?');
+  const params = Object.fromEntries(new URLSearchParams(queryString || ''));
+
+  if (path === '/master/bus') return await apiGAS.getBUs();
+  if (path === '/master/products') return await apiGAS.getProducts(params);
+  if (path === '/cycles') return await apiGAS.getCycles(params);
+  if (path === '/forecast/monthly') return await apiGAS.getMonthlyLines(params.versionId);
+  if (path === '/forecast/weekly') return await apiGAS.getWeeklySplits(params.versionId);
+  if (path === '/summary/b0') return await apiGAS.getB0Summary(params.baseMonth || '2026-07-01');
+  if (path === '/approvals') return await apiGAS.getApprovals();
+
+  if (path === '/forecast/monthly/bulk') {
+    const { versionId, lines } = JSON.parse(options.body || '{}');
+    return await apiGAS.saveMonthlyLines(versionId, lines);
+  }
+  if (path === '/forecast/weekly/bulk') {
+    const { versionId, splits } = JSON.parse(options.body || '{}');
+    return await apiGAS.saveWeeklySplits(versionId, splits);
+  }
+  if (path === '/approvals/submit') {
+    const { cycleId, versionId, userId } = JSON.parse(options.body || '{}');
+    return await apiGAS.submitCycle(cycleId, versionId, userId);
+  }
+  if (path === '/approvals/decide') {
+    const { approvalId, decision, comment } = JSON.parse(options.body || '{}');
+    return await apiGAS.decideApproval(approvalId, decision, comment);
+  }
+
+  return null;
 }
 
 function handleLocalFallback(endpoint, options = {}) {

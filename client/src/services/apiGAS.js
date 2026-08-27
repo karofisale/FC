@@ -3,12 +3,11 @@
  * Kết nối REST API qua GAS Web App Deployment URL
  */
 
-// Bạn dán URL Web App Deployment từ Google Apps Script vào đây (hoặc cài qua VITE_GAS_API_URL)
-export const GAS_WEB_APP_URL = import.meta.env.VITE_GAS_API_URL || '';
+export const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwPwHxjP3VuN5WIWLnhpt0GzeLlOT7pn2oFJkzRRwmlO8c9zjtfvLSQ_o3DwBUwfU7J/exec';
 
 export async function fetchGAS(action, params = {}, postData = null) {
   if (!GAS_WEB_APP_URL) {
-    throw new Error('Chưa cấu hình URL Google Apps Script Web App (VITE_GAS_API_URL)');
+    throw new Error('Chưa cấu hình URL Google Apps Script Web App');
   }
 
   if (postData) {
