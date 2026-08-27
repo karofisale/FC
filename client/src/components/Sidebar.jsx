@@ -7,10 +7,11 @@ import {
   Package,
   HelpCircle,
   FileSpreadsheet,
-  TrendingUp
+  TrendingUp,
+  Download
 } from 'lucide-react';
 
-export default function Sidebar({ activeTab, setActiveTab, pendingCount = 0 }) {
+export default function Sidebar({ activeTab, setActiveTab, pendingCount = 0, role }) {
   const menuItems = [
     { id: 'dashboard', label: 'Tổng quan & Báo cáo', icon: LayoutDashboard, badge: null },
     { id: 'monthly', label: 'Bảng 0: Forecast 4 Tháng', icon: CalendarDays, badge: null },
@@ -18,6 +19,9 @@ export default function Sidebar({ activeTab, setActiveTab, pendingCount = 0 }) {
     { id: 'approvals', label: 'Quy trình Phê duyệt', icon: CheckCircle2, badge: pendingCount > 0 ? pendingCount : null },
     { id: 'actuals', label: 'Sản lượng Thực hiện', icon: TrendingUp, badge: null },
     { id: 'products', label: 'Danh mục SKU', icon: Package, badge: null },
+    ...(role === 'central_admin' || role === 'viewer'
+      ? [{ id: 'exports', label: 'Xuất Báo cáo', icon: Download, badge: null }]
+      : []),
     { id: 'guide', label: 'Sơ đồ Quy trình B5', icon: HelpCircle, badge: null }
   ];
 

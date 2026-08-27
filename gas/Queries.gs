@@ -474,3 +474,109 @@ function getFcVsActual_(bu, month) {
     rows: rows
   };
 }
+
+// ---------------------------------------------------------------------
+// XUẤT BÁO CÁO (B0.SUM / SAP ZPP702)
+// ---------------------------------------------------------------------
+
+/**
+ * Sản lượng theo SKU × đơn vị kinh doanh × tháng, cho 4 tháng bắt đầu từ
+ * baseMonth — nguồn cho xuất Excel B0.SUM (một dòng/SKU, cột theo BU×
+ * tháng) và cho phần XK/OEM của xuất SAP ZPP702 (dùng lại đúng dữ liệu
+ * này, lọc theo BU ở phía client, đỡ phải gọi thêm request).
+ */
+function getB0SumExport_(session, baseMonth) {
+  assertRole_(session, ['central_admin', 'viewer']);
+  var month0 = normalizeMonth_(baseMonth);
+  if (!month0) throw new Error('Thiếu tháng cần xuất.');
+
+  var parts = month0.split('-').map(Number);
+  var months = [];
+  for (var i = 0; i < 4; i++) {
+    var d = new Date(Date.UTC(parts[0], parts[1] - 1 + i, 1));
+    months.push(d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-01');
+  }
+
+  var products = productMap_();
+  var cycles = readObjects_(SHEETS.CYCLES).filter(function (c) {
+    return normalizeMonth_(c.base_month) === month0;
+  });
+
+  var versions = readObjects_(SHEETS.VERSIONS);
+  var buByVersionId = {};
+  cycles.forEach(function (c) {
+    var v = versions.filter(function (vv) {
+      return String(vv.cycle_id) === String(c.id) && (String(vv.is_final) === '1' || vv.is_final === true);
+    })[0];
+    if (v) buByVersionId[v.id] = c.business_unit_code;
+  });
+
+  var rowsMap = {};
+  readObjects_(SHEETS.MONTHLY_LINES).forEach(function (l) {
+    var bu = buByVersionId[l.version_id];
+    if (!bu) return;
+    var m = normalizeMonth_(l.forecast_month);
+    if (months.indexOf(m) < 0) return;
+
+    var sku = l.sku_code;
+    if (!rowsMap[sku]) {
+      var p = products[sku] || {};
+      rowsMap[sku] = {
+        sku_code: sku,
+        name: p.name || sku,
+        short_name: p.short_name || '',
+        product_group_code: p.product_group_code || '',
+        product_group_name: p.product_group_name || '',
+        technology: p.technology || '',
+        default_channel: p.default_channel || '',
+        avg_price: Number(p.avg_price) || 0,
+        monthly: {}
+      };
+    }
+    if (!rowsMap[sku].monthly[m]) rowsMap[sku].monthly[m] = {};
+    rowsMap[sku].monthly[m][bu] = (rowsMap[sku].monthly[m][bu] || 0) + (Number(l.quantity) || 0);
+  });
+
+  var businessUnits = {};
+  cycles.forEach(function (c) { businessUnits[c.business_unit_code] = true; });
+
+  return {
+    baseMonth: month0,
+    months: months,
+    businessUnits: Object.keys(businessUnits).sort(),
+    rows: Object.keys(rowsMap).map(function (k) { return rowsMap[k]; })
+  };
+}
+
+/**
+ * Tổng sản lượng theo tuần (SUM cả 2 miền) của GT2 cho đúng tháng đầu
+ * chu kỳ — dùng cho cột tuần (J-N) khi xuất SAP ZPP702 kênh GT2.
+ */
+function getSapGt2Weekly_(session, baseMonth) {
+  assertRole_(session, ['central_admin', 'viewer']);
+  var month0 = normalizeMonth_(baseMonth);
+  if (!month0) throw new Error('Thiếu tháng cần xuất.');
+
+  var cycle = readObjects_(SHEETS.CYCLES).filter(function (c) {
+    return String(c.business_unit_code) === 'GT2' && normalizeMonth_(c.base_month) === month0;
+  })[0];
+  if (!cycle) return { baseMonth: month0, rows: [] };
+
+  var version = readObjects_(SHEETS.VERSIONS).filter(function (v) {
+    return String(v.cycle_id) === String(cycle.id) && (String(v.is_final) === '1' || v.is_final === true);
+  })[0];
+  if (!version) return { baseMonth: month0, rows: [] };
+
+  var weekTotals = {};
+  readObjects_(SHEETS.WEEKLY_SPLITS).forEach(function (w) {
+    if (String(w.version_id) !== String(version.id)) return;
+    var wk = Number(w.week_number);
+    if (!weekTotals[w.sku_code]) weekTotals[w.sku_code] = {};
+    weekTotals[w.sku_code][wk] = (weekTotals[w.sku_code][wk] || 0) + (Number(w.quantity) || 0);
+  });
+
+  return {
+    baseMonth: month0,
+    rows: Object.keys(weekTotals).map(function (sku) { return { sku_code: sku, weeks: weekTotals[sku] }; })
+  };
+}

@@ -114,6 +114,8 @@ function dispatch_(action, p, session) {
     case 'getDashboardWorkspace': return getDashboardWorkspace_(session, p);
     case 'getActualsWorkspace':   return getActualsWorkspace_(session, p);
     case 'getApprovalsWorkspace': return getApprovalsWorkspace_(session, p);
+    case 'getB0SumExport':  return getB0SumExport_(session, p.baseMonth);
+    case 'getSapGt2Weekly': return getSapGt2Weekly_(session, p.baseMonth);
 
     // ----- ghi -----
     case 'createCycle':      return createCycle_(session, p);

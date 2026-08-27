@@ -8,6 +8,9 @@ import MonthlyForecast from './pages/MonthlyForecast';
 import WeeklyForecast from './pages/WeeklyForecast';
 import Approvals from './pages/Approvals';
 import Actuals from './pages/Actuals';
+// Tải lười — kéo theo thư viện xlsx (~290KB), chỉ admin/viewer mới dùng
+// tới màn này, không nên bắt mọi người tải sẵn ngay từ đầu.
+const Exports = React.lazy(() => import('./pages/Exports'));
 import Products from './pages/Products';
 import WorkflowGuide from './pages/WorkflowGuide';
 import { api, clearBootstrapCache } from './services/api';
@@ -20,7 +23,7 @@ import { AlertCircle, LogIn } from 'lucide-react';
 // router nào (8 tài khoản nội bộ không cần route lồng nhau/URL param),
 // chỉ để nút Back của trình duyệt hoạt động và có thể chia sẻ/bookmark
 // thẳng vào một tab thay vì luôn rơi về Dashboard.
-const VALID_TABS = ['dashboard', 'monthly', 'weekly', 'approvals', 'actuals', 'products', 'guide'];
+const VALID_TABS = ['dashboard', 'monthly', 'weekly', 'approvals', 'actuals', 'products', 'exports', 'guide'];
 
 function tabFromHash() {
   const tab = window.location.hash.replace('#', '');
@@ -209,6 +212,11 @@ export default function App() {
                 <Approvals currentBU={currentBU} user={user} onCountChange={setPendingApprovalsCount} />
               )}
               {activeTab === 'actuals' && <Actuals currentBU={currentBU} user={user} />}
+              {activeTab === 'exports' && (
+                <React.Suspense fallback={<div className="text-xs text-slate-400 p-4">Đang tải...</div>}>
+                  <Exports user={user} />
+                </React.Suspense>
+              )}
               {activeTab === 'products' && <Products currentBU={currentBU} />}
               {activeTab === 'guide' && <WorkflowGuide />}
             </ErrorBoundary>

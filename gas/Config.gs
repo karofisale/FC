@@ -51,7 +51,9 @@ const READ_ACTIONS = [
   'getVariance', 'getApprovals', 'getVersionSummary', 'getActuals', 'getFcVsActual',
   // Action gộp theo màn hình — xem Workspace.gs để biết vì sao cần gộp
   'getMonthlyWorkspace', 'getWeeklyWorkspace', 'getDashboardWorkspace',
-  'getActualsWorkspace', 'getApprovalsWorkspace'
+  'getActualsWorkspace', 'getApprovalsWorkspace',
+  // Xuất báo cáo
+  'getB0SumExport', 'getSapGt2Weekly'
 ];
 const WRITE_ACTIONS = [
   'createCycle', 'createVersion', 'saveMonthlyLines', 'saveWeeklySplits',
