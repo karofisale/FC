@@ -51,20 +51,19 @@ Lệnh trên tự sinh `gas/.clasp.json`.
 2. Trong Editor, chọn hàm `setupDatabase` ở `Admin.gs` → **Run**. Lần đầu
    Google sẽ hỏi cấp quyền truy cập Sheet — đồng ý. Hàm này tạo đủ sheet,
    header, danh mục BU/Region/ProductGroup và 8 tài khoản mẫu (chưa có PIN).
-3. Đặt PIN cho từng tài khoản, chạy trong editor (hoặc dùng Terminal của
-   Apps Script nếu bật): chọn hàm `adminSetPin`, sửa tham số rồi Run —
-   hoặc gõ trực tiếp vào ô "Execute function" nếu editor hỗ trợ:
-   ```
-   adminSetPin('u-admin-1', '123456')
-   adminSetPin('u-gt2-ed', '246810')
-   ...
-   ```
+3. Đặt PIN cho từng tài khoản. Cách nhanh nhất: mở `Admin.gs`, sửa 8 giá
+   trị PIN trong hàm `bulkSetInitialPins()`, chọn hàm đó ở dropdown cạnh
+   nút Run rồi bấm Run một lần — xem log ở View > Logs, sau đó xoá PIN
+   thật khỏi code. Muốn đặt từng tài khoản một thì thêm một hàm tạm gọi
+   `adminSetPin('gt2', '246810')` rồi Run hàm đó (nút Run không cho nhập
+   tham số trực tiếp).
    PIN tối thiểu 6 chữ số, không được là dãy trùng (`111111`) hay liên tiếp
    (`123456` bị chặn — chọn PIN khác dạng đó).
 4. Nạp 1.141 SKU từ file Excel gốc lên Sheet:
    ```bash
-   GAS_USER=u-admin-1 GAS_PIN=<pin vừa đặt> npm run seed:products
+   node tools/seed-products.mjs --user admin
    ```
+   (sẽ hỏi PIN, nhập ẩn; hoặc thêm `--pin <pin>`)
 
 ## Triển khai Web App
 
@@ -106,7 +105,9 @@ Repo này (đúng theo thiết kế GitHub Pages, không server riêng) buộc p
 An toàn không đến từ việc giấu URL (URL nằm trong bundle JS công khai), mà
 từ việc **mọi action trừ `ping`/`login` đều đòi token hợp lệ**
 (`Auth.gs: requireSession_`), và PIN không nằm trong Sheet dưới dạng đọc
-được — chỉ có SHA-256 hash cộng "pepper" lưu trong Script Properties
-(`Auth.gs: hashPin_`, không xuất hiện trong bất kỳ file `.gs` nào ở dạng
-thô). Nếu nghi ngờ có token bị lộ, chạy `adminRevokeAllSessions()` trong
-Admin.gs để huỷ toàn bộ phiên đang mở.
+được — chỉ có SHA-256 hash cộng salt riêng từng lần đặt PIN và "pepper"
+lưu trong Script Properties (`Auth.gs: hashWithSalt_`/`makePinRecord_`,
+không xuất hiện trong bất kỳ file `.gs` nào ở dạng thô). Hash cố tình
+KHÔNG phụ thuộc vào userId, nên đổi tên tài khoản trong Sheet (cột `id`)
+không làm hỏng PIN đã đặt trước đó. Nếu nghi ngờ có token bị lộ, chạy
+`adminRevokeAllSessions()` trong Admin.gs để huỷ toàn bộ phiên đang mở.

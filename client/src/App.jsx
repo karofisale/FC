@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
+import ErrorBoundary from './components/ErrorBoundary';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import MonthlyForecast from './pages/MonthlyForecast';
@@ -131,7 +132,7 @@ export default function App() {
               </div>
             </div>
           ) : (
-            <>
+            <ErrorBoundary key={activeTab}>
               {activeTab === 'dashboard' && <Dashboard currentBU={currentBU} />}
               {activeTab === 'monthly' && <MonthlyForecast currentBU={currentBU} user={user} />}
               {activeTab === 'weekly' && <WeeklyForecast currentBU={currentBU} user={user} />}
@@ -140,7 +141,7 @@ export default function App() {
               )}
               {activeTab === 'products' && <Products currentBU={currentBU} />}
               {activeTab === 'guide' && <WorkflowGuide />}
-            </>
+            </ErrorBoundary>
           )}
         </main>
       </div>

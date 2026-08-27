@@ -45,7 +45,7 @@ function login_(userId, pin) {
       throw new Error('Tài khoản chưa được cấp PIN. Liên hệ quản trị hệ thống.');
     }
 
-    if (hashPin_(user.id, pin) !== String(user.pin_hash)) {
+    if (!verifyPin_(pin, user.pin_hash)) {
       var failed = (Number(user.failed_attempts) || 0) + 1;
       var patch = { failed_attempts: failed };
       if (failed >= MAX_FAILED_ATTEMPTS) {
@@ -141,14 +141,36 @@ function purgeExpiredSessions_(props) {
 /**
  * PIN được băm SHA-256 kèm pepper lưu trong Script Properties (không nằm
  * trong Sheet), nên người xem được Sheet vẫn không dựng lại được PIN.
+ *
+ * Salt sinh ngẫu nhiên MỖI LẦN đặt PIN và lưu ngay trong ô pin_hash theo
+ * dạng "salt:hash" — cố tình KHÔNG dùng userId làm một phần đầu vào của
+ * hash, vì userId là cột có thể sửa tay trong Sheet (đổi tên cho dễ nhớ);
+ * nếu hash phụ thuộc vào userId, đổi tên xong PIN cũ sẽ không xác thực
+ * lại được nữa dù người dùng gõ đúng PIN.
  */
-function hashPin_(userId, pin) {
+function hashWithSalt_(pin, salt) {
   var pepper = getOrCreatePepper_();
-  var raw = pepper + '|' + String(userId).toLowerCase() + '|' + String(pin);
+  var raw = pepper + '|' + salt + '|' + String(pin);
   var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, raw, Utilities.Charset.UTF_8);
   return bytes.map(function (b) {
     return ((b < 0 ? b + 256 : b) + 0x100).toString(16).slice(1);
   }).join('');
+}
+
+/** Tạo bản ghi pin_hash mới ("salt:hash") để lưu vào cột pin_hash. */
+function makePinRecord_(pin) {
+  var salt = Utilities.getUuid();
+  return salt + ':' + hashWithSalt_(pin, salt);
+}
+
+/** So PIN người dùng nhập với bản ghi "salt:hash" đang lưu trong Sheet. */
+function verifyPin_(pin, storedRecord) {
+  var stored = String(storedRecord || '');
+  var sep = stored.indexOf(':');
+  if (sep < 0) return false; // định dạng cũ (không có salt) -> luôn coi là không khớp, bắt đặt lại PIN
+  var salt = stored.slice(0, sep);
+  var hash = stored.slice(sep + 1);
+  return hashWithSalt_(pin, salt) === hash;
 }
 
 function getOrCreatePepper_() {
@@ -177,11 +199,11 @@ function changeMyPin_(session, currentPin, newPin) {
   if (rowIndex < 0) throw new Error('Không tìm thấy tài khoản.');
 
   var user = rowToObject_(table.headers, table.rows[rowIndex]);
-  if (hashPin_(user.id, currentPin) !== String(user.pin_hash)) {
+  if (!verifyPin_(currentPin, user.pin_hash)) {
     throw new Error('PIN hiện tại không đúng.');
   }
 
-  writeRowPatch_(SHEETS.USERS, table, rowIndex, { pin_hash: hashPin_(user.id, newPin) });
+  writeRowPatch_(SHEETS.USERS, table, rowIndex, { pin_hash: makePinRecord_(newPin) });
   logAuth_(session.userId, 'pin_changed', 'tự đổi');
   return { message: 'Đã đổi PIN thành công.' };
 }
@@ -195,7 +217,7 @@ function setUserPin_(session, userId, newPin) {
   if (rowIndex < 0) throw new Error('Không tìm thấy người dùng: ' + userId);
 
   writeRowPatch_(SHEETS.USERS, table, rowIndex, {
-    pin_hash: hashPin_(userId, newPin),
+    pin_hash: makePinRecord_(newPin),
     failed_attempts: 0,
     locked_until: ''
   });

@@ -37,9 +37,10 @@ export default function Products() {
   }, [loadData]);
 
   const filteredProducts = products.filter(p => {
-    const matchSearch = search === '' || 
-      p.sku_code.toLowerCase().includes(search.toLowerCase()) || 
-      p.name.toLowerCase().includes(search.toLowerCase());
+    const s = search.trim().toLowerCase();
+    const matchSearch = s === ''
+      || String(p.sku_code).toLowerCase().includes(s)
+      || String(p.name).toLowerCase().includes(s);
     const matchGroup = selectedGroup === 'ALL' || p.product_group_code === selectedGroup;
     const matchBU = selectedBU === 'ALL' || p.default_channel === selectedBU;
     return matchSearch && matchGroup && matchBU;

@@ -6,16 +6,16 @@
  * app đọc mock trong localStorage như bản cũ.
  *
  * Dùng cờ dòng lệnh (chạy giống nhau trên PowerShell, cmd.exe, bash):
- *   node tools/seed-products.mjs --user u-admin-1 --pin 123456
- *   node tools/seed-products.mjs --user u-admin-1 --pin 123456 --file ./danh-muc.json
+ *   node tools/seed-products.mjs --user admin --pin 123456
+ *   node tools/seed-products.mjs --user admin --pin 123456 --file ./danh-muc.json
  *
  * Bỏ qua --pin để được hỏi nhập ẩn (khuyên dùng — PIN không lưu vào lịch
  * sử lệnh của shell):
- *   node tools/seed-products.mjs --user u-admin-1
+ *   node tools/seed-products.mjs --user admin
  *
  * Cũng nhận qua biến môi trường GAS_USER / GAS_PIN nếu không truyền cờ
  * (cú pháp `VAR=value lệnh` chỉ chạy trên bash — trên PowerShell dùng:
- *   $env:GAS_USER='u-admin-1'; $env:GAS_PIN='123456'; npm run seed:products).
+ *   $env:GAS_USER='admin'; $env:GAS_PIN='123456'; npm run seed:products).
  *
  * GAS_URL (tuỳ chọn): URL Web App, mặc định lấy từ client/src/services/gasClient.js
  */
@@ -119,8 +119,8 @@ const user = flagValue('--user') || process.env.GAS_USER;
 if (!user) {
   console.error(
     '✖ Thiếu mã người dùng.\n' +
-    '  Ví dụ: node tools/seed-products.mjs --user u-admin-1\n' +
-    "  (PowerShell: $env:GAS_USER='u-admin-1'; $env:GAS_PIN='123456'; npm run seed:products)"
+    '  Ví dụ: node tools/seed-products.mjs --user admin\n' +
+    "  (PowerShell: $env:GAS_USER='admin'; $env:GAS_PIN='123456'; npm run seed:products)"
   );
   process.exit(1);
 }

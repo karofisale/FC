@@ -66,6 +66,6 @@ if (!deploymentId || deploymentId.startsWith('DÁN_')) {
 
 const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
 console.log(`→ Cập nhật bản triển khai ${deploymentId}...`);
-run(['deploy', '-i', deploymentId, '-d', `${description || 'FC App'} — ${stamp}`]);
+run(['deploy', '-i', deploymentId, '-d', `${description || 'FC App'} - ${stamp}`]);
 
 console.log('\n✔ Xong. URL /exec giữ nguyên, người dùng chỉ cần tải lại trang.\n');

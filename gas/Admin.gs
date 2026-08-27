@@ -10,7 +10,13 @@
 
 /**
  * Chạy 1 lần sau khi dán file: tạo đủ sheet, header và dữ liệu danh mục.
- * Không tạo PIN — PIN đặt riêng bằng adminSetPin().
+ * Không tạo PIN — PIN đặt riêng bằng adminSetPin() hoặc bulkSetInitialPins().
+ *
+ * An toàn khi chạy lại nhiều lần: BusinessUnits/Regions/ProductGroups luôn
+ * được đồng bộ lại theo danh mục chuẩn bên dưới, NHƯNG sheet Users chỉ
+ * được gieo dữ liệu mẫu ở LẦN ĐẦU (khi còn trống) — nếu bạn đã tự đổi id,
+ * vai trò hay đơn vị của người dùng trực tiếp trên Sheet, chạy lại hàm
+ * này sẽ KHÔNG ghi đè những thay đổi đó.
  */
 function setupDatabase() {
   getOrCreatePepper_();
@@ -51,25 +57,32 @@ function setupDatabase() {
     { code: 'KHAC', name: 'Linh kiện / Khác' }
   ]);
 
-  upsertRows_(SHEETS.USERS, ['id'], [
-    { id: 'u-admin-1', full_name: 'Admin Hệ Thống', email: 'admin@karofi.com', role: 'central_admin', business_unit_code: '', is_active: 1, failed_attempts: 0 },
-    { id: 'u-gt2-ed', full_name: 'Editor GT2', email: 'editor.gt2@karofi.com', role: 'bu_editor', business_unit_code: 'GT2', is_active: 1, failed_attempts: 0 },
-    { id: 'u-gt2-ap', full_name: 'Approver GT2', email: 'approver.gt2@karofi.com', role: 'bu_approver', business_unit_code: 'GT2', is_active: 1, failed_attempts: 0 },
-    { id: 'u-xk-ed', full_name: 'Editor Xuất khẩu', email: 'editor.xk@karofi.com', role: 'bu_editor', business_unit_code: 'XK', is_active: 1, failed_attempts: 0 },
-    { id: 'u-xk-ap', full_name: 'Approver Xuất khẩu', email: 'approver.xk@karofi.com', role: 'bu_approver', business_unit_code: 'XK', is_active: 1, failed_attempts: 0 },
-    { id: 'u-oem-ed', full_name: 'Editor OEM', email: 'editor.oem@karofi.com', role: 'bu_editor', business_unit_code: 'OEM', is_active: 1, failed_attempts: 0 },
-    { id: 'u-online-ed', full_name: 'Editor Online', email: 'editor.online@karofi.com', role: 'bu_editor', business_unit_code: 'Online', is_active: 1, failed_attempts: 0 },
-    { id: 'u-viewer-1', full_name: 'Người xem Báo cáo', email: 'viewer@karofi.com', role: 'viewer', business_unit_code: '', is_active: 1, failed_attempts: 0 }
-  ]);
+  var usersSheet = getOrCreateSheet_(SHEETS.USERS);
+  if (usersSheet.getLastRow() <= 1) {
+    upsertRows_(SHEETS.USERS, ['id'], [
+      { id: 'admin', full_name: 'Admin Hệ Thống', email: 'admin@karofi.com', role: 'central_admin', business_unit_code: '', is_active: 1, failed_attempts: 0 },
+      { id: 'gt2', full_name: 'Editor GT2', email: 'editor.gt2@karofi.com', role: 'bu_editor', business_unit_code: 'GT2', is_active: 1, failed_attempts: 0 },
+      { id: 'gt2admin', full_name: 'Approver GT2', email: 'approver.gt2@karofi.com', role: 'bu_approver', business_unit_code: 'GT2', is_active: 1, failed_attempts: 0 },
+      { id: 'export', full_name: 'Editor Xuất khẩu', email: 'editor.xk@karofi.com', role: 'bu_editor', business_unit_code: 'XK', is_active: 1, failed_attempts: 0 },
+      { id: 'exportadmin', full_name: 'Approver Xuất khẩu', email: 'approver.xk@karofi.com', role: 'bu_approver', business_unit_code: 'XK', is_active: 1, failed_attempts: 0 },
+      { id: 'oem', full_name: 'Editor OEM', email: 'editor.oem@karofi.com', role: 'bu_editor', business_unit_code: 'OEM', is_active: 1, failed_attempts: 0 },
+      { id: 'oemadmin', full_name: 'Approver OEM', email: 'approver.oem@karofi.com', role: 'bu_approver', business_unit_code: 'OEM', is_active: 1, failed_attempts: 0 },
+      { id: 'viewer', full_name: 'Người xem Báo cáo', email: 'viewer@karofi.com', role: 'viewer', business_unit_code: '', is_active: 1, failed_attempts: 0 }
+    ]);
+  } else {
+    Logger.log('Sheet Users đã có dữ liệu — bỏ qua gieo tài khoản mẫu để không ghi đè tuỳ chỉnh hiện tại.');
+  }
 
-  Logger.log('Đã khởi tạo xong. Bước tiếp theo: adminSetPin("u-gt2-ed", "246810") cho từng tài khoản.');
+  Logger.log('Đã khởi tạo xong. Bước tiếp theo: adminSetPin("gt2", "246810") cho từng tài khoản.');
   return 'OK';
 }
 
 /**
  * Đặt / đổi PIN cho một tài khoản. Chạy trực tiếp trong editor:
- *   adminSetPin('u-gt2-ed', '246810')
- * PIN không được lưu dạng thô ở bất kỳ đâu.
+ *   adminSetPin('gt2', '246810')
+ * PIN không được lưu dạng thô ở bất kỳ đâu. Hash không phụ thuộc vào
+ * userId (xem hashWithSalt_ ở Auth.gs), nên sau này đổi id trong Sheet
+ * không làm hỏng PIN đã đặt.
  */
 function adminSetPin(userId, pin) {
   validatePinFormat_(pin);
@@ -77,7 +90,7 @@ function adminSetPin(userId, pin) {
   var i = findRowIndex_(t, 'id', userId);
   if (i < 0) throw new Error('Không tìm thấy người dùng: ' + userId);
   writeRowPatch_(SHEETS.USERS, t, i, {
-    pin_hash: hashPin_(userId, pin),
+    pin_hash: makePinRecord_(pin),
     failed_attempts: 0,
     locked_until: ''
   });
@@ -96,14 +109,14 @@ function adminSetPin(userId, pin) {
  */
 function bulkSetInitialPins() {
   var pins = {
-    'u-admin-1':   '000000',   // Admin Hệ Thống — ĐỔI GIÁ TRỊ TRƯỚC KHI CHẠY
-    'u-gt2-ed':    '000000',   // Editor GT2
-    'u-gt2-ap':    '000000',   // Approver GT2
-    'u-xk-ed':     '000000',   // Editor Xuất khẩu
-    'u-xk-ap':     '000000',   // Approver Xuất khẩu
-    'u-oem-ed':    '000000',   // Editor OEM
-    'u-online-ed': '000000',   // Editor Online
-    'u-viewer-1':  '000000'    // Người xem báo cáo
+    'admin':       '000000',   // Admin Hệ Thống — ĐỔI GIÁ TRỊ TRƯỚC KHI CHẠY
+    'gt2':         '000000',   // Editor GT2
+    'gt2admin':    '000000',   // Approver GT2
+    'export':      '000000',   // Editor Xuất khẩu
+    'exportadmin': '000000',   // Approver Xuất khẩu
+    'oem':         '000000',   // Editor OEM
+    'oemadmin':    '000000',   // Approver OEM
+    'viewer':      '000000'    // Người xem báo cáo
   };
 
   Object.keys(pins).forEach(function (userId) {
