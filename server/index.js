@@ -1,3 +1,11 @@
+/**
+ * ⚠️  BACKEND CŨ — KHÔNG CÒN ĐƯỢC APP SỬ DỤNG.
+ *
+ * Từ v3.0, client chỉ nói chuyện với backend Apps Script trong thư mục gas/
+ * (có xác thực PIN và phân quyền). File Express này giữ lại để tham chiếu
+ * mô hình dữ liệu, KHÔNG có xác thực, và không được deploy ra ngoài.
+ * Chạy bằng: npm run legacy:server
+ */
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -37,6 +45,11 @@ if (require('fs').existsSync(clientBuildPath)) {
   });
 }
 
-app.listen(PORT, () => {
+
+console.warn('
+[CẢNH BÁO] Đây là backend cũ không có xác thực. Chỉ dùng cục bộ để tham chiếu, không mở ra Internet.
+');
+
+app.listen(PORT, '127.0.0.1', () => {
   console.log(`Karofi Sales Forecast Backend API running at http://localhost:${PORT}`);
 });

@@ -1,37 +1,47 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../services/api';
 import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell 
 } from 'recharts';
-import { Package, TrendingUp, Layers, CheckCircle } from 'lucide-react';
+import { Package, TrendingUp, Layers, AlertCircle } from 'lucide-react';
+import { monthsOfCycle, monthLabel } from '../utils/period';
 
 const COLORS = ['#0284c7', '#0d9488', '#f59e0b', '#8b5cf6', '#ec4899', '#64748b'];
 
 export default function Dashboard({ currentBU }) {
   const [b0Summary, setB0Summary] = useState([]);
   const [productsCount, setProductsCount] = useState(0);
-  const [activeTab, setActiveTab] = useState('b0');
+  const [cycle, setCycle] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  useEffect(() => {
-    loadData();
-  }, [currentBU]);
-
-  const loadData = async () => {
+  // Chu kỳ và mốc tháng lấy từ dữ liệu thật, không gán cứng như bản cũ
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      const [b0Data, prods] = await Promise.all([
-        api.getB0Summary('2026-07-01'),
-        api.getProducts()
+      const [cycles, prods] = await Promise.all([
+        api.getCycles({ bu: currentBU }),
+        api.getProducts({ bu: currentBU })
       ]);
-      setB0Summary(b0Data);
       setProductsCount(prods.length);
+
+      const latest = cycles[0] || null;
+      setCycle(latest);
+      setB0Summary(latest ? await api.getB0Summary(latest.base_month, currentBU) : []);
     } catch (err) {
-      console.error('Failed to load dashboard data:', err);
+      setError(err.message);
+      setB0Summary([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentBU]);
+
+  useEffect(() => {
+    if (currentBU) loadData();
+  }, [currentBU, loadData]);
+
+  const cycleMonths = monthsOfCycle(cycle);
 
   // Group by BU for chart
   const buTotals = b0Summary.reduce((acc, item) => {
@@ -63,6 +73,13 @@ export default function Dashboard({ currentBU }) {
 
   return (
     <div className="space-y-6">
+
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg p-3 flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
       
       {/* Top Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -90,8 +107,14 @@ export default function Dashboard({ currentBU }) {
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Chu kỳ Forecast</p>
-            <h3 className="text-2xl font-bold text-slate-900 mt-1">T07/2026</h3>
-            <p className="text-[11px] text-slate-500">Khung 4 tháng: T7 - T10</p>
+            <h3 className="text-2xl font-bold text-slate-900 mt-1">
+              {cycle ? monthLabel(cycle.base_month) : '—'}
+            </h3>
+            <p className="text-[11px] text-slate-500">
+              {cycleMonths.length
+                ? `Khung ${cycleMonths.length} tháng: ${monthLabel(cycleMonths[0])} → ${monthLabel(cycleMonths[cycleMonths.length - 1])}`
+                : `Chưa có chu kỳ cho ${currentBU}`}
+            </p>
           </div>
           <div className="p-3 bg-purple-50 text-purple-600 rounded-xl">
             <Layers className="w-6 h-6" />
@@ -100,14 +123,16 @@ export default function Dashboard({ currentBU }) {
 
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Trạng thái hệ thống</p>
-            <h3 className="text-lg font-bold text-emerald-600 mt-1 flex items-center gap-1">
-              <CheckCircle className="w-5 h-5" /> Sẵn sàng
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Trạng thái chu kỳ</p>
+            <h3 className="text-lg font-bold text-slate-900 mt-1">
+              {cycle ? cycle.status : '—'}
             </h3>
-            <p className="text-[11px] text-slate-500">Dữ liệu đồng bộ realtime</p>
+            <p className="text-[11px] text-slate-500">
+              {loading ? 'Đang tải...' : `${b0Summary.length} dòng tổng hợp`}
+            </p>
           </div>
           <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
-            <CheckCircle className="w-6 h-6" />
+            <Layers className="w-6 h-6" />
           </div>
         </div>
 

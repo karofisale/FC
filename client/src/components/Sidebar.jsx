@@ -6,7 +6,6 @@ import {
   CheckCircle2, 
   Package, 
   HelpCircle,
-  TrendingUp,
   FileSpreadsheet
 } from 'lucide-react';
 

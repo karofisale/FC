@@ -1,43 +1,49 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
 import StatusBadge from '../components/StatusBadge';
-import { CheckCircle2, XCircle, MessageSquare, Clock, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, XCircle, MessageSquare, Clock, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
 
-export default function Approvals({ currentBU, currentUser }) {
+export default function Approvals({ currentBU, user, onCountChange }) {
   const [approvals, setApprovals] = useState([]);
   const [selectedApproval, setSelectedApproval] = useState(null);
   const [comment, setComment] = useState('');
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState(null);
 
-  useEffect(() => {
-    loadApprovals();
-  }, [currentBU]);
+  // Chỉ người thẩm định của đơn vị (hoặc quản trị) mới thấy nút quyết định
+  const canApprove = user?.role === 'bu_approver' || user?.role === 'central_admin';
 
-  const loadApprovals = async () => {
+  const loadApprovals = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      const list = await api.getApprovals();
+      const list = await api.getApprovals({ bu: currentBU });
       setApprovals(list);
-      if (list.length > 0) {
-        setSelectedApproval(list[0]);
-      }
+      setSelectedApproval((prev) => list.find((a) => a.id === prev?.id) || list[0] || null);
+      onCountChange?.(list.filter((a) => a.status === 'pending').length);
     } catch (err) {
-      console.error(err);
+      setError(err.message);
+      setApprovals([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentBU, onCountChange]);
+
+  useEffect(() => {
+    if (currentBU) loadApprovals();
+  }, [currentBU, loadApprovals]);
 
   const handleDecision = async (decision) => {
     if (!selectedApproval) return;
+    setProcessing(true);
+    setError(null);
     try {
-      setProcessing(true);
-      await api.decideApproval(selectedApproval.id, decision, comment, currentUser ? currentUser.id : null);
+      await api.decideApproval(selectedApproval.id, decision, comment);
       setComment('');
-      loadApprovals();
+      await loadApprovals();
     } catch (err) {
-      alert(`Lỗi: ${err.message}`);
+      setError(err.message);
     } finally {
       setProcessing(false);
     }
@@ -58,6 +64,19 @@ export default function Approvals({ currentBU, currentUser }) {
           </p>
         </div>
       </div>
+
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg p-3 flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {loading && (
+        <div className="text-xs text-slate-400 flex items-center gap-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Đang tải danh sách yêu cầu...
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
@@ -123,6 +142,12 @@ export default function Approvals({ currentBU, currentUser }) {
                     <span className="font-mono text-slate-800">{new Date(selectedApproval.decided_at).toLocaleString('vi-VN')}</span>
                   </div>
                 )}
+                {selectedApproval.requested_by_name && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Người gửi duyệt:</span>
+                    <span className="font-semibold text-slate-800">{selectedApproval.requested_by_name}</span>
+                  </div>
+                )}
                 {selectedApproval.approver_name && (
                   <div className="flex justify-between">
                     <span className="text-slate-500">Người thẩm định:</span>
@@ -138,7 +163,14 @@ export default function Approvals({ currentBU, currentUser }) {
               </div>
 
               {/* Approver Action Panel */}
-              {selectedApproval.status === 'pending' && (
+              {selectedApproval.status === 'pending' && !canApprove && (
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-xs text-slate-600">
+                  Yêu cầu đang chờ cấp thẩm định của đơn vị xử lý. Vai trò
+                  <strong> {user?.role}</strong> của bạn chỉ được xem trạng thái.
+                </div>
+              )}
+
+              {selectedApproval.status === 'pending' && canApprove && (
                 <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 space-y-4">
                   <h4 className="text-xs font-bold uppercase text-blue-900 flex items-center gap-1.5">
                     <MessageSquare className="w-4 h-4 text-blue-600" />

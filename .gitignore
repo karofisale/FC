@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 client/node_modules/
+server/node_modules/
 
 # Production build
 client/dist/
@@ -20,3 +21,8 @@ npm-debug.log*
 .vscode/
 .idea/
 .DS_Store
+
+# Apps Script / clasp — cấu hình riêng từng máy, không commit
+gas/.clasp.json
+gas/deployment.json
+.clasprc.json

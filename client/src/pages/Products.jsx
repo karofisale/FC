@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../services/api';
-import { Package, Search, Filter } from 'lucide-react';
+import { Package, Search, Filter, AlertCircle } from 'lucide-react';
 
 export default function Products() {
   const [products, setProducts] = useState([]);
@@ -10,14 +10,12 @@ export default function Products() {
   const [selectedGroup, setSelectedGroup] = useState('ALL');
   const [selectedBU, setSelectedBU] = useState('ALL');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
       const [prods, grps, businessUnits] = await Promise.all([
         api.getProducts(),
         api.getGroups(),
@@ -27,11 +25,16 @@ export default function Products() {
       setGroups(grps);
       setBus(businessUnits);
     } catch (err) {
-      console.error(err);
+      setError(err.message);
+      setProducts([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const filteredProducts = products.filter(p => {
     const matchSearch = search === '' || 
@@ -53,10 +56,21 @@ export default function Products() {
             DANH MỤC SẢN PHẨM (SKU MASTER CATALOG)
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Nguồn danh mục chuẩn duy nhất cho toàn hệ thống Karofi Sales Forecast ({products.length} SKU).
+            Nguồn danh mục chuẩn duy nhất cho toàn hệ thống Karofi Sales Forecast
+            {loading ? ' — đang tải...' : ` (${products.length} SKU)`}.
           </p>
         </div>
       </div>
+
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg p-3 flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <span>{error}</span>
+            <button onClick={loadData} className="ml-2 underline font-semibold">Thử lại</button>
+          </div>
+        </div>
+      )}
 
       {/* Filter controls */}
       <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-3">
