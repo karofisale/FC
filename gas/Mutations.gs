@@ -370,3 +370,40 @@ function saveActuals_(session, rows) {
   var written = upsertRows_(SHEETS.ACTUALS, ['business_unit_code', 'sku_code', 'actual_month', 'region_code'], records);
   return { message: 'Đã lưu ' + written.total + ' dòng sản lượng thực hiện.', updated: written.updated, inserted: written.inserted };
 }
+
+/**
+ * Thêm một SKU mới vào danh mục Products — dùng khi sale đang nhập
+ * forecast mà phát hiện thiếu mã hàng, thêm ngay tại chỗ thay vì phải
+ * nhờ admin chạy importProducts_ (vốn chỉ dành cho central_admin và có
+ * thể xoá sạch danh mục nếu bật replace). Hàm này an toàn hơn: chỉ CHÈN
+ * MỘT dòng mới, không cho ghi đè SKU đã tồn tại — tránh việc một editor
+ * vô tình (hoặc cố ý) sửa dữ liệu sản phẩm của người khác qua đường này.
+ */
+function addProduct_(session, p) {
+  assertRole_(session, ['bu_editor', 'central_admin']);
+  if (!p) throw new Error('Thiếu dữ liệu sản phẩm.');
+
+  var skuCode = String(p.skuCode || '').trim();
+  if (!skuCode) throw new Error('Thiếu mã SKU.');
+  if (!p.name) throw new Error('Thiếu tên sản phẩm.');
+
+  var existing = findOne_(SHEETS.PRODUCTS, 'sku_code', skuCode);
+  if (existing) throw new Error('Mã SKU ' + skuCode + ' đã có trong danh mục — không ghi đè qua đường này.');
+
+  var record = {
+    sku_code: skuCode,
+    name: p.name,
+    short_name: p.shortName || '',
+    product_group_code: p.productGroupCode || '',
+    product_group_name: p.productGroupName || '',
+    technology: p.technology || '',
+    default_channel: p.defaultChannel || '',
+    avg_price: Number(p.avgPrice) || 0,
+    is_active: 1
+  };
+
+  appendObjects_(SHEETS.PRODUCTS, [record]);
+  logAuth_(session.userId, 'product_added', skuCode + ' (' + record.name + ')');
+
+  return { message: 'Đã thêm SKU ' + skuCode + ' vào danh mục.', product: record };
+}

@@ -125,6 +125,7 @@ function dispatch_(action, p, session) {
     case 'changeMyPin':      return changeMyPin_(session, p.currentPin, p.newPin);
     case 'setUserPin':       return setUserPin_(session, p.userId, p.newPin);
     case 'importProducts':   return importProducts_(session, p.products, p.replace);
+    case 'addProduct':       return addProduct_(session, p.product);
     case 'saveActuals':      return saveActuals_(session, p.rows);
   }
   throw new Error('Action chưa được cài đặt: ' + action);

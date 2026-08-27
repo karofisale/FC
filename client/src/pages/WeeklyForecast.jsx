@@ -3,9 +3,11 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { api } from '../services/api';
 import CycleBar from '../components/CycleBar';
 import ValidationAlert from '../components/ValidationAlert';
-import { Save, Send, Search, CheckCircle2, AlertCircle, Loader2, Wand2 } from 'lucide-react';
+import AddProductModal from '../components/AddProductModal';
+import { Save, Send, Search, CheckCircle2, AlertCircle, Loader2, Wand2, ArrowDownToLine, PackagePlus } from 'lucide-react';
 import { monthsOfCycle, weeksOfMonth, weekLabel, monthLabel, normalizeMonth } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
+import { useGridEditing, parsePastedNumber } from '../utils/useGridEditing';
 
 // Bảng này nặng nhất trong app — kênh XK 756 SKU × (số tuần × số miền)
 // ô input, có thể tới ~6000 ô nếu render hết cùng lúc. Chỉ dựng DOM cho
@@ -19,6 +21,9 @@ export default function WeeklyForecast({ currentBU, user }) {
   const [selectedVersion, setSelectedVersion] = useState(null);
   const [products, setProducts] = useState([]);
   const [regions, setRegions] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [bus, setBus] = useState([]);
+  const [showAddProduct, setShowAddProduct] = useState(false);
   const [monthlyMap, setMonthlyMap] = useState({});
   const [weeklyMap, setWeeklyMap] = useState({});
   const [dirtyKeys, setDirtyKeys] = useState(() => new Set());
@@ -83,15 +88,19 @@ export default function WeeklyForecast({ currentBU, user }) {
     setLoading(true);
     setMessage(null);
     try {
-      const [cycleList, productList, regionList] = await Promise.all([
+      const [cycleList, productList, regionList, groupList, buList] = await Promise.all([
         api.getCycles({ bu: currentBU }),
         api.getProducts({ bu: currentBU }),
-        api.getRegions()
+        api.getRegions(),
+        api.getGroups(),
+        api.getBUs()
       ]);
 
       setCycles(cycleList);
       setProducts(productList);
       setRegions(regionList);
+      setGroups(groupList);
+      setBus(buList);
 
       const cycle = cycleList.find((c) => c.id === preferCycleId) || cycleList[0] || null;
       setSelectedCycle(cycle);
@@ -150,6 +159,22 @@ export default function WeeklyForecast({ currentBU, user }) {
   const handleCellChange = (skuCode, week, region, value) => {
     const parsed = value === '' ? 0 : Number(value);
     setCell(`${skuCode}_${week}_${region}`, Number.isFinite(parsed) && parsed >= 0 ? parsed : 0);
+  };
+
+  /** Áp nhiều ô cùng lúc (dán khối từ Excel, fill-down, Ctrl+D) trong 1 lần cập nhật. */
+  const handleCellsChange = (updates) => {
+    setWeeklyMap((prev) => {
+      const next = { ...prev };
+      updates.forEach(({ rowKey, col, value }) => {
+        next[`${rowKey}_${col.week}_${col.region}`] = parsePastedNumber(value);
+      });
+      return next;
+    });
+    setDirtyKeys((prev) => {
+      const next = new Set(prev);
+      updates.forEach(({ rowKey, col }) => next.add(`${rowKey}_${col.week}_${col.region}`));
+      return next;
+    });
   };
 
   /** Rải đều số tháng 1 của một SKU ra các ô tuần × miền, phần dư dồn vào ô cuối. */
@@ -257,6 +282,18 @@ export default function WeeklyForecast({ currentBU, user }) {
   const topPad = virtualRows.length ? virtualRows[0].start : 0;
   const bottomPad = virtualRows.length ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
 
+  // Cột = từng tổ hợp (tuần, miền) theo đúng thứ tự hiển thị trái→phải
+  const weeklyColumns = weeks.flatMap((w) => regionCodes.map((r) => ({ week: w, region: r })));
+  const grid = useGridEditing({
+    columns: weeklyColumns,
+    rows: filteredProducts,
+    getRowKey: (p) => p.sku_code,
+    buildCellId: (sku, col) => `${sku}_${col.week}_${col.region}`,
+    getCellValue: (sku, col) => weeklyMap[`${sku}_${col.week}_${col.region}`] || 0,
+    onCellsChange: handleCellsChange,
+    scrollToRow: (idx) => rowVirtualizer.scrollToIndex(idx, { align: 'auto' })
+  });
+
   return (
     <div className="space-y-4">
 
@@ -320,8 +357,8 @@ export default function WeeklyForecast({ currentBU, user }) {
 
       <ValidationAlert validationResult={validationResult} />
 
-      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-        <div className="relative">
+      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
+        <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
@@ -331,7 +368,30 @@ export default function WeeklyForecast({ currentBU, user }) {
             className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-500"
           />
         </div>
+        {isEditor && (
+          <button
+            onClick={() => setShowAddProduct(true)}
+            className="flex items-center gap-1.5 border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
+          >
+            <PackagePlus className="w-3.5 h-3.5" />
+            Thêm SKU
+          </button>
+        )}
       </div>
+
+      {showAddProduct && (
+        <AddProductModal
+          groups={groups}
+          bus={bus}
+          defaultChannel={currentBU}
+          onClose={() => setShowAddProduct(false)}
+          onAdded={(product) => {
+            setProducts((prev) => [...prev, product]);
+            setShowAddProduct(false);
+            setMessage({ type: 'success', text: `Đã thêm SKU ${product.sku_code} vào danh mục.` });
+          }}
+        />
+      )}
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div ref={scrollParentRef} className="overflow-x-auto max-h-[600px]">
@@ -354,13 +414,23 @@ export default function WeeklyForecast({ currentBU, user }) {
                 <th rowSpan="2" className="py-2 px-3 text-right w-24">Lệch</th>
               </tr>
               <tr>
-                {weeks.map((w) =>
-                  regionCodes.map((r) => (
-                    <th key={`${w}-${r}`} className="py-1.5 px-2 border-r border-slate-700 text-right text-[10px] font-mono bg-slate-900/40">
-                      {r}
-                    </th>
-                  ))
-                )}
+                {weeklyColumns.map((col, colIdx) => (
+                  <th key={`${col.week}-${col.region}`} className="py-1.5 px-2 border-r border-slate-700 text-right text-[10px] font-mono bg-slate-900/40">
+                    <div className="flex items-center justify-end gap-1">
+                      {col.region}
+                      {canWrite && (
+                        <button
+                          type="button"
+                          onClick={() => grid.fillColumnDown(colIdx)}
+                          title="Điền giá trị dòng đầu xuống toàn bộ cột này"
+                          className="p-0.5 rounded hover:bg-slate-700"
+                        >
+                          <ArrowDownToLine className="w-2.5 h-2.5" />
+                        </button>
+                      )}
+                    </div>
+                  </th>
+                ))}
               </tr>
             </thead>
 
@@ -413,29 +483,30 @@ export default function WeeklyForecast({ currentBU, user }) {
                         {monthQty.toLocaleString('vi-VN')}
                       </td>
 
-                      {weeks.map((w) =>
-                        regionCodes.map((r) => {
-                          const key = `${p.sku_code}_${w}_${r}`;
-                          const isDirty = dirtyKeys.has(key);
-                          return (
-                            <td key={key} className="p-1 border-r border-slate-200 text-right">
-                              <input
-                                type="number"
-                                min="0"
-                                step="1"
-                                disabled={!canWrite}
-                                value={weeklyMap[key] ?? 0}
-                                onChange={(e) => handleCellChange(p.sku_code, w, r, e.target.value)}
-                                className={`w-16 text-right px-1.5 py-1 rounded font-semibold outline-none transition disabled:text-slate-500 disabled:cursor-not-allowed ${
-                                  isDirty
-                                    ? 'bg-amber-50 ring-1 ring-amber-300 text-amber-900'
-                                    : 'bg-transparent hover:bg-white focus:bg-white focus:ring-2 focus:ring-blue-500 text-slate-900'
-                                }`}
-                              />
-                            </td>
-                          );
-                        })
-                      )}
+                      {weeklyColumns.map((col, colIdx) => {
+                        const key = `${p.sku_code}_${col.week}_${col.region}`;
+                        const isDirty = dirtyKeys.has(key);
+                        return (
+                          <td key={key} className="p-1 border-r border-slate-200 text-right">
+                            <input
+                              ref={grid.registerRef(key)}
+                              type="number"
+                              min="0"
+                              step="1"
+                              disabled={!canWrite}
+                              value={weeklyMap[key] ?? 0}
+                              onChange={(e) => handleCellChange(p.sku_code, col.week, col.region, e.target.value)}
+                              onKeyDown={(e) => canWrite && grid.handleKeyDown(e, vRow.index, colIdx)}
+                              onPaste={(e) => canWrite && grid.handlePaste(e, vRow.index, colIdx)}
+                              className={`w-16 text-right px-1.5 py-1 rounded font-semibold outline-none transition disabled:text-slate-500 disabled:cursor-not-allowed ${
+                                isDirty
+                                  ? 'bg-amber-50 ring-1 ring-amber-300 text-amber-900'
+                                  : 'bg-transparent hover:bg-white focus:bg-white focus:ring-2 focus:ring-blue-500 text-slate-900'
+                              }`}
+                            />
+                          </td>
+                        );
+                      })}
 
                       <td className="py-2 px-3 border-r border-slate-200 text-right font-bold text-slate-800 bg-slate-50">
                         {weekSum.toLocaleString('vi-VN')}

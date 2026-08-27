@@ -2,9 +2,11 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { api } from '../services/api';
 import CycleBar from '../components/CycleBar';
-import { Save, Send, Search, Filter, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
+import AddProductModal from '../components/AddProductModal';
+import { Save, Send, Search, Filter, AlertCircle, CheckCircle2, Loader2, ArrowDownToLine, PackagePlus } from 'lucide-react';
 import { monthsOfCycle, monthLabel } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
+import { useGridEditing, parsePastedNumber } from '../utils/useGridEditing';
 
 // Chỉ dựng DOM cho các dòng đang lọt vào khung nhìn — kênh XK có 756 SKU,
 // render đủ cả 756 dòng × N ô input cùng lúc từng làm giật khi gõ/cuộn.
@@ -17,6 +19,7 @@ export default function MonthlyForecast({ currentBU, user }) {
   const [selectedVersion, setSelectedVersion] = useState(null);
   const [products, setProducts] = useState([]);
   const [groups, setGroups] = useState([]);
+  const [bus, setBus] = useState([]);
   const [forecastMap, setForecastMap] = useState({});
   const [dirtyKeys, setDirtyKeys] = useState(() => new Set());
 
@@ -30,6 +33,7 @@ export default function MonthlyForecast({ currentBU, user }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
+  const [showAddProduct, setShowAddProduct] = useState(false);
 
   const months = monthsOfCycle(selectedCycle);
   const isEditor = user?.role === 'bu_editor' || user?.role === 'central_admin';
@@ -63,15 +67,17 @@ export default function MonthlyForecast({ currentBU, user }) {
     setLoading(true);
     setMessage(null);
     try {
-      const [cycleList, groupList, productList] = await Promise.all([
+      const [cycleList, groupList, productList, buList] = await Promise.all([
         api.getCycles({ bu: currentBU }),
         api.getGroups(),
-        api.getProducts({ bu: currentBU })
+        api.getProducts({ bu: currentBU }),
+        api.getBUs()
       ]);
 
       setCycles(cycleList);
       setGroups(groupList);
       setProducts(productList);
+      setBus(buList);
 
       const cycle = cycleList.find((c) => c.id === preferCycleId) || cycleList[0] || null;
       setSelectedCycle(cycle);
@@ -126,6 +132,22 @@ export default function MonthlyForecast({ currentBU, user }) {
     const qty = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
     setForecastMap((prev) => ({ ...prev, [key]: qty }));
     setDirtyKeys((prev) => new Set(prev).add(key));
+  };
+
+  /** Áp nhiều ô cùng lúc (dán khối từ Excel, fill-down, Ctrl+D) trong 1 lần cập nhật. */
+  const handleCellsChange = (updates) => {
+    setForecastMap((prev) => {
+      const next = { ...prev };
+      updates.forEach(({ rowKey, col, value }) => {
+        next[`${rowKey}_${col}`] = parsePastedNumber(value);
+      });
+      return next;
+    });
+    setDirtyKeys((prev) => {
+      const next = new Set(prev);
+      updates.forEach(({ rowKey, col }) => next.add(`${rowKey}_${col}`));
+      return next;
+    });
   };
 
   /** Chỉ gửi ô đã sửa. Ném lỗi ra ngoài để nút Gửi duyệt biết mà dừng lại. */
@@ -203,6 +225,16 @@ export default function MonthlyForecast({ currentBU, user }) {
   const virtualRows = rowVirtualizer.getVirtualItems();
   const topPad = virtualRows.length ? virtualRows[0].start : 0;
   const bottomPad = virtualRows.length ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
+
+  const grid = useGridEditing({
+    columns: months,
+    rows: filteredProducts,
+    getRowKey: (p) => p.sku_code,
+    buildCellId: (sku, month) => `${sku}_${month}`,
+    getCellValue: (sku, month) => forecastMap[`${sku}_${month}`] || 0,
+    onCellsChange: handleCellsChange,
+    scrollToRow: (idx) => rowVirtualizer.scrollToIndex(idx, { align: 'auto' })
+  });
 
   return (
     <div className="space-y-4">
@@ -296,8 +328,31 @@ export default function MonthlyForecast({ currentBU, user }) {
               <option key={g.code} value={g.code}>{g.name}</option>
             ))}
           </select>
+          {isEditor && (
+            <button
+              onClick={() => setShowAddProduct(true)}
+              className="flex items-center gap-1.5 border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
+            >
+              <PackagePlus className="w-3.5 h-3.5" />
+              Thêm SKU
+            </button>
+          )}
         </div>
       </div>
+
+      {showAddProduct && (
+        <AddProductModal
+          groups={groups}
+          bus={bus}
+          defaultChannel={currentBU}
+          onClose={() => setShowAddProduct(false)}
+          onAdded={(product) => {
+            setProducts((prev) => [...prev, product]);
+            setShowAddProduct(false);
+            setMessage({ type: 'success', text: `Đã thêm SKU ${product.sku_code} vào danh mục.` });
+          }}
+        />
+      )}
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div ref={scrollParentRef} className="overflow-x-auto max-h-[600px]">
@@ -307,9 +362,21 @@ export default function MonthlyForecast({ currentBU, user }) {
                 <th className="py-2.5 px-3 border-r border-slate-700 w-28">Mã SKU</th>
                 <th className="py-2.5 px-3 border-r border-slate-700 min-w-[200px]">Tên sản phẩm</th>
                 <th className="py-2.5 px-3 border-r border-slate-700 w-28">Nhóm SP</th>
-                {months.map((m) => (
+                {months.map((m, colIdx) => (
                   <th key={m} className="py-2.5 px-3 border-r border-slate-700 text-right w-28 bg-blue-900/60">
-                    {monthLabel(m)}
+                    <div className="flex items-center justify-end gap-1.5">
+                      {monthLabel(m)}
+                      {canWrite && (
+                        <button
+                          type="button"
+                          onClick={() => grid.fillColumnDown(colIdx)}
+                          title="Điền giá trị dòng đầu xuống toàn bộ cột này"
+                          className="p-0.5 rounded hover:bg-blue-800/60"
+                        >
+                          <ArrowDownToLine className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
                   </th>
                 ))}
                 <th className="py-2.5 px-3 text-right w-32 bg-cyan-900/60">TỔNG CHU KỲ</th>
@@ -348,18 +415,21 @@ export default function MonthlyForecast({ currentBU, user }) {
                           {p.product_group_name || p.product_group_code}
                         </td>
 
-                        {months.map((m) => {
+                        {months.map((m, colIdx) => {
                           const key = `${p.sku_code}_${m}`;
                           const isDirty = dirtyKeys.has(key);
                           return (
                             <td key={m} className="p-1 border-r border-slate-200 text-right">
                               <input
+                                ref={grid.registerRef(key)}
                                 type="number"
                                 min="0"
                                 step="1"
                                 disabled={!canWrite}
                                 value={forecastMap[key] ?? 0}
                                 onChange={(e) => handleCellChange(p.sku_code, m, e.target.value)}
+                                onKeyDown={(e) => canWrite && grid.handleKeyDown(e, vRow.index, colIdx)}
+                                onPaste={(e) => canWrite && grid.handlePaste(e, vRow.index, colIdx)}
                                 className={`w-full text-right px-2 py-1 rounded font-semibold outline-none transition disabled:text-slate-500 disabled:cursor-not-allowed ${
                                   isDirty
                                     ? 'bg-amber-50 ring-1 ring-amber-300 text-amber-900'

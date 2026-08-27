@@ -34,6 +34,7 @@ export const api = {
   getRegions: async () => (await bootstrap()).regions || [],
   getGroups: async () => (await bootstrap()).productGroups || [],
   getProducts: (params = {}) => callGAS('getProducts', auth(params)),
+  addProduct: (product) => callGAS('addProduct', auth({ product })),
 
   // ----- chu kỳ & version -----
   getCycles: (params = {}) => callGAS('getCycles', auth(params)),
