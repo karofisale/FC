@@ -16,9 +16,20 @@ import { onUnauthorized, onRetry } from './services/gasClient';
 import { confirmNavigateAway, isDirty } from './services/dirtyState';
 import { AlertCircle, LogIn } from 'lucide-react';
 
+// Đồng bộ tab đang xem với #hash trên URL — không kéo theo thư viện
+// router nào (8 tài khoản nội bộ không cần route lồng nhau/URL param),
+// chỉ để nút Back của trình duyệt hoạt động và có thể chia sẻ/bookmark
+// thẳng vào một tab thay vì luôn rơi về Dashboard.
+const VALID_TABS = ['dashboard', 'monthly', 'weekly', 'approvals', 'actuals', 'products', 'guide'];
+
+function tabFromHash() {
+  const tab = window.location.hash.replace('#', '');
+  return VALID_TABS.includes(tab) ? tab : 'dashboard';
+}
+
 export default function App() {
   const [session, setSession] = useState(getSession());
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(tabFromHash);
   const [bus, setBus] = useState([]);
   const [currentBU, setCurrentBU] = useState('');
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
@@ -61,6 +72,30 @@ export default function App() {
   useEffect(() => {
     if (!loading) setRetryNotice(null);
   }, [loading]);
+
+  // Đẩy tab đang xem lên #hash để bookmark/chia sẻ được và nút Back hoạt động.
+  useEffect(() => {
+    if (window.location.hash.replace('#', '') !== activeTab) {
+      window.location.hash = activeTab;
+    }
+  }, [activeTab]);
+
+  // Bấm Back/Forward đổi #hash — đồng bộ ngược lại activeTab. Nếu đang
+  // có ô chưa lưu và người dùng huỷ xác nhận, đẩy hash trở lại tab hiện
+  // tại để URL không lệch khỏi những gì đang thực sự hiển thị.
+  useEffect(() => {
+    const handler = () => {
+      const nextTab = tabFromHash();
+      if (nextTab === activeTab) return;
+      if (confirmNavigateAway()) {
+        setActiveTab(nextTab);
+      } else {
+        window.location.hash = activeTab;
+      }
+    };
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, [activeTab]);
 
   const loadInitialData = useCallback(async () => {
     setLoading(true);

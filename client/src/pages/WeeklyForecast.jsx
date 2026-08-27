@@ -1,10 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { api } from '../services/api';
 import CycleBar from '../components/CycleBar';
 import ValidationAlert from '../components/ValidationAlert';
 import { Save, Send, Search, CheckCircle2, AlertCircle, Loader2, Wand2 } from 'lucide-react';
 import { monthsOfCycle, weeksOfMonth, weekLabel, monthLabel, normalizeMonth } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
+
+// Bảng này nặng nhất trong app — kênh XK 756 SKU × (số tuần × số miền)
+// ô input, có thể tới ~6000 ô nếu render hết cùng lúc. Chỉ dựng DOM cho
+// dòng đang lọt khung nhìn.
+const ROW_HEIGHT_PX = 37;
 
 export default function WeeklyForecast({ currentBU, user }) {
   const [cycles, setCycles] = useState([]);
@@ -240,6 +246,17 @@ export default function WeeklyForecast({ currentBU, user }) {
 
   const columnCount = 3 + weeks.length * regionCodes.length + 2;
 
+  const scrollParentRef = useRef(null);
+  const rowVirtualizer = useVirtualizer({
+    count: filteredProducts.length,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: () => ROW_HEIGHT_PX,
+    overscan: 12
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const topPad = virtualRows.length ? virtualRows[0].start : 0;
+  const bottomPad = virtualRows.length ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
+
   return (
     <div className="space-y-4">
 
@@ -317,7 +334,7 @@ export default function WeeklyForecast({ currentBU, user }) {
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto max-h-[600px]">
+        <div ref={scrollParentRef} className="overflow-x-auto max-h-[600px]">
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-800 text-white font-semibold sticky top-0 z-20">
               <tr>
@@ -367,7 +384,10 @@ export default function WeeklyForecast({ currentBU, user }) {
                   </td>
                 </tr>
               ) : (
-                filteredProducts.map((p) => {
+                <>
+                  {topPad > 0 && <tr style={{ height: topPad }} aria-hidden="true" />}
+                  {virtualRows.map((vRow) => {
+                  const p = filteredProducts[vRow.index];
                   const monthQty = monthlyMap[p.sku_code] || 0;
                   const weekSum = getSkuWeeklySum(p.sku_code);
                   const diff = weekSum - monthQty;
@@ -427,7 +447,9 @@ export default function WeeklyForecast({ currentBU, user }) {
                       </td>
                     </tr>
                   );
-                })
+                  })}
+                  {bottomPad > 0 && <tr style={{ height: bottomPad }} aria-hidden="true" />}
+                </>
               )}
             </tbody>
           </table>

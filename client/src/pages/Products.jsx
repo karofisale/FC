@@ -1,6 +1,9 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { api } from '../services/api';
 import { Package, Search, Filter, AlertCircle } from 'lucide-react';
+
+const ROW_HEIGHT_PX = 39;
 
 export default function Products() {
   const [products, setProducts] = useState([]);
@@ -45,6 +48,17 @@ export default function Products() {
     const matchBU = selectedBU === 'ALL' || p.default_channel === selectedBU;
     return matchSearch && matchGroup && matchBU;
   });
+
+  const scrollParentRef = useRef(null);
+  const rowVirtualizer = useVirtualizer({
+    count: filteredProducts.length,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: () => ROW_HEIGHT_PX,
+    overscan: 12
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const topPad = virtualRows.length ? virtualRows[0].start : 0;
+  const bottomPad = virtualRows.length ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
 
   return (
     <div className="space-y-4">
@@ -114,7 +128,7 @@ export default function Products() {
 
       {/* Products Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto max-h-[600px]">
+        <div ref={scrollParentRef} className="overflow-x-auto max-h-[600px]">
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-800 text-white font-semibold sticky top-0 z-20">
               <tr>
@@ -128,19 +142,30 @@ export default function Products() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 font-mono">
-              {filteredProducts.map(p => (
-                <tr key={p.sku_code} className="hover:bg-slate-50">
-                  <td className="py-2.5 px-4 font-bold text-blue-900">{p.sku_code}</td>
-                  <td className="py-2.5 px-4 font-sans font-medium text-slate-900">{p.name}</td>
-                  <td className="py-2.5 px-4 font-sans text-slate-600">{p.short_name || '-'}</td>
-                  <td className="py-2.5 px-4 font-sans text-slate-700">{p.product_group_name}</td>
-                  <td className="py-2.5 px-4 font-sans text-slate-500">{p.technology || '-'}</td>
-                  <td className="py-2.5 px-4 font-sans font-semibold text-slate-800">{p.default_channel || '-'}</td>
-                  <td className="py-2.5 px-4 text-right font-bold text-slate-900">
-                    {p.avg_price ? p.avg_price.toLocaleString('vi-VN') : '-'}
-                  </td>
-                </tr>
-              ))}
+              {filteredProducts.length === 0 ? (
+                <tr><td colSpan={7} className="py-8 text-center text-slate-400 font-sans">Không tìm thấy SKU phù hợp</td></tr>
+              ) : (
+                <>
+                  {topPad > 0 && <tr style={{ height: topPad }} aria-hidden="true" />}
+                  {virtualRows.map((vRow) => {
+                    const p = filteredProducts[vRow.index];
+                    return (
+                      <tr key={p.sku_code} className="hover:bg-slate-50">
+                        <td className="py-2.5 px-4 font-bold text-blue-900">{p.sku_code}</td>
+                        <td className="py-2.5 px-4 font-sans font-medium text-slate-900">{p.name}</td>
+                        <td className="py-2.5 px-4 font-sans text-slate-600">{p.short_name || '-'}</td>
+                        <td className="py-2.5 px-4 font-sans text-slate-700">{p.product_group_name}</td>
+                        <td className="py-2.5 px-4 font-sans text-slate-500">{p.technology || '-'}</td>
+                        <td className="py-2.5 px-4 font-sans font-semibold text-slate-800">{p.default_channel || '-'}</td>
+                        <td className="py-2.5 px-4 text-right font-bold text-slate-900">
+                          {p.avg_price ? p.avg_price.toLocaleString('vi-VN') : '-'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {bottomPad > 0 && <tr style={{ height: bottomPad }} aria-hidden="true" />}
+                </>
+              )}
             </tbody>
           </table>
         </div>

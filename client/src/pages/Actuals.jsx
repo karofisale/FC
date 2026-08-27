@@ -1,10 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { api } from '../services/api';
 import {
   Save, Search, AlertCircle, CheckCircle2, Loader2, TrendingUp, TrendingDown, Minus
 } from 'lucide-react';
 import { monthLabel } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
+
+const ROW_HEIGHT_PX = 37;
 
 function previousMonthISO() {
   const d = new Date();
@@ -126,6 +129,17 @@ export default function Actuals({ currentBU, user }) {
   });
 
   const getSkuTotal = (sku) => regionCodes.reduce((sum, r) => sum + (actualsMap[`${sku}_${r}`] || 0), 0);
+
+  const scrollParentRef = useRef(null);
+  const rowVirtualizer = useVirtualizer({
+    count: filteredProducts.length,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: () => ROW_HEIGHT_PX,
+    overscan: 12
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const topPad = virtualRows.length ? virtualRows[0].start : 0;
+  const bottomPad = virtualRows.length ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
 
   return (
     <div className="space-y-4">
@@ -260,7 +274,7 @@ export default function Actuals({ currentBU, user }) {
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto max-h-[600px]">
+        <div ref={scrollParentRef} className="overflow-x-auto max-h-[600px]">
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-800 text-white font-semibold sticky top-0 z-20">
               <tr>
@@ -278,36 +292,43 @@ export default function Actuals({ currentBU, user }) {
               ) : filteredProducts.length === 0 ? (
                 <tr><td colSpan={3 + regionCodes.length} className="py-8 text-center text-slate-400 font-sans">Không tìm thấy SKU phù hợp</td></tr>
               ) : (
-                filteredProducts.map((p) => (
-                  <tr key={p.sku_code} className="hover:bg-blue-50/50 transition">
-                    <td className="py-2 px-3 border-r border-slate-200 font-bold text-slate-800">{p.sku_code}</td>
-                    <td className="py-2 px-3 border-r border-slate-200 font-sans font-medium text-slate-900 truncate max-w-xs">{p.name}</td>
-                    {regionCodes.map((r) => {
-                      const key = `${p.sku_code}_${r}`;
-                      const isDirty = dirtyKeys.has(key);
-                      return (
-                        <td key={r} className="p-1 border-r border-slate-200 text-right">
-                          <input
-                            type="number"
-                            min="0"
-                            step="1"
-                            disabled={!isEditor}
-                            value={actualsMap[key] ?? 0}
-                            onChange={(e) => handleCellChange(p.sku_code, r, e.target.value)}
-                            className={`w-full text-right px-2 py-1 rounded font-semibold outline-none transition disabled:text-slate-500 disabled:cursor-not-allowed ${
-                              isDirty
-                                ? 'bg-amber-50 ring-1 ring-amber-300 text-amber-900'
-                                : 'bg-transparent hover:bg-white focus:bg-white focus:ring-2 focus:ring-blue-500 text-slate-900'
-                            }`}
-                          />
+                <>
+                  {topPad > 0 && <tr style={{ height: topPad }} aria-hidden="true" />}
+                  {virtualRows.map((vRow) => {
+                    const p = filteredProducts[vRow.index];
+                    return (
+                      <tr key={p.sku_code} className="hover:bg-blue-50/50 transition">
+                        <td className="py-2 px-3 border-r border-slate-200 font-bold text-slate-800">{p.sku_code}</td>
+                        <td className="py-2 px-3 border-r border-slate-200 font-sans font-medium text-slate-900 truncate max-w-xs">{p.name}</td>
+                        {regionCodes.map((r) => {
+                          const key = `${p.sku_code}_${r}`;
+                          const isDirty = dirtyKeys.has(key);
+                          return (
+                            <td key={r} className="p-1 border-r border-slate-200 text-right">
+                              <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                disabled={!isEditor}
+                                value={actualsMap[key] ?? 0}
+                                onChange={(e) => handleCellChange(p.sku_code, r, e.target.value)}
+                                className={`w-full text-right px-2 py-1 rounded font-semibold outline-none transition disabled:text-slate-500 disabled:cursor-not-allowed ${
+                                  isDirty
+                                    ? 'bg-amber-50 ring-1 ring-amber-300 text-amber-900'
+                                    : 'bg-transparent hover:bg-white focus:bg-white focus:ring-2 focus:ring-blue-500 text-slate-900'
+                                }`}
+                              />
+                            </td>
+                          );
+                        })}
+                        <td className="py-2 px-3 text-right font-bold text-blue-700 bg-slate-50">
+                          {getSkuTotal(p.sku_code).toLocaleString('vi-VN')}
                         </td>
-                      );
-                    })}
-                    <td className="py-2 px-3 text-right font-bold text-blue-700 bg-slate-50">
-                      {getSkuTotal(p.sku_code).toLocaleString('vi-VN')}
-                    </td>
-                  </tr>
-                ))
+                      </tr>
+                    );
+                  })}
+                  {bottomPad > 0 && <tr style={{ height: bottomPad }} aria-hidden="true" />}
+                </>
               )}
             </tbody>
           </table>
