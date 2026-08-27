@@ -72,3 +72,24 @@ function logAuth_(userId, event, detail) {
   }
 }
 
+
+// ---------------------------------------------------------------------
+// ĐO THỜI GIAN THỰC THI (chỉ bật khi client gửi debug:true trong payload)
+// ---------------------------------------------------------------------
+
+var __diagMarks_ = [];
+var __diagStart_ = 0;
+
+function diagReset_() {
+  __diagMarks_ = [];
+  __diagStart_ = Date.now();
+}
+
+/** Ghi một mốc thời gian kể từ lúc diagReset_(), để thấy bước nào chậm. */
+function diagMark_(label) {
+  __diagMarks_.push({ label: label, atMs: Date.now() - __diagStart_ });
+}
+
+function diagResult_() {
+  return { totalMs: Date.now() - __diagStart_, marks: __diagMarks_ };
+}

@@ -8,8 +8,22 @@
 // LỚP TRUY CẬP GOOGLE SHEETS (đọc/ghi theo khối, đối chiếu theo tên cột)
 // ---------------------------------------------------------------------
 
+/**
+ * Cache handle Spreadsheet trong phạm vi một lần thực thi (và thường
+ * còn sống tiếp qua nhiều request nếu container Apps Script chưa bị thu
+ * hồi). SpreadsheetApp.openById() là một round-trip mạng thật — một
+ * action gộp như getApprovalsWorkspace từng gọi lại nó tới 9 lần trong
+ * CÙNG một request (mỗi lần đọc sheet lại mở lại từ đầu), cộng dồn thành
+ * hàng chục giây độ trễ thật ở server, chứ không chỉ là cold-start front-end.
+ */
+var __ssCache_ = null;
+
 function getSpreadsheet_() {
-  return SpreadsheetApp.openById(SPREADSHEET_ID);
+  if (!__ssCache_) {
+    __ssCache_ = SpreadsheetApp.openById(SPREADSHEET_ID);
+    diagMark_('openById (lần đầu)');
+  }
+  return __ssCache_;
 }
 
 function getOrCreateSheet_(name) {
@@ -28,29 +42,58 @@ function getOrCreateSheet_(name) {
 }
 
 /**
+ * Cache theo tên sheet trong phạm vi MỘT request — một action gộp như
+ * getApprovalsWorkspace đọc VERSIONS/CYCLES/PRODUCTS nhiều lần trong
+ * cùng một lượt xử lý (getApprovals_ rồi lại getVersionSummary_), mỗi
+ * lần đọc lại toàn bộ 1141 dòng Products là một round-trip mạng thật.
+ * Router.gs gọi resetTableCache_() ở đầu mỗi request để không dính dữ
+ * liệu cũ giữa các request khác nhau.
+ *
+ * Không cần invalidate thủ công: writeRowPatch_ và upsertRows_ (qua
+ * writeTable_) đều sửa TRỰC TIẾP lên object đang cache (table.rows[i] =
+ * ... hoặc t.rows = t.rows.concat(...)), nên cache tự động phản ánh đúng
+ * dữ liệu vừa ghi. appendObjects_ cũng đẩy dòng mới vào t.rows sau khi
+ * ghi sheet — xem hàm đó bên dưới. Quy tắc khi thêm hàm ghi mới: LUÔN
+ * mutate object cache đang có (không tạo bản sao rời), nếu không cache
+ * sẽ lệch với sheet thật trong phần còn lại của request.
+ */
+var __tableCache_ = {};
+
+function resetTableCache_() {
+  __tableCache_ = {};
+}
+
+/**
  * Đọc toàn bộ sheet đúng một lần. Trả về headers, rows (mảng thô có thể
  * sửa tại chỗ) và idx (tên cột → chỉ số), để mọi thao tác ghi bám theo
  * TÊN CỘT chứ không theo thứ tự cứng.
  */
 function readTable_(name) {
+  if (__tableCache_[name]) return __tableCache_[name];
+
   var sheet = getOrCreateSheet_(name);
   var values = sheet.getDataRange().getValues();
   var headers = values.length ? values[0].map(function (h) { return String(h).trim(); }) : (SCHEMA[name] || []);
 
+  var table;
   if (!values.length || !headers.length || headers.join('') === '') {
     headers = SCHEMA[name] || [];
     if (headers.length) {
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     }
-    return { sheet: sheet, headers: headers, rows: [], idx: indexOf_(headers) };
+    table = { sheet: sheet, headers: headers, rows: [], idx: indexOf_(headers) };
+  } else {
+    table = {
+      sheet: sheet,
+      headers: headers,
+      rows: values.slice(1).filter(function (r) { return r.join('') !== ''; }),
+      idx: indexOf_(headers)
+    };
   }
 
-  return {
-    sheet: sheet,
-    headers: headers,
-    rows: values.slice(1).filter(function (r) { return r.join('') !== ''; }),
-    idx: indexOf_(headers)
-  };
+  __tableCache_[name] = table;
+  diagMark_('đọc ' + name + ' (' + table.rows.length + ' dòng)');
+  return table;
 }
 
 function indexOf_(headers) {
@@ -123,6 +166,11 @@ function appendObjects_(name, objects) {
   var startRow = t.rows.length + 2;
   var values = objects.map(function (o) { return objectToRow_(t.headers, o, null); });
   sheet.getRange(startRow, 1, values.length, t.headers.length).setValues(values);
+
+  // Đẩy luôn vào t.rows (object đang được cache trong readTable_) để một
+  // lệnh đọc khác trong CÙNG request thấy ngay dòng vừa thêm, không phải
+  // đọc lại sheet từ đầu.
+  values.forEach(function (row) { t.rows.push(row); });
 }
 
 /**

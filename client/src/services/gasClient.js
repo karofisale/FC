@@ -19,12 +19,19 @@ export const GAS_WEB_APP_URL =
 /**
  * Apps Script Web App "ngủ" khi không có request nào một lúc, hoặc reset
  * hoàn toàn ngay sau mỗi lần deploy bản mới. Lần gọi đầu tiên sau đó phải
- * khởi động lại container — đo thực tế lần cold-start có thể mất 30-40
- * giây, và nếu vượt quá thời gian hạ tầng phía trước của Google chờ, nó
- * trả về một trang lỗi HTML (thường kèm status 404) thay vì JSON thật.
- * Đây không phải lỗi nghiệp vụ — thử lại ngay sau đó gần như luôn thành
- * công trong 1-5 giây vì container đã ấm.
+ * khởi động lại container — đo thực tế lần cold-start mất tới 30-42 giây
+ * TRƯỚC KHI hạ tầng phía trước của Google bỏ cuộc và trả về trang lỗi
+ * HTML (thường kèm status 404) thay vì JSON thật.
+ *
+ * Vì vậy retry KHÔNG được chờ trọn từng lần gọi thất bại — bản đầu tiên
+ * mắc lỗi này: chờ hết ~40s mỗi lần, 3 lần thử tệ nhất cộng dồn hơn 2
+ * phút, y hệt như treo máy. ATTEMPT_TIMEOUT_MS chủ động huỷ một lượt gọi
+ * nếu quá lâu để THẤT BẠI NHANH rồi thử lại ngay, thay vì chờ Google tự
+ * bỏ cuộc. Ngưỡng chọn cao hơn hẳn thời gian gọi thực tế khi đã "ấm"
+ * (đo được 1-5 giây kể cả có đọc Sheet), nên không cắt ngang một lượt
+ * gọi hợp lệ đang chạy chậm.
  */
+const ATTEMPT_TIMEOUT_MS = 12000;
 const RETRY_DELAYS_MS = [1500, 3000];
 
 export class ApiError extends Error {
@@ -58,6 +65,9 @@ function sleep(ms) {
 
 /** Một lần gọi thô, không thử lại. Trả về { transportError } khi lỗi tầng vận chuyển. */
 async function callOnce(action, payload) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
+
   let res;
   try {
     res = await fetch(GAS_WEB_APP_URL, {
@@ -65,10 +75,13 @@ async function callOnce(action, payload) {
       // text/plain để trình duyệt không gửi preflight — GAS không trả lời OPTIONS
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action, ...payload }),
-      redirect: 'follow'
+      redirect: 'follow',
+      signal: controller.signal
     });
-  } catch {
-    return { transportError: 'network' };
+  } catch (err) {
+    return { transportError: err?.name === 'AbortError' ? 'timeout' : 'network' };
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (!res.ok) {
@@ -117,10 +130,10 @@ export async function callGAS(action, payload = {}) {
   if (lastFailure.transportError === 'network') {
     throw new ApiError('Không kết nối được tới máy chủ. Kiểm tra kết nối mạng rồi thử lại.');
   }
-  if (lastFailure.transportError === 'status') {
+  if (lastFailure.transportError === 'timeout' || lastFailure.transportError === 'status') {
     throw new ApiError(
-      `Máy chủ đang khởi động lại (Apps Script cold-start) hoặc trả về lỗi ${lastFailure.status}. ` +
-      `Đã thử lại ${RETRY_DELAYS_MS.length} lần, thử tải lại trang sau vài giây.`
+      `Máy chủ phản hồi quá chậm (có thể đang khởi động lại sau thời gian nghỉ). ` +
+      `Đã thử lại ${RETRY_DELAYS_MS.length} lần trong khoảng ${Math.round((ATTEMPT_TIMEOUT_MS * (RETRY_DELAYS_MS.length + 1) + RETRY_DELAYS_MS.reduce((a, b) => a + b, 0)) / 1000)}s. Vui lòng tải lại trang.`
     );
   }
   throw new ApiError('Máy chủ trả về dữ liệu không hợp lệ. Kiểm tra lại URL và quyền truy cập của Web App.');

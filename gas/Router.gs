@@ -21,6 +21,12 @@ function doGet() {
 }
 
 function doPost(e) {
+  // Cache dữ liệu sheet chỉ sống trong PHẠM VI MỘT REQUEST — reset ngay
+  // đầu để không phục vụ nhầm dữ liệu cũ từ request trước nếu container
+  // Apps Script còn "ấm" và giữ nguyên biến toàn cục giữa các lần gọi.
+  resetTableCache_();
+  diagReset_();
+
   var payload;
   try {
     payload = JSON.parse((e && e.postData && e.postData.contents) || '{}');
@@ -29,32 +35,51 @@ function doPost(e) {
   }
 
   var action = payload.action || '';
+  // Client gửi debug:true (xem gasClient.js) để nhận kèm _diag — thời
+  // gian từng bước thực thi thật ở server, dùng để tìm chỗ chậm mà
+  // không cần đăng nhập được vào GCP project để xem Stackdriver logs.
+  var debug = payload.debug === true;
 
   try {
+    var result;
+
     // 1. Các action không cần token
-    if (action === 'ping') return jsonOutput_({ ok: true });
-    if (action === 'login') return jsonOutput_(login_(payload.userId, payload.pin));
-    if (action === 'logout') return jsonOutput_(logout_(payload.token));
+    if (action === 'ping') {
+      result = { ok: true };
+    } else if (action === 'login') {
+      result = login_(payload.userId, payload.pin);
+    } else if (action === 'logout') {
+      result = logout_(payload.token);
+    } else {
+      // 2. Mọi action còn lại bắt buộc có token hợp lệ
+      var session = requireSession_(payload.token);
+      diagMark_('xác thực token xong');
 
-    // 2. Mọi action còn lại bắt buộc có token hợp lệ
-    var session = requireSession_(payload.token);
+      if (READ_ACTIONS.indexOf(action) < 0 && WRITE_ACTIONS.indexOf(action) < 0) {
+        return jsonOutput_({ error: 'Action không hợp lệ: ' + action });
+      }
 
-    if (READ_ACTIONS.indexOf(action) < 0 && WRITE_ACTIONS.indexOf(action) < 0) {
-      return jsonOutput_({ error: 'Action không hợp lệ: ' + action });
+      // 3. Action ghi thì chạy trong LockService để hai người lưu cùng lúc
+      //    không ghi đè nhau
+      if (WRITE_ACTIONS.indexOf(action) >= 0) {
+        result = runExclusive_(function () {
+          return dispatch_(action, payload, session);
+        });
+      } else {
+        result = dispatch_(action, payload, session);
+      }
     }
 
-    // 3. Action ghi thì chạy trong LockService để hai người lưu cùng lúc
-    //    không ghi đè nhau
-    if (WRITE_ACTIONS.indexOf(action) >= 0) {
-      return jsonOutput_(runExclusive_(function () {
-        return dispatch_(action, payload, session);
-      }));
+    diagMark_('dispatch xong');
+    if (debug && result && typeof result === 'object') {
+      result._diag = diagResult_();
     }
-
-    return jsonOutput_(dispatch_(action, payload, session));
+    return jsonOutput_(result);
 
   } catch (err) {
-    return jsonOutput_({ error: (err && err.message) ? err.message : String(err) });
+    var errorBody = { error: (err && err.message) ? err.message : String(err) };
+    if (debug) errorBody._diag = diagResult_();
+    return jsonOutput_(errorBody);
   }
 }
 
