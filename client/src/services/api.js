@@ -54,12 +54,18 @@ export const api = {
   getB0Summary: (baseMonth, bu) => callGAS('getB0Summary', auth({ baseMonth, bu })),
   getB1Summary: (baseMonth, bu) => callGAS('getB1Summary', auth({ baseMonth, bu })),
   getVariance: (cycleId) => callGAS('getVariance', auth({ cycleId })),
+  getVersionSummary: (versionId) => callGAS('getVersionSummary', auth({ versionId })),
 
   // ----- phê duyệt -----
   getApprovals: (params = {}) => callGAS('getApprovals', auth(params)),
   submitCycle: (cycleId, versionId) => callGAS('submitCycle', auth({ cycleId, versionId })),
   decideApproval: (approvalId, decision, comment) =>
     callGAS('decideApproval', auth({ approvalId, decision, comment })),
+
+  // ----- sản lượng thực hiện (actuals) -----
+  getActuals: (params = {}) => callGAS('getActuals', auth(params)),
+  getFcVsActual: (bu, month) => callGAS('getFcVsActual', auth({ bu, month })),
+  saveActuals: (rows) => callGAS('saveActuals', auth({ rows })),
 
   // ----- tài khoản -----
   changeMyPin: (currentPin, newPin) => callGAS('changeMyPin', auth({ currentPin, newPin })),

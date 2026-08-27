@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import MonthlyForecast from './pages/MonthlyForecast';
 import WeeklyForecast from './pages/WeeklyForecast';
 import Approvals from './pages/Approvals';
+import Actuals from './pages/Actuals';
 import Products from './pages/Products';
 import WorkflowGuide from './pages/WorkflowGuide';
 import { api, clearBootstrapCache } from './services/api';
@@ -139,6 +140,7 @@ export default function App() {
               {activeTab === 'approvals' && (
                 <Approvals currentBU={currentBU} user={user} onCountChange={setPendingApprovalsCount} />
               )}
+              {activeTab === 'actuals' && <Actuals currentBU={currentBU} user={user} />}
               {activeTab === 'products' && <Products currentBU={currentBU} />}
               {activeTab === 'guide' && <WorkflowGuide />}
             </ErrorBoundary>

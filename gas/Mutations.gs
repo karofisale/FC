@@ -329,3 +329,44 @@ function importProducts_(session, products, replace) {
   return { message: 'Đã nạp ' + written.total + ' SKU.', updated: written.updated, inserted: written.inserted };
 }
 
+
+/**
+ * Nhập sản lượng thực hiện (actuals) — nguồn để đo độ chính xác FC qua
+ * getFcVsActual_. Cho phép bu_editor để sale/vận hành tự nhập tay khi
+ * chưa có luồng import tự động từ SAP; upsert theo (bu, sku, tháng, miền)
+ * nên nhập lại cùng kỳ sẽ ghi đè thay vì cộng dồn.
+ */
+function saveActuals_(session, rows) {
+  assertRole_(session, ['bu_editor', 'central_admin']);
+  if (!Array.isArray(rows) || !rows.length) throw new Error('Danh sách sản lượng thực hiện rỗng.');
+
+  var now = new Date().toISOString();
+  var records = rows.map(function (r) {
+    var bu = r.businessUnitCode || session.bu;
+    if (!bu) throw new Error('Thiếu đơn vị kinh doanh.');
+    assertBU_(session, bu);
+
+    var qty = Number(r.quantity);
+    if (!isFinite(qty) || qty < 0) {
+      throw new Error('Số lượng không hợp lệ tại SKU ' + r.skuCode + ': ' + r.quantity);
+    }
+    if (!r.skuCode || !r.actualMonth || !r.regionCode) {
+      throw new Error('Dòng thiếu skuCode, actualMonth hoặc regionCode.');
+    }
+
+    return {
+      id: Utilities.getUuid(),
+      business_unit_code: bu,
+      sku_code: String(r.skuCode),
+      actual_month: normalizeMonth_(r.actualMonth),
+      region_code: String(r.regionCode),
+      quantity: qty,
+      source_system: r.sourceSystem || 'Manual',
+      imported_by: session.userId,
+      imported_at: now
+    };
+  });
+
+  var written = upsertRows_(SHEETS.ACTUALS, ['business_unit_code', 'sku_code', 'actual_month', 'region_code'], records);
+  return { message: 'Đã lưu ' + written.total + ' dòng sản lượng thực hiện.', updated: written.updated, inserted: written.inserted };
+}

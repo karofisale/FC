@@ -72,6 +72,9 @@ function dispatch_(action, p, session) {
     case 'getB1Summary':    return getB1Summary_(p.baseMonth, p.bu);
     case 'getVariance':     return getVariance_(p.cycleId);
     case 'getApprovals':    return getApprovals_(session, p.bu, p.status);
+    case 'getVersionSummary': return getVersionSummary_(p.versionId);
+    case 'getActuals':      return getActuals_(p.bu, p.month, p.sku);
+    case 'getFcVsActual':   return getFcVsActual_(p.bu, p.month);
 
     // ----- ghi -----
     case 'createCycle':      return createCycle_(session, p);
@@ -83,6 +86,7 @@ function dispatch_(action, p, session) {
     case 'changeMyPin':      return changeMyPin_(session, p.currentPin, p.newPin);
     case 'setUserPin':       return setUserPin_(session, p.userId, p.newPin);
     case 'importProducts':   return importProducts_(session, p.products, p.replace);
+    case 'saveActuals':      return saveActuals_(session, p.rows);
   }
   throw new Error('Action chưa được cài đặt: ' + action);
 }

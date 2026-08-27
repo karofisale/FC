@@ -1,12 +1,13 @@
 import React from 'react';
-import { 
-  LayoutDashboard, 
-  CalendarDays, 
-  CalendarRange, 
-  CheckCircle2, 
-  Package, 
+import {
+  LayoutDashboard,
+  CalendarDays,
+  CalendarRange,
+  CheckCircle2,
+  Package,
   HelpCircle,
-  FileSpreadsheet
+  FileSpreadsheet,
+  TrendingUp
 } from 'lucide-react';
 
 export default function Sidebar({ activeTab, setActiveTab, pendingCount = 0 }) {
@@ -15,6 +16,7 @@ export default function Sidebar({ activeTab, setActiveTab, pendingCount = 0 }) {
     { id: 'monthly', label: 'Bảng 0: Forecast 4 Tháng', icon: CalendarDays, badge: null },
     { id: 'weekly', label: 'Bảng 1: Forecast Tuần/Miền', icon: CalendarRange, badge: null },
     { id: 'approvals', label: 'Quy trình Phê duyệt', icon: CheckCircle2, badge: pendingCount > 0 ? pendingCount : null },
+    { id: 'actuals', label: 'Sản lượng Thực hiện', icon: TrendingUp, badge: null },
     { id: 'products', label: 'Danh mục SKU', icon: Package, badge: null },
     { id: 'guide', label: 'Sơ đồ Quy trình B5', icon: HelpCircle, badge: null }
   ];

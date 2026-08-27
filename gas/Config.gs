@@ -18,6 +18,7 @@ const SHEETS = {
   MONTHLY_LINES: 'MonthlyForecastLines',
   WEEKLY_SPLITS: 'WeeklyRegionSplits',
   APPROVALS: 'Approvals',
+  ACTUALS: 'ActualSalesResults',
   AUDIT: 'AuthLog'
 };
 
@@ -32,6 +33,7 @@ const SCHEMA = {
   [SHEETS.MONTHLY_LINES]: ['id', 'version_id', 'sku_code', 'forecast_month', 'quantity', 'note', 'updated_at', 'updated_by'],
   [SHEETS.WEEKLY_SPLITS]: ['id', 'version_id', 'sku_code', 'week_number', 'region_code', 'quantity', 'updated_at', 'updated_by'],
   [SHEETS.APPROVALS]: ['id', 'cycle_id', 'version_id', 'approver_id', 'status', 'comment', 'requested_by', 'requested_at', 'decided_at'],
+  [SHEETS.ACTUALS]: ['id', 'business_unit_code', 'sku_code', 'actual_month', 'region_code', 'quantity', 'source_system', 'imported_by', 'imported_at'],
   [SHEETS.AUDIT]: ['at', 'user_id', 'event', 'detail']
 };
 
@@ -46,10 +48,11 @@ const LOCK_TIMEOUT_MS = 30 * 1000;             // chờ LockService tối đa 30
 const READ_ACTIONS = [
   'getBootstrap', 'getProducts', 'getCycles', 'getVersions', 'getMonthlyLines',
   'getWeeklySplits', 'validateWeekly', 'getB0Summary', 'getB1Summary',
-  'getVariance', 'getApprovals'
+  'getVariance', 'getApprovals', 'getVersionSummary', 'getActuals', 'getFcVsActual'
 ];
 const WRITE_ACTIONS = [
   'createCycle', 'createVersion', 'saveMonthlyLines', 'saveWeeklySplits',
-  'submitCycle', 'decideApproval', 'changeMyPin', 'setUserPin', 'importProducts'
+  'submitCycle', 'decideApproval', 'changeMyPin', 'setUserPin', 'importProducts',
+  'saveActuals'
 ];
 

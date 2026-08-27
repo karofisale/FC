@@ -306,3 +306,171 @@ function getApprovals_(session, bu, status) {
   });
 }
 
+
+/**
+ * Tổng hợp một version cụ thể theo nhóm hàng/tháng — dùng cho màn Phê
+ * duyệt để người thẩm định thấy số trước khi quyết định, thay vì chỉ
+ * thấy tên đơn vị và tuần cập nhật như bản cũ. Không lọc theo is_final
+ * vì version đang chờ duyệt có thể không còn là bản mới nhất nếu người
+ * gửi đã tạo thêm bản cập nhật tuần sau đó.
+ */
+function getVersionSummary_(versionId) {
+  if (!versionId) throw new Error('Thiếu versionId.');
+  var version = findOne_(SHEETS.VERSIONS, 'id', versionId);
+  if (!version) throw new Error('Không tìm thấy version: ' + versionId);
+  var cycle = findOne_(SHEETS.CYCLES, 'id', version.cycle_id);
+  if (!cycle) throw new Error('Version không gắn với chu kỳ nào.');
+
+  var products = productMap_();
+  var lines = readObjects_(SHEETS.MONTHLY_LINES);
+
+  function aggregate(vId) {
+    var groups = {};
+    var months = {};
+    var total = 0;
+    lines.forEach(function (l) {
+      if (String(l.version_id) !== String(vId)) return;
+      var p = products[l.sku_code] || {};
+      var groupCode = p.product_group_code || 'KHAC';
+      var groupName = p.product_group_name || 'Chưa phân nhóm';
+      var month = normalizeMonth_(l.forecast_month);
+      var qty = Number(l.quantity) || 0;
+
+      if (!groups[groupCode]) {
+        groups[groupCode] = { product_group_code: groupCode, product_group_name: groupName, months: {}, total: 0 };
+      }
+      groups[groupCode].months[month] = (groups[groupCode].months[month] || 0) + qty;
+      groups[groupCode].total += qty;
+      months[month] = true;
+      total += qty;
+    });
+    return {
+      byGroup: Object.keys(groups).sort().map(function (k) { return groups[k]; }),
+      months: Object.keys(months).sort(),
+      total: total
+    };
+  }
+
+  var current = aggregate(versionId);
+
+  var siblings = readObjects_(SHEETS.VERSIONS)
+    .filter(function (v) { return String(v.cycle_id) === String(cycle.id); })
+    .sort(function (a, b) { return Number(a.update_week) - Number(b.update_week); });
+  var idx = -1;
+  for (var i = 0; i < siblings.length; i++) {
+    if (String(siblings[i].id) === String(versionId)) { idx = i; break; }
+  }
+  var previousVersion = idx > 0 ? siblings[idx - 1] : null;
+  var previousTotal = previousVersion ? aggregate(previousVersion.id).total : null;
+
+  return {
+    versionId: versionId,
+    cycleId: cycle.id,
+    businessUnitCode: cycle.business_unit_code,
+    baseMonth: normalizeMonth_(cycle.base_month),
+    byGroup: current.byGroup,
+    months: current.months,
+    currentTotal: current.total,
+    previousVersionId: previousVersion ? previousVersion.id : null,
+    previousVersionLabel: previousVersion ? (previousVersion.iso_week_label || ('W' + previousVersion.update_week)) : null,
+    previousTotal: previousTotal
+  };
+}
+
+// ---------------------------------------------------------------------
+// SẢN LƯỢNG THỰC HIỆN (ACTUALS) & SO SÁNH VỚI FORECAST
+// ---------------------------------------------------------------------
+
+function getActuals_(bu, month, sku) {
+  var products = productMap_();
+  var list = readObjects_(SHEETS.ACTUALS).map(function (a) {
+    var p = products[a.sku_code] || {};
+    a.quantity = Number(a.quantity) || 0;
+    a.actual_month = normalizeMonth_(a.actual_month);
+    a.product_name = p.name || a.sku_code;
+    a.product_group_code = p.product_group_code || '';
+    return a;
+  });
+
+  if (bu) list = list.filter(function (a) { return String(a.business_unit_code) === String(bu); });
+  if (month) {
+    var m = normalizeMonth_(month);
+    list = list.filter(function (a) { return a.actual_month === m; });
+  }
+  if (sku) list = list.filter(function (a) { return String(a.sku_code) === String(sku); });
+
+  return list.sort(function (a, b) {
+    return String(b.actual_month).localeCompare(String(a.actual_month)) || String(a.sku_code).localeCompare(String(b.sku_code));
+  });
+}
+
+/**
+ * So sánh FC (từ version mới nhất của chu kỳ gần nhất của đơn vị, đúng
+ * tháng yêu cầu) với sản lượng thực hiện đã nhập — trả về % lệch theo
+ * từng SKU và tổng, để đo độ chính xác của kế hoạch đã lập.
+ */
+function getFcVsActual_(bu, month) {
+  if (!bu || !month) throw new Error('Cần truyền cả bu và month.');
+  var normMonth = normalizeMonth_(month);
+  var products = productMap_();
+
+  var cycle = readObjects_(SHEETS.CYCLES)
+    .filter(function (c) { return String(c.business_unit_code) === String(bu); })
+    .sort(function (a, b) { return String(b.base_month).localeCompare(String(a.base_month)); })[0];
+
+  var fcBySku = {};
+  if (cycle) {
+    var finalVersion = readObjects_(SHEETS.VERSIONS).filter(function (v) {
+      return String(v.cycle_id) === String(cycle.id) && (String(v.is_final) === '1' || v.is_final === true);
+    })[0];
+    if (finalVersion) {
+      readObjects_(SHEETS.MONTHLY_LINES).forEach(function (l) {
+        if (String(l.version_id) !== String(finalVersion.id)) return;
+        if (normalizeMonth_(l.forecast_month) !== normMonth) return;
+        fcBySku[l.sku_code] = (fcBySku[l.sku_code] || 0) + (Number(l.quantity) || 0);
+      });
+    }
+  }
+
+  var actualBySku = {};
+  readObjects_(SHEETS.ACTUALS).forEach(function (a) {
+    if (String(a.business_unit_code) !== String(bu)) return;
+    if (normalizeMonth_(a.actual_month) !== normMonth) return;
+    actualBySku[a.sku_code] = (actualBySku[a.sku_code] || 0) + (Number(a.quantity) || 0);
+  });
+
+  var skus = {};
+  Object.keys(fcBySku).forEach(function (s) { skus[s] = 1; });
+  Object.keys(actualBySku).forEach(function (s) { skus[s] = 1; });
+
+  var rows = Object.keys(skus).map(function (sku) {
+    var p = products[sku] || {};
+    var fc = fcBySku[sku] || 0;
+    var actual = actualBySku[sku] || 0;
+    return {
+      sku_code: sku,
+      product_name: p.name || sku,
+      product_group_code: p.product_group_code || '',
+      forecast_qty: fc,
+      actual_qty: actual,
+      variance_qty: actual - fc,
+      variance_pct: fc > 0 ? Math.round(((actual - fc) / fc) * 1000) / 10 : null
+    };
+  }).filter(function (r) { return r.forecast_qty !== 0 || r.actual_qty !== 0; });
+
+  rows.sort(function (a, b) { return Math.abs(b.variance_qty) - Math.abs(a.variance_qty); });
+
+  var totalFc = rows.reduce(function (s, r) { return s + r.forecast_qty; }, 0);
+  var totalActual = rows.reduce(function (s, r) { return s + r.actual_qty; }, 0);
+
+  return {
+    businessUnitCode: bu,
+    month: normMonth,
+    cycleFound: !!cycle,
+    totalForecast: totalFc,
+    totalActual: totalActual,
+    totalVariance: totalActual - totalFc,
+    totalVariancePct: totalFc > 0 ? Math.round(((totalActual - totalFc) / totalFc) * 1000) / 10 : null,
+    rows: rows
+  };
+}
