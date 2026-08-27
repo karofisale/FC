@@ -47,6 +47,9 @@ function doPost(e) {
     if (action === 'ping') {
       result = { ok: true };
     } else if (action === 'login') {
+      // login_ vẫn cần đọc sheet Users -> prefetch chung 1 lần cho gọn,
+      // rẻ hơn hẳn so với để nó tự mở round-trip riêng.
+      prefetchAllSheets_();
       result = login_(payload.userId, payload.pin);
     } else if (action === 'logout') {
       result = logout_(payload.token);
@@ -54,6 +57,10 @@ function doPost(e) {
       // 2. Mọi action còn lại bắt buộc có token hợp lệ
       var session = requireSession_(payload.token);
       diagMark_('xác thực token xong');
+
+      // Gom toàn bộ sheet cần thiết trong 1 lần gọi Sheets API, thay vì
+      // để mỗi hàm nghiệp vụ tự mở round-trip riêng khi đọc tới.
+      prefetchAllSheets_();
 
       if (READ_ACTIONS.indexOf(action) < 0 && WRITE_ACTIONS.indexOf(action) < 0) {
         return jsonOutput_({ error: 'Action không hợp lệ: ' + action });

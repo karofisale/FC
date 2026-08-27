@@ -63,37 +63,78 @@ function resetTableCache_() {
   __tableCache_ = {};
 }
 
+/** Dựng object {sheet, headers, rows, idx} từ dữ liệu 2 chiều đã đọc sẵn. */
+function buildTableFromValues_(name, sheet, values) {
+  var headers = values.length ? values[0].map(function (h) { return String(h).trim(); }) : (SCHEMA[name] || []);
+
+  if (!values.length || !headers.length || headers.join('') === '') {
+    headers = SCHEMA[name] || [];
+    if (headers.length) {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    }
+    return { sheet: sheet, headers: headers, rows: [], idx: indexOf_(headers) };
+  }
+
+  return {
+    sheet: sheet,
+    headers: headers,
+    rows: values.slice(1).filter(function (r) { return r.join('') !== ''; }),
+    idx: indexOf_(headers)
+  };
+}
+
 /**
  * Đọc toàn bộ sheet đúng một lần. Trả về headers, rows (mảng thô có thể
  * sửa tại chỗ) và idx (tên cột → chỉ số), để mọi thao tác ghi bám theo
  * TÊN CỘT chứ không theo thứ tự cứng.
+ *
+ * Đường đi CHẬM (một round-trip SpreadsheetApp riêng cho sheet này) —
+ * chỉ chạy khi prefetchAllSheets_() chưa gom sẵn dữ liệu (sheet mới tạo
+ * sau lúc prefetch, hoặc batchGet lỗi phải rơi về cách cũ).
  */
 function readTable_(name) {
   if (__tableCache_[name]) return __tableCache_[name];
 
   var sheet = getOrCreateSheet_(name);
   var values = sheet.getDataRange().getValues();
-  var headers = values.length ? values[0].map(function (h) { return String(h).trim(); }) : (SCHEMA[name] || []);
-
-  var table;
-  if (!values.length || !headers.length || headers.join('') === '') {
-    headers = SCHEMA[name] || [];
-    if (headers.length) {
-      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    }
-    table = { sheet: sheet, headers: headers, rows: [], idx: indexOf_(headers) };
-  } else {
-    table = {
-      sheet: sheet,
-      headers: headers,
-      rows: values.slice(1).filter(function (r) { return r.join('') !== ''; }),
-      idx: indexOf_(headers)
-    };
-  }
+  var table = buildTableFromValues_(name, sheet, values);
 
   __tableCache_[name] = table;
-  diagMark_('đọc ' + name + ' (' + table.rows.length + ' dòng)');
+  diagMark_('đọc rời ' + name + ' (' + table.rows.length + ' dòng)');
   return table;
+}
+
+/**
+ * Đọc TẤT CẢ sheet trong SCHEMA bằng đúng MỘT lệnh Sheets API batchGet,
+ * thay vì để readTable_ mở round-trip riêng cho từng sheet một. Đo thực
+ * tế: mỗi round-trip SpreadsheetApp tốn ~0.9-1.2 giây CỐ ĐỊNH bất kể
+ * sheet rỗng hay 1141 dòng — một action gộp đọc 5-9 sheet khác nhau thì
+ * cộng dồn thành nhiều giây dù đã cache handle Spreadsheet. Gộp thành 1
+ * lệnh network duy nhất giải quyết tận gốc, không chỉ giảm số lần mở lại.
+ *
+ * Cần Advanced Service "Sheets" bật trong appsscript.json. Nếu vì lý do
+ * gì đó batchGet lỗi (service chưa bật, quota, ...), bắt lỗi và để trống
+ * cache — readTable_ ở trên tự động rơi về đọc rời từng sheet như cũ,
+ * KHÔNG làm hỏng request đang chạy.
+ */
+function prefetchAllSheets_() {
+  var names = Object.keys(SCHEMA);
+  names.forEach(function (name) { getOrCreateSheet_(name); }); // đảm bảo tồn tại, tra cứu local sau openById
+
+  try {
+    var response = Sheets.Spreadsheets.Values.batchGet(SPREADSHEET_ID, { ranges: names });
+    var valueRanges = response.valueRanges || [];
+
+    names.forEach(function (name, i) {
+      var values = (valueRanges[i] && valueRanges[i].values) || [];
+      var sheet = getOrCreateSheet_(name);
+      __tableCache_[name] = buildTableFromValues_(name, sheet, values);
+    });
+
+    diagMark_('batchGet ' + names.length + ' sheet trong 1 lần gọi');
+  } catch (err) {
+    diagMark_('batchGet lỗi (' + err.message + '), rơi về đọc rời từng sheet');
+  }
 }
 
 function indexOf_(headers) {
