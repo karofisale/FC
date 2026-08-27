@@ -12,7 +12,7 @@ import Products from './pages/Products';
 import WorkflowGuide from './pages/WorkflowGuide';
 import { api, clearBootstrapCache } from './services/api';
 import { getSession, clearSession, logout, allowedBUs } from './services/auth';
-import { onUnauthorized } from './services/gasClient';
+import { onUnauthorized, onRetry } from './services/gasClient';
 import { AlertCircle, LogIn } from 'lucide-react';
 
 export default function App() {
@@ -24,6 +24,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expiredNotice, setExpiredNotice] = useState(null);
+  const [retryNotice, setRetryNotice] = useState(null);
 
   const user = session?.user || null;
 
@@ -34,6 +35,17 @@ export default function App() {
     setSession(null);
     setExpiredNotice(err.message || 'Phiên đăng nhập đã hết hạn.');
   }), []);
+
+  // Apps Script cold-start: lần gọi đầu sau khi "ngủ" hoặc sau deploy có
+  // thể chậm và bị hạ tầng Google trả lỗi tạm thời — gasClient tự thử
+  // lại, ở đây chỉ hiện cho người dùng biết đang thử lại, không phải treo máy.
+  useEffect(() => onRetry(() => {
+    setRetryNotice('Máy chủ đang khởi động lại, đang thử kết nối lại...');
+  }), []);
+
+  useEffect(() => {
+    if (!loading) setRetryNotice(null);
+  }, [loading]);
 
   const loadInitialData = useCallback(async () => {
     setLoading(true);
@@ -113,8 +125,13 @@ export default function App() {
 
         <main className="flex-1 p-6 overflow-y-auto">
           {loading ? (
-            <div className="flex items-center justify-center h-64 text-slate-400 text-sm">
-              Đang tải dữ liệu hệ thống...
+            <div className="flex flex-col items-center justify-center h-64 text-slate-400 text-sm gap-2">
+              <span>Đang tải dữ liệu hệ thống...</span>
+              {retryNotice && (
+                <span className="text-amber-600 text-xs bg-amber-50 border border-amber-200 rounded-full px-3 py-1">
+                  {retryNotice}
+                </span>
+              )}
             </div>
           ) : error ? (
             <div className="bg-white border border-rose-200 rounded-xl p-6 max-w-xl">

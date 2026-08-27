@@ -48,7 +48,10 @@ const LOCK_TIMEOUT_MS = 30 * 1000;             // chờ LockService tối đa 30
 const READ_ACTIONS = [
   'getBootstrap', 'getProducts', 'getCycles', 'getVersions', 'getMonthlyLines',
   'getWeeklySplits', 'validateWeekly', 'getB0Summary', 'getB1Summary',
-  'getVariance', 'getApprovals', 'getVersionSummary', 'getActuals', 'getFcVsActual'
+  'getVariance', 'getApprovals', 'getVersionSummary', 'getActuals', 'getFcVsActual',
+  // Action gộp theo màn hình — xem Workspace.gs để biết vì sao cần gộp
+  'getMonthlyWorkspace', 'getWeeklyWorkspace', 'getDashboardWorkspace',
+  'getActualsWorkspace', 'getApprovalsWorkspace'
 ];
 const WRITE_ACTIONS = [
   'createCycle', 'createVersion', 'saveMonthlyLines', 'saveWeeklySplits',

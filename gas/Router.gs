@@ -76,6 +76,13 @@ function dispatch_(action, p, session) {
     case 'getActuals':      return getActuals_(p.bu, p.month, p.sku);
     case 'getFcVsActual':   return getFcVsActual_(p.bu, p.month);
 
+    // ----- đọc gộp theo màn hình (1 request thay cho 5-7) -----
+    case 'getMonthlyWorkspace':   return getMonthlyWorkspace_(session, p);
+    case 'getWeeklyWorkspace':    return getWeeklyWorkspace_(session, p);
+    case 'getDashboardWorkspace': return getDashboardWorkspace_(session, p);
+    case 'getActualsWorkspace':   return getActualsWorkspace_(session, p);
+    case 'getApprovalsWorkspace': return getApprovalsWorkspace_(session, p);
+
     // ----- ghi -----
     case 'createCycle':      return createCycle_(session, p);
     case 'createVersion':    return createVersion_(session, p);
