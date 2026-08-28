@@ -24,12 +24,13 @@ const NONE = '__none__';
  *   ngay bên phải, vì file nguồn luôn xếp các tháng liền nhau theo thứ tự.
  * weekColumns/regionCodes/weekBaseMonthLabel: cột tuần đích (Bảng 1), chỉ
  *   hiện khi được truyền vào — vì Bảng 1 chỉ chia tuần cho tháng đầu chu
- *   kỳ. Mỗi miền chọn riêng MỘT cột bắt đầu (ứng với tuần 1 của miền đó),
- *   các tuần sau lấy liên tiếp ngay bên phải — không chia đều một cột
- *   tổng cho các miền, vì file nguồn thường đã có sẵn cột riêng theo
- *   từng miền. Miền nào không chọn cột (hoặc tuần vượt quá số cột file
- *   có) sẽ ghi 0 (không giữ nguyên số cũ) để tổng tuần luôn khớp với dữ
- *   liệu vừa nhập.
+ *   kỳ. Chỉ cần chọn MỘT cột bắt đầu và tuần mà cột đó ứng với (mặc định
+ *   tuần đầu tiên), vì file nguồn thường xếp các miền liền nhau trong
+ *   từng tuần rồi mới sang tuần kế (VD: Tuần1-MB, Tuần1-MN, Tuần2-MB,
+ *   Tuần2-MN, ...) — các cột sau được suy ra liên tiếp theo đúng thứ tự
+ *   miền (regionCodes) lặp lại cho mỗi tuần. Tuần trước tuần bắt đầu
+ *   (hoặc vượt quá số cột file có) sẽ ghi 0 (không giữ nguyên số cũ) để
+ *   tổng tuần luôn khớp với dữ liệu vừa nhập.
  * onImported({ monthlyUpdates, weeklyUpdates }): gọi (và được await) sau
  *   khi người dùng xác nhận — updates dạng [{ rowKey: skuCode, col, value }].
  *   Trang cha tự lưu thẳng lên server (saveMonthlyLines/saveWeeklySplits)
@@ -63,11 +64,12 @@ export default function ImportForecastModal({
   const [skuColIdx, setSkuColIdx] = useState(NONE);
   const [nameColIdx, setNameColIdx] = useState(NONE);
   const [monthStartCol, setMonthStartCol] = useState(NONE);
-  const [regionStartCol, setRegionStartCol] = useState({}); // { regionCode: colIdx }
+  const [weekStartWeek, setWeekStartWeek] = useState(weekColumns?.[0] ?? 1);
+  const [weekStartCol, setWeekStartCol] = useState(NONE);
 
   const canImportWeekly = weekColumns?.length > 0 && regionCodes.length > 0;
   const hasMonthMapping = monthStartCol !== NONE;
-  const hasWeekMapping = canImportWeekly && Object.values(regionStartCol).some((v) => v !== NONE && v !== undefined);
+  const hasWeekMapping = canImportWeekly && weekStartCol !== NONE;
 
   const [parsedRows, setParsedRows] = useState([]); // [{ skuCode, name, values: {col: qty}, weekValues?: {week: {region: qty}} }]
   const [missingSkus, setMissingSkus] = useState([]); // [{ skuCode, name, productGroupCode, defaultChannel, avgPrice }]
@@ -177,17 +179,18 @@ export default function ImportForecastModal({
         });
       }
 
-      // Miền/tuần không gán cột (hoặc vượt quá số cột file có) vẫn ghi 0
+      // Tuần trước tuần bắt đầu (hoặc cột vượt quá số cột file có) vẫn ghi 0
       // (không bỏ qua) để tổng tuần luôn khớp với dữ liệu vừa nhập, không
       // lẫn số cũ còn sót lại ở ô thiếu.
       let weekValues;
       if (hasWeekMapping) {
+        const baseIdx = weekColumns.indexOf(weekStartWeek);
         weekValues = {};
         weekColumns.forEach((w, wi) => {
+          const offset = wi - baseIdx;
           weekValues[w] = {};
-          regionCodes.forEach((region) => {
-            const startIdx = regionStartCol[region];
-            weekValues[w][region] = startIdx === undefined || startIdx === NONE ? 0 : parsePastedNumber(row[startIdx + wi]);
+          regionCodes.forEach((region, ri) => {
+            weekValues[w][region] = offset < 0 ? 0 : parsePastedNumber(row[weekStartCol + offset * regionCodes.length + ri]);
           });
         });
       }
@@ -423,28 +426,40 @@ export default function ImportForecastModal({
               {canImportWeekly && (
                 <div className="border-t border-slate-100 pt-3">
                   <p className="text-xs font-semibold text-slate-700 mb-1">
-                    Cột bắt đầu cho dữ liệu tuần theo từng miền (áp cho {weekBaseMonthLabel}):
+                    Cột bắt đầu cho dữ liệu tuần (áp cho {weekBaseMonthLabel}):
                   </p>
                   <p className="text-[11px] text-slate-500 mb-2">
-                    Mỗi miền chọn 1 cột ứng với Tuần 1, {weekColumns.length - 1} tuần sau lấy các cột liên tiếp bên phải.
-                    Miền nào không chọn cột sẽ ghi 0 cho toàn bộ các tuần.
+                    Chọn tuần mà cột bắt đầu ứng với, rồi chọn cột đó. Các cột sau được lấy liên tiếp
+                    theo đúng thứ tự miền ({regionCodes.join(', ')}) lặp lại cho mỗi tuần tiếp theo — đúng
+                    với cấu trúc file thường gặp: Tuần 1 {regionCodes[0]}, Tuần 1 {regionCodes[1]}, Tuần 2 {regionCodes[0]}, ...
+                    Tuần trước tuần bắt đầu sẽ ghi 0.
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {regionCodes.map((region) => (
-                      <div key={region}>
-                        <ColumnSelect
-                          label={`Cột bắt đầu cho miền ${region}`}
-                          value={regionStartCol[region] ?? NONE}
-                          onChange={(v) => setRegionStartCol((prev) => ({ ...prev, [region]: v }))}
-                          options={colOptions}
-                          allowNone
-                        />
-                        {regionStartCol[region] !== undefined && regionStartCol[region] !== NONE && (
-                          <p className="text-[11px] text-slate-500 mt-1">→ {sequentialColsPreview(regionStartCol[region], weekColumns.length)}</p>
-                        )}
-                      </div>
-                    ))}
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">Cột bắt đầu ứng với tuần</label>
+                      <select
+                        value={weekStartWeek}
+                        onChange={(e) => setWeekStartWeek(Number(e.target.value))}
+                        className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-500"
+                      >
+                        {weekColumns.map((w) => <option key={w} value={w}>Tuần {w}</option>)}
+                      </select>
+                    </div>
+                    <ColumnSelect label="Cột bắt đầu" value={weekStartCol} onChange={setWeekStartCol} options={colOptions} allowNone />
                   </div>
+                  {hasWeekMapping && (
+                    <div className="text-[11px] text-slate-500 mt-2 space-y-0.5">
+                      {weekColumns.slice(weekColumns.indexOf(weekStartWeek)).map((w, i) => (
+                        <div key={w}>
+                          Tuần {w} → {regionCodes.map((region, ri) => {
+                            const idx = weekStartCol + i * regionCodes.length + ri;
+                            const label = idx < colCount ? (colOptions[idx]?.label || `Cột ${idx + 1}`) : `Cột ${idx + 1} (không có trong file, sẽ ghi 0)`;
+                            return `${region}: ${label}`;
+                          }).join(' · ')}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
