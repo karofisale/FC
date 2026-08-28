@@ -24,13 +24,17 @@ const NONE = '__none__';
  *   ngay bên phải, vì file nguồn luôn xếp các tháng liền nhau theo thứ tự.
  * weekColumns/regionCodes/weekBaseMonthLabel: cột tuần đích (Bảng 1), chỉ
  *   hiện khi được truyền vào — vì Bảng 1 chỉ chia tuần cho tháng đầu chu
- *   kỳ. Chỉ cần chọn MỘT cột bắt đầu và tuần mà cột đó ứng với (mặc định
- *   tuần đầu tiên), vì file nguồn thường xếp các miền liền nhau trong
- *   từng tuần rồi mới sang tuần kế (VD: Tuần1-MB, Tuần1-MN, Tuần2-MB,
- *   Tuần2-MN, ...) — các cột sau được suy ra liên tiếp theo đúng thứ tự
- *   miền (regionCodes) lặp lại cho mỗi tuần. Tuần trước tuần bắt đầu
- *   (hoặc vượt quá số cột file có) sẽ ghi 0 (không giữ nguyên số cũ) để
- *   tổng tuần luôn khớp với dữ liệu vừa nhập.
+ *   kỳ. Có 2 cách gán, chọn MỘT trong hai:
+ *   - Cột bắt đầu: chọn 1 cột ứng với Tuần 1 của miền đầu tiên, các cột
+ *     sau được suy ra liên tiếp theo đúng thứ tự miền (regionCodes) lặp
+ *     lại cho mỗi tuần kế tiếp (VD: Tuần1-MB, Tuần1-MN, Tuần2-MB, ...) —
+ *     khớp với cấu trúc file thường gặp.
+ *   - Nếu không chọn cột bắt đầu: gán riêng từng ô (tuần, miền) cụ thể
+ *     vào một cột bất kỳ — dùng khi file không xếp cột liên tục theo
+ *     đúng thứ tự trên.
+ *   Tuần/miền không được gán (qua cả hai cách) hoặc vượt quá số cột file
+ *   có sẽ ghi 0 (không giữ nguyên số cũ) để tổng tuần luôn khớp với dữ
+ *   liệu vừa nhập.
  * onImported({ monthlyUpdates, weeklyUpdates }): gọi (và được await) sau
  *   khi người dùng xác nhận — updates dạng [{ rowKey: skuCode, col, value }].
  *   Trang cha tự lưu thẳng lên server (saveMonthlyLines/saveWeeklySplits)
@@ -64,12 +68,14 @@ export default function ImportForecastModal({
   const [skuColIdx, setSkuColIdx] = useState(NONE);
   const [nameColIdx, setNameColIdx] = useState(NONE);
   const [monthStartCol, setMonthStartCol] = useState(NONE);
-  const [weekStartWeek, setWeekStartWeek] = useState(weekColumns?.[0] ?? 1);
   const [weekStartCol, setWeekStartCol] = useState(NONE);
+  const [weekCellMap, setWeekCellMap] = useState({}); // { "week_region": colIdx } — dùng khi không chọn cột bắt đầu
+  const [weekCellPickKey, setWeekCellPickKey] = useState(weekColumns?.[0] !== undefined ? `${weekColumns[0]}_${regionCodes[0]}` : '');
+  const [weekCellPickCol, setWeekCellPickCol] = useState(NONE);
 
   const canImportWeekly = weekColumns?.length > 0 && regionCodes.length > 0;
   const hasMonthMapping = monthStartCol !== NONE;
-  const hasWeekMapping = canImportWeekly && weekStartCol !== NONE;
+  const hasWeekMapping = canImportWeekly && (weekStartCol !== NONE || Object.keys(weekCellMap).length > 0);
 
   const [parsedRows, setParsedRows] = useState([]); // [{ skuCode, name, values: {col: qty}, weekValues?: {week: {region: qty}} }]
   const [missingSkus, setMissingSkus] = useState([]); // [{ skuCode, name, productGroupCode, defaultChannel, avgPrice }]
@@ -96,6 +102,20 @@ export default function ImportForecastModal({
       return idx < colCount ? (colOptions[idx]?.label || `Cột ${idx + 1}`) : `Cột ${idx + 1} (không có trong file, sẽ ghi 0)`;
     });
     return labels.join(' · ');
+  }
+
+  function addWeekCellMapping() {
+    if (weekCellPickCol === NONE || !weekCellPickKey) return;
+    setWeekCellMap((prev) => ({ ...prev, [weekCellPickKey]: weekCellPickCol }));
+    setWeekCellPickCol(NONE);
+  }
+
+  function removeWeekCellMapping(key) {
+    setWeekCellMap((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
   }
 
   // ---- Bước 1: chọn nguồn ----
@@ -179,18 +199,22 @@ export default function ImportForecastModal({
         });
       }
 
-      // Tuần trước tuần bắt đầu (hoặc cột vượt quá số cột file có) vẫn ghi 0
-      // (không bỏ qua) để tổng tuần luôn khớp với dữ liệu vừa nhập, không
-      // lẫn số cũ còn sót lại ở ô thiếu.
+      // Tuần/miền không được gán (qua cả 2 cách) hoặc cột vượt quá số cột
+      // file có vẫn ghi 0 (không bỏ qua) để tổng tuần luôn khớp với dữ
+      // liệu vừa nhập, không lẫn số cũ còn sót lại ở ô thiếu.
       let weekValues;
       if (hasWeekMapping) {
-        const baseIdx = weekColumns.indexOf(weekStartWeek);
         weekValues = {};
         weekColumns.forEach((w, wi) => {
-          const offset = wi - baseIdx;
           weekValues[w] = {};
           regionCodes.forEach((region, ri) => {
-            weekValues[w][region] = offset < 0 ? 0 : parsePastedNumber(row[weekStartCol + offset * regionCodes.length + ri]);
+            let colIdx;
+            if (weekStartCol !== NONE) {
+              colIdx = weekStartCol + wi * regionCodes.length + ri;
+            } else {
+              colIdx = weekCellMap[`${w}_${region}`];
+            }
+            weekValues[w][region] = colIdx === undefined || colIdx === NONE ? 0 : parsePastedNumber(row[colIdx]);
           });
         });
       }
@@ -429,35 +453,70 @@ export default function ImportForecastModal({
                     Cột bắt đầu cho dữ liệu tuần (áp cho {weekBaseMonthLabel}):
                   </p>
                   <p className="text-[11px] text-slate-500 mb-2">
-                    Chọn tuần mà cột bắt đầu ứng với, rồi chọn cột đó. Các cột sau được lấy liên tiếp
-                    theo đúng thứ tự miền ({regionCodes.join(', ')}) lặp lại cho mỗi tuần tiếp theo — đúng
-                    với cấu trúc file thường gặp: Tuần 1 {regionCodes[0]}, Tuần 1 {regionCodes[1]}, Tuần 2 {regionCodes[0]}, ...
-                    Tuần trước tuần bắt đầu sẽ ghi 0.
+                    Chọn 1 cột ứng với Tuần 1 - {regionCodes[0]}, {weekColumns.length * regionCodes.length - 1} cột
+                    sau được lấy liên tiếp theo đúng thứ tự miền ({regionCodes.join(', ')}) lặp lại cho mỗi tuần —
+                    đúng với cấu trúc file thường gặp: Tuần 1 {regionCodes[0]}, Tuần 1 {regionCodes[1]}, Tuần 2 {regionCodes[0]}, ...
                   </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">Cột bắt đầu ứng với tuần</label>
-                      <select
-                        value={weekStartWeek}
-                        onChange={(e) => setWeekStartWeek(Number(e.target.value))}
-                        className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-500"
-                      >
-                        {weekColumns.map((w) => <option key={w} value={w}>Tuần {w}</option>)}
-                      </select>
-                    </div>
-                    <ColumnSelect label="Cột bắt đầu" value={weekStartCol} onChange={setWeekStartCol} options={colOptions} allowNone />
-                  </div>
-                  {hasWeekMapping && (
+                  <ColumnSelect label="Cột bắt đầu" value={weekStartCol} onChange={setWeekStartCol} options={colOptions} allowNone />
+                  {weekStartCol !== NONE && (
                     <div className="text-[11px] text-slate-500 mt-2 space-y-0.5">
-                      {weekColumns.slice(weekColumns.indexOf(weekStartWeek)).map((w, i) => (
+                      {weekColumns.map((w, wi) => (
                         <div key={w}>
                           Tuần {w} → {regionCodes.map((region, ri) => {
-                            const idx = weekStartCol + i * regionCodes.length + ri;
+                            const idx = weekStartCol + wi * regionCodes.length + ri;
                             const label = idx < colCount ? (colOptions[idx]?.label || `Cột ${idx + 1}`) : `Cột ${idx + 1} (không có trong file, sẽ ghi 0)`;
                             return `${region}: ${label}`;
                           }).join(' · ')}
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {weekStartCol === NONE && (
+                    <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                      <p className="text-[11px] text-slate-600 mb-2">
+                        Không chọn cột bắt đầu — gán riêng từng ô tuần/miền cụ thể vào cột tương ứng trong file:
+                      </p>
+                      <div className="flex items-end gap-2">
+                        <div className="flex-1">
+                          <label className="text-[11px] font-semibold text-slate-600 block mb-1">Tuần/Miền cụ thể</label>
+                          <select
+                            value={weekCellPickKey}
+                            onChange={(e) => setWeekCellPickKey(e.target.value)}
+                            className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-500"
+                          >
+                            {weekColumns.flatMap((w) => regionCodes.map((region) => (
+                              <option key={`${w}_${region}`} value={`${w}_${region}`}>Tuần {w} - {region}</option>
+                            )))}
+                          </select>
+                        </div>
+                        <div className="flex-1">
+                          <ColumnSelect label="Cột dữ liệu" value={weekCellPickCol} onChange={setWeekCellPickCol} options={colOptions} allowNone />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={addWeekCellMapping}
+                          disabled={weekCellPickCol === NONE}
+                          className="flex-shrink-0 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-semibold"
+                        >
+                          Thêm
+                        </button>
+                      </div>
+                      {Object.keys(weekCellMap).length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {Object.entries(weekCellMap).map(([key, colIdx]) => {
+                            const [w, region] = key.split('_');
+                            return (
+                              <div key={key} className="flex items-center justify-between text-[11px] bg-white border border-slate-200 rounded px-2 py-1">
+                                <span>Tuần {w} - {region} → {colOptions[colIdx]?.label || `Cột ${colIdx + 1}`}</span>
+                                <button type="button" onClick={() => removeWeekCellMapping(key)} className="text-rose-600 hover:text-rose-800 font-semibold">
+                                  Xoá
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
