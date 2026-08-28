@@ -2,23 +2,24 @@ import React, { useState } from 'react';
 import { Building2, ShieldCheck, LogOut, KeyRound, X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 import { ROLE_LABELS } from '../services/auth';
+import KarofiMark from './KarofiMark';
 
 export default function Header({ user, currentBU, setCurrentBU, bus, onLogout }) {
   const [showPinDialog, setShowPinDialog] = useState(false);
 
   return (
-    <header className="bg-gradient-to-r from-blue-900 via-blue-800 to-sky-900 text-white shadow-md border-b border-blue-700 sticky top-0 z-30">
+    <header className="bg-gradient-to-r from-blue-900 via-blue-800 to-blue-950 text-white shadow-md border-b border-blue-700 sticky top-0 z-30">
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-4">
 
         {/* Logo & Title */}
         <div className="flex items-center space-x-3">
           <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-inner">
-            <span className="font-black text-xl text-cyan-300 tracking-tighter">K</span>
+            <KarofiMark className="w-6 h-6 text-blue-300" />
           </div>
           <div>
             <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
               KAROFI SALES FORECAST
-              <span className="bg-cyan-500/20 text-cyan-200 border border-cyan-400/30 text-[10px] px-2 py-0.5 rounded font-mono uppercase">
+              <span className="bg-blue-500/20 text-blue-200 border border-blue-400/30 text-[10px] px-2 py-0.5 rounded font-mono uppercase">
                 v3.0 2026
               </span>
             </h1>
@@ -31,7 +32,7 @@ export default function Header({ user, currentBU, setCurrentBU, bus, onLogout })
           {/* Chọn đơn vị — chỉ hiện những đơn vị người dùng được phép */}
           {bus.length > 1 ? (
             <div className="flex items-center bg-blue-950/40 border border-blue-600/40 rounded-lg px-3 py-1.5 shadow-inner">
-              <Building2 className="w-4 h-4 text-cyan-400 mr-2" />
+              <Building2 className="w-4 h-4 text-blue-400 mr-2" />
               <span className="text-xs text-blue-200 mr-2">Đơn vị:</span>
               <select
                 value={currentBU}
@@ -47,7 +48,7 @@ export default function Header({ user, currentBU, setCurrentBU, bus, onLogout })
             </div>
           ) : (
             <div className="flex items-center bg-blue-950/40 border border-blue-600/40 rounded-lg px-3 py-1.5 shadow-inner">
-              <Building2 className="w-4 h-4 text-cyan-400 mr-2" />
+              <Building2 className="w-4 h-4 text-blue-400 mr-2" />
               <span className="text-sm font-semibold text-white">{currentBU || '—'}</span>
             </div>
           )}
@@ -66,7 +67,7 @@ export default function Header({ user, currentBU, setCurrentBU, bus, onLogout })
             title="Đổi mã PIN"
             className="p-2 rounded-lg bg-blue-950/40 border border-blue-600/40 hover:bg-blue-800/60 transition"
           >
-            <KeyRound className="w-4 h-4 text-cyan-300" />
+            <KeyRound className="w-4 h-4 text-blue-300" />
           </button>
 
           <button

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { KeyRound, User, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
 import { login } from '../services/auth';
 import { onRetry } from '../services/gasClient';
+import KarofiMark from '../components/KarofiMark';
 
 export default function Login({ onSuccess }) {
   const [userId, setUserId] = useState('');
@@ -41,7 +42,7 @@ export default function Login({ onSuccess }) {
         {/* Nhận diện hệ thống */}
         <div className="text-center mb-6">
           <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center mx-auto mb-3">
-            <span className="font-black text-2xl text-cyan-300 tracking-tighter">K</span>
+            <KarofiMark className="w-8 h-8 text-blue-300" />
           </div>
           <h1 className="text-white text-lg font-bold tracking-tight">KAROFI SALES FORECAST</h1>
           <p className="text-blue-300 text-xs mt-1">Hệ thống Lập &amp; Thẩm định Kế hoạch Kinh doanh</p>

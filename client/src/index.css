@@ -1,5 +1,24 @@
 @import "tailwindcss";
 
+/* Ghi đè thang màu "blue" mặc định của Tailwind bằng màu xanh thương hiệu
+ * Karofi (theo logo) — vì "blue-*" đang được dùng làm màu hành động chính
+ * xuyên suốt toàn app (nút, link, viền focus, thanh header, mục menu đang
+ * chọn...), ghi đè ở đây là đủ để đồng bộ nhận diện thương hiệu khắp app
+ * mà không phải sửa từng file. */
+@theme {
+  --color-blue-50: #eff9ff;
+  --color-blue-100: #daf1fe;
+  --color-blue-200: #b9e6fd;
+  --color-blue-300: #85d3fb;
+  --color-blue-400: #4abbf5;
+  --color-blue-500: #1ea3e6;
+  --color-blue-600: #0e83c4;
+  --color-blue-700: #0d699f;
+  --color-blue-800: #115683;
+  --color-blue-900: #14486c;
+  --color-blue-950: #0c2d47;
+}
+
 @layer base {
   body {
     @apply bg-slate-50 text-slate-900 font-sans antialiased;
