@@ -28,26 +28,5 @@ export function extractSpreadsheetId(input) {
   return match ? match[1] : trimmed;
 }
 
-/**
- * Loại bỏ hàng hoàn toàn trống ở đầu/cuối, dùng khi nguồn (đặc biệt
- * Google Sheet) có nhiều hàng trống thừa quanh vùng dữ liệu thật.
- */
-export function trimBlankRows(aoa) {
-  const isBlank = (row) => !row || row.every((c) => c === '' || c === null || c === undefined);
-  let start = 0;
-  let end = aoa.length;
-  while (start < end && isBlank(aoa[start])) start++;
-  while (end > start && isBlank(aoa[end - 1])) end--;
-  return aoa.slice(start, end);
-}
-
 /** Chuẩn hoá số dán từ Excel (dấu chấm/phẩy ngăn cách) — dùng chung với useGridEditing. */
 export { parsePastedNumber } from './useGridEditing';
-
-/** Chia đều `total` cho `count` phần, dồn phần dư vào phần cuối. */
-export function splitEvenly(total, count) {
-  if (count <= 0) return [];
-  const per = Math.floor(total / count);
-  const remainder = total - per * count;
-  return Array.from({ length: count }, (_, i) => (i === count - 1 ? per + remainder : per));
-}

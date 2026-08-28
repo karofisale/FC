@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { parsePastedNumber } from '../utils/useGridEditing';
-import { parseExcelFile, extractSpreadsheetId, trimBlankRows, splitEvenly } from '../utils/importParsing';
+import { parseExcelFile, extractSpreadsheetId } from '../utils/importParsing';
 
 const NONE = '__none__';
 
@@ -15,13 +15,21 @@ const NONE = '__none__';
  * (mã SKU + từng tháng, và tuỳ chọn từng tuần) -> phát hiện SKU chưa có
  * trong danh mục, cho điền nhanh rồi ghi hàng loạt -> lưu thẳng lên server.
  *
- * monthColumns/monthColumnLabel: cột tháng đích (Bảng 0).
- * weekColumns/weekColumnLabel/regionCodes/weekBaseMonthLabel: cột tuần
- *   đích (Bảng 1), chỉ hiện khi được truyền vào — vì Bảng 1 chỉ chia tuần
- *   cho tháng đầu chu kỳ, và file nguồn thường chỉ có tổng theo tuần (không
- *   theo từng miền) nên số lượng mỗi tuần được chia đều cho các miền, tuần
- *   nào không gán cột sẽ ghi 0 (không giữ nguyên số cũ) để tổng tuần luôn
- *   khớp với số liệu vừa nhập.
+ * File nguồn không cố định dòng nào là tiêu đề/bắt đầu dữ liệu (một số
+ * file xuất có vài dòng tiêu đề/ghi chú phía trên bảng thật), nên người
+ * dùng tự chọn dòng tiêu đề và dòng bắt đầu dữ liệu thay vì mặc định dòng 1.
+ *
+ * monthColumns/monthColumnLabel: cột tháng đích (Bảng 0) — chỉ cần chọn
+ *   MỘT cột bắt đầu (ứng với monthColumns[0]), các cột sau lấy liên tiếp
+ *   ngay bên phải, vì file nguồn luôn xếp các tháng liền nhau theo thứ tự.
+ * weekColumns/regionCodes/weekBaseMonthLabel: cột tuần đích (Bảng 1), chỉ
+ *   hiện khi được truyền vào — vì Bảng 1 chỉ chia tuần cho tháng đầu chu
+ *   kỳ. Mỗi miền chọn riêng MỘT cột bắt đầu (ứng với tuần 1 của miền đó),
+ *   các tuần sau lấy liên tiếp ngay bên phải — không chia đều một cột
+ *   tổng cho các miền, vì file nguồn thường đã có sẵn cột riêng theo
+ *   từng miền. Miền nào không chọn cột (hoặc tuần vượt quá số cột file
+ *   có) sẽ ghi 0 (không giữ nguyên số cũ) để tổng tuần luôn khớp với dữ
+ *   liệu vừa nhập.
  * onImported({ monthlyUpdates, weeklyUpdates }): gọi (và được await) sau
  *   khi người dùng xác nhận — updates dạng [{ rowKey: skuCode, col, value }].
  *   Trang cha tự lưu thẳng lên server (saveMonthlyLines/saveWeeklySplits)
@@ -34,7 +42,7 @@ const NONE = '__none__';
 export default function ImportForecastModal({
   currentBU, groups, bus,
   monthColumns, monthColumnLabel,
-  weekColumns, weekColumnLabel = (w) => `Tuần ${w}`, regionCodes = [], weekBaseMonthLabel,
+  weekColumns, regionCodes = [], weekBaseMonthLabel,
   onClose, onImported, onProductsAdded
 }) {
   const [step, setStep] = useState('source'); // source | sheetPicker | mapping | missing | done
@@ -50,16 +58,18 @@ export default function ImportForecastModal({
   const [tabNameInput, setTabNameInput] = useState('');
 
   const [hasHeaderRow, setHasHeaderRow] = useState(true);
+  const [headerRowNum, setHeaderRowNum] = useState(1);
+  const [dataStartRowNum, setDataStartRowNum] = useState(2);
   const [skuColIdx, setSkuColIdx] = useState(NONE);
   const [nameColIdx, setNameColIdx] = useState(NONE);
-  const [monthColMap, setMonthColMap] = useState({}); // { colKey: colIdx }
-  const [weekColMap, setWeekColMap] = useState({}); // { weekNumber: colIdx }
+  const [monthStartCol, setMonthStartCol] = useState(NONE);
+  const [regionStartCol, setRegionStartCol] = useState({}); // { regionCode: colIdx }
 
   const canImportWeekly = weekColumns?.length > 0 && regionCodes.length > 0;
-  const hasMonthMapping = Object.values(monthColMap).some((v) => v !== NONE && v !== undefined);
-  const hasWeekMapping = canImportWeekly && Object.values(weekColMap).some((v) => v !== NONE && v !== undefined);
+  const hasMonthMapping = monthStartCol !== NONE;
+  const hasWeekMapping = canImportWeekly && Object.values(regionStartCol).some((v) => v !== NONE && v !== undefined);
 
-  const [parsedRows, setParsedRows] = useState([]); // [{ skuCode, name, values: {col: qty}, weekValues?: {week: qty} }]
+  const [parsedRows, setParsedRows] = useState([]); // [{ skuCode, name, values: {col: qty}, weekValues?: {week: {region: qty}} }]
   const [missingSkus, setMissingSkus] = useState([]); // [{ skuCode, name, productGroupCode, defaultChannel, avgPrice }]
   const [bulkGroup, setBulkGroup] = useState(groups[0]?.code || '');
   const [bulkChannel, setBulkChannel] = useState(currentBU || bus[0]?.code || '');
@@ -67,15 +77,24 @@ export default function ImportForecastModal({
   const [resultCounts, setResultCounts] = useState({ monthly: 0, weekly: 0 });
 
   const aoa = activeSheet && sheets ? sheets[activeSheet] : null;
-  const previewRows = aoa ? trimBlankRows(aoa) : [];
-  const headerRow = hasHeaderRow ? previewRows[0] : null;
-  const dataStartIndex = hasHeaderRow ? 1 : 0;
-  const colCount = previewRows[0]?.length || 0;
+  const rawRows = aoa || [];
+  const colCount = rawRows.reduce((max, r) => Math.max(max, r.length), 0);
+  const headerRow = hasHeaderRow ? rawRows[headerRowNum - 1] : null;
 
   const colOptions = Array.from({ length: colCount }, (_, i) => ({
     value: i,
     label: headerRow?.[i] ? `${headerRow[i]} (cột ${i + 1})` : `Cột ${i + 1}`
   }));
+
+  /** Nhãn các cột sẽ được lấy liên tiếp từ `startIdx`, để người dùng xác nhận trước khi đọc dữ liệu. */
+  function sequentialColsPreview(startIdx, count) {
+    if (startIdx === NONE || startIdx === undefined) return null;
+    const labels = Array.from({ length: count }, (_, i) => {
+      const idx = startIdx + i;
+      return idx < colCount ? (colOptions[idx]?.label || `Cột ${idx + 1}`) : `Cột ${idx + 1} (không có trong file, sẽ ghi 0)`;
+    });
+    return labels.join(' · ');
+  }
 
   // ---- Bước 1: chọn nguồn ----
 
@@ -145,27 +164,31 @@ export default function ImportForecastModal({
 
   const handleParseMapping = async () => {
     setError(null);
-    const rows = previewRows.slice(dataStartIndex);
+    const rows = rawRows.slice(dataStartRowNum - 1);
     const parsed = [];
     rows.forEach((row) => {
       const sku = String(row[skuColIdx] ?? '').trim();
       if (!sku) return;
 
       const values = {};
-      monthColumns.forEach((col) => {
-        const idx = monthColMap[colKey(col)];
-        if (idx === undefined || idx === NONE) return;
-        values[colKey(col)] = parsePastedNumber(row[idx]);
-      });
+      if (hasMonthMapping) {
+        monthColumns.forEach((col, i) => {
+          values[colKey(col)] = parsePastedNumber(row[monthStartCol + i]);
+        });
+      }
 
-      // Tuần không gán cột vẫn ghi 0 (không bỏ qua) để tổng tuần luôn khớp
-      // với dữ liệu vừa nhập, không lẫn số cũ còn sót lại ở tuần thiếu.
+      // Miền/tuần không gán cột (hoặc vượt quá số cột file có) vẫn ghi 0
+      // (không bỏ qua) để tổng tuần luôn khớp với dữ liệu vừa nhập, không
+      // lẫn số cũ còn sót lại ở ô thiếu.
       let weekValues;
       if (hasWeekMapping) {
         weekValues = {};
-        weekColumns.forEach((w) => {
-          const idx = weekColMap[w];
-          weekValues[w] = idx === undefined || idx === NONE ? 0 : parsePastedNumber(row[idx]);
+        weekColumns.forEach((w, wi) => {
+          weekValues[w] = {};
+          regionCodes.forEach((region) => {
+            const startIdx = regionStartCol[region];
+            weekValues[w][region] = startIdx === undefined || startIdx === NONE ? 0 : parsePastedNumber(row[startIdx + wi]);
+          });
         });
       }
 
@@ -260,10 +283,9 @@ export default function ImportForecastModal({
     const weeklyUpdates = [];
     rows.forEach((r) => {
       if (!r.weekValues) return;
-      Object.entries(r.weekValues).forEach(([week, qty]) => {
-        const parts = splitEvenly(qty, regionCodes.length);
-        regionCodes.forEach((region, i) => {
-          weeklyUpdates.push({ rowKey: r.skuCode, col: { week: Number(week), region }, value: parts[i] });
+      Object.entries(r.weekValues).forEach(([week, byRegion]) => {
+        Object.entries(byRegion).forEach(([region, value]) => {
+          weeklyUpdates.push({ rowKey: r.skuCode, col: { week: Number(week), region }, value });
         });
       });
     });
@@ -354,7 +376,7 @@ export default function ImportForecastModal({
                   </button>
                 ))}
               </div>
-              <PreviewTable rows={previewRows} />
+              <PreviewTable rows={rawRows} hasHeaderRow={hasHeaderRow} headerRowNum={headerRowNum} dataStartRowNum={dataStartRowNum} />
               <div className="flex justify-between pt-2">
                 <button onClick={() => setStep('source')} className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700">
                   <ArrowLeft className="w-3.5 h-3.5" /> Quay lại
@@ -368,12 +390,20 @@ export default function ImportForecastModal({
 
           {step === 'mapping' && (
             <div className="space-y-4">
-              <PreviewTable rows={previewRows} />
+              <PreviewTable rows={rawRows} hasHeaderRow={hasHeaderRow} headerRowNum={headerRowNum} dataStartRowNum={dataStartRowNum} />
 
-              <label className="flex items-center gap-2 text-xs text-slate-700">
-                <input type="checkbox" checked={hasHeaderRow} onChange={(e) => setHasHeaderRow(e.target.checked)} />
-                Dòng đầu tiên là tiêu đề cột
-              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <div>
+                  <label className="flex items-center gap-2 text-xs text-slate-700 mb-1.5">
+                    <input type="checkbox" checked={hasHeaderRow} onChange={(e) => setHasHeaderRow(e.target.checked)} />
+                    File có dòng tiêu đề cột
+                  </label>
+                  {hasHeaderRow && (
+                    <NumberField label="Dòng tiêu đề là dòng số" value={headerRowNum} onChange={setHeaderRowNum} />
+                  )}
+                </div>
+                <NumberField label="Bắt đầu lấy dữ liệu từ dòng số" value={dataStartRowNum} onChange={setDataStartRowNum} />
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <ColumnSelect label="Cột mã SKU *" value={skuColIdx} onChange={setSkuColIdx} options={colOptions} />
@@ -381,40 +411,38 @@ export default function ImportForecastModal({
               </div>
 
               <div className="border-t border-slate-100 pt-3">
-                <p className="text-xs font-semibold text-slate-700 mb-2">Gán cột dữ liệu cho từng tháng:</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {monthColumns.map((col) => (
-                    <ColumnSelect
-                      key={colKey(col)}
-                      label={monthColumnLabel(col)}
-                      value={monthColMap[colKey(col)] ?? NONE}
-                      onChange={(v) => setMonthColMap((prev) => ({ ...prev, [colKey(col)]: v }))}
-                      options={colOptions}
-                      allowNone
-                    />
-                  ))}
-                </div>
+                <p className="text-xs font-semibold text-slate-700 mb-2">
+                  Cột bắt đầu cho dữ liệu tháng ({monthColumns.length} tháng liên tiếp kể từ cột này, ứng với {monthColumnLabel(monthColumns[0])} → {monthColumnLabel(monthColumns[monthColumns.length - 1])}):
+                </p>
+                <ColumnSelect label="Cột bắt đầu" value={monthStartCol} onChange={setMonthStartCol} options={colOptions} allowNone />
+                {hasMonthMapping && (
+                  <p className="text-[11px] text-slate-500 mt-1">→ {sequentialColsPreview(monthStartCol, monthColumns.length)}</p>
+                )}
               </div>
 
               {canImportWeekly && (
                 <div className="border-t border-slate-100 pt-3">
                   <p className="text-xs font-semibold text-slate-700 mb-1">
-                    Gán cột dữ liệu cho từng tuần (áp cho {weekBaseMonthLabel}):
+                    Cột bắt đầu cho dữ liệu tuần theo từng miền (áp cho {weekBaseMonthLabel}):
                   </p>
                   <p className="text-[11px] text-slate-500 mb-2">
-                    Số lượng mỗi tuần sẽ được chia đều cho {regionCodes.length} miền ({regionCodes.join(', ')}).
-                    Nếu đã gán ít nhất 1 tuần, tuần nào không gán cột sẽ ghi 0.
+                    Mỗi miền chọn 1 cột ứng với Tuần 1, {weekColumns.length - 1} tuần sau lấy các cột liên tiếp bên phải.
+                    Miền nào không chọn cột sẽ ghi 0 cho toàn bộ các tuần.
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {weekColumns.map((w) => (
-                      <ColumnSelect
-                        key={`week-${w}`}
-                        label={weekColumnLabel(w)}
-                        value={weekColMap[w] ?? NONE}
-                        onChange={(v) => setWeekColMap((prev) => ({ ...prev, [w]: v }))}
-                        options={colOptions}
-                        allowNone
-                      />
+                    {regionCodes.map((region) => (
+                      <div key={region}>
+                        <ColumnSelect
+                          label={`Cột bắt đầu cho miền ${region}`}
+                          value={regionStartCol[region] ?? NONE}
+                          onChange={(v) => setRegionStartCol((prev) => ({ ...prev, [region]: v }))}
+                          options={colOptions}
+                          allowNone
+                        />
+                        {regionStartCol[region] !== undefined && regionStartCol[region] !== NONE && (
+                          <p className="text-[11px] text-slate-500 mt-1">→ {sequentialColsPreview(regionStartCol[region], weekColumns.length)}</p>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -573,18 +601,42 @@ function ColumnSelect({ label, value, onChange, options, allowNone }) {
   );
 }
 
-function PreviewTable({ rows }) {
-  const preview = rows.slice(0, 4);
+function NumberField({ label, value, onChange }) {
+  return (
+    <div>
+      <label className="text-[11px] font-semibold text-slate-600 block mb-1">{label}</label>
+      <input
+        type="number"
+        min="1"
+        value={value}
+        onChange={(e) => onChange(Math.max(1, Number(e.target.value) || 1))}
+        className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-500"
+      />
+    </div>
+  );
+}
+
+/** Xem trước kèm số thứ tự dòng thật của file, để chọn đúng dòng tiêu đề/bắt đầu dữ liệu. */
+function PreviewTable({ rows, hasHeaderRow, headerRowNum, dataStartRowNum }) {
+  const preview = rows.slice(0, 10);
   if (!preview.length) return null;
   return (
-    <div className="border border-slate-200 rounded-lg overflow-x-auto max-h-32">
+    <div className="border border-slate-200 rounded-lg overflow-x-auto max-h-48">
       <table className="text-[10px] font-mono w-full">
         <tbody>
-          {preview.map((row, i) => (
-            <tr key={i} className={i === 0 ? 'bg-slate-100 font-bold' : 'odd:bg-white even:bg-slate-50'}>
-              {row.map((cell, j) => <td key={j} className="px-2 py-1 border-r border-slate-100 whitespace-nowrap">{String(cell)}</td>)}
-            </tr>
-          ))}
+          {preview.map((row, i) => {
+            const rowNum = i + 1;
+            const isHeader = hasHeaderRow && rowNum === headerRowNum;
+            const isDataStart = rowNum === dataStartRowNum;
+            return (
+              <tr key={i} className={isHeader ? 'bg-blue-100 font-bold' : isDataStart ? 'bg-emerald-50' : 'odd:bg-white even:bg-slate-50'}>
+                <td className="px-2 py-1 border-r border-slate-200 text-slate-400 text-right whitespace-nowrap">
+                  {rowNum}{isHeader ? ' (tiêu đề)' : isDataStart ? ' (bắt đầu)' : ''}
+                </td>
+                {row.map((cell, j) => <td key={j} className="px-2 py-1 border-r border-slate-100 whitespace-nowrap">{String(cell)}</td>)}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

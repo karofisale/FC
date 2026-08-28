@@ -39,6 +39,7 @@ export default function WeeklyForecast({ currentBU, user }) {
   }, [dirtyKeys]);
   const [validationResult, setValidationResult] = useState(null);
   const [search, setSearch] = useState('');
+  const [onlyNonZero, setOnlyNonZero] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
@@ -268,9 +269,11 @@ export default function WeeklyForecast({ currentBU, user }) {
 
   const filteredProducts = products.filter((p) => {
     const s = search.trim().toLowerCase();
-    return !s
+    const matchSearch = !s
       || String(p.sku_code).toLowerCase().includes(s)
       || String(p.name).toLowerCase().includes(s);
+    const matchNonZero = !onlyNonZero || (monthlyMap[p.sku_code] || 0) > 0 || getSkuWeeklySum(p.sku_code) > 0;
+    return matchSearch && matchNonZero;
   });
 
   const columnCount = 3 + weeks.length * regionCodes.length + 2;
@@ -372,6 +375,10 @@ export default function WeeklyForecast({ currentBU, user }) {
             className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-500"
           />
         </div>
+        <label className="flex items-center gap-1.5 text-xs text-slate-600 whitespace-nowrap">
+          <input type="checkbox" checked={onlyNonZero} onChange={(e) => setOnlyNonZero(e.target.checked)} />
+          Chỉ hiện SKU có số lượng
+        </label>
         {isEditor && (
           <>
             <button
@@ -402,7 +409,6 @@ export default function WeeklyForecast({ currentBU, user }) {
             monthColumns={monthsOfCycle(selectedCycle)}
             monthColumnLabel={monthLabel}
             weekColumns={weeks}
-            weekColumnLabel={(w) => weekLabel(baseMonth, w)}
             weekBaseMonthLabel={baseMonth ? monthLabel(baseMonth) : ''}
             regionCodes={regionCodes}
             onClose={() => setShowImport(false)}

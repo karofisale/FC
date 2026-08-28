@@ -7,7 +7,7 @@ import AddProductModal from '../components/AddProductModal';
 // người dùng không bấm "Nhập từ file" mỗi lần vào trang này.
 const ImportForecastModal = React.lazy(() => import('../components/ImportForecastModal'));
 import { Save, Send, Search, Filter, AlertCircle, CheckCircle2, Loader2, ArrowDownToLine, PackagePlus, FileSpreadsheet } from 'lucide-react';
-import { monthsOfCycle, monthLabel, weeksOfMonth, weekLabel } from '../utils/period';
+import { monthsOfCycle, monthLabel, weeksOfMonth } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
 import { useGridEditing, parsePastedNumber } from '../utils/useGridEditing';
 
@@ -34,6 +34,7 @@ export default function MonthlyForecast({ currentBU, user }) {
   }, [dirtyKeys]);
   const [search, setSearch] = useState('');
   const [selectedGroup, setSelectedGroup] = useState('ALL');
+  const [onlyNonZero, setOnlyNonZero] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
@@ -214,7 +215,8 @@ export default function MonthlyForecast({ currentBU, user }) {
       || String(p.sku_code).toLowerCase().includes(s)
       || String(p.name).toLowerCase().includes(s);
     const matchGroup = selectedGroup === 'ALL' || p.product_group_code === selectedGroup;
-    return matchSearch && matchGroup;
+    const matchNonZero = !onlyNonZero || months.some((m) => (forecastMap[`${p.sku_code}_${m}`] || 0) > 0);
+    return matchSearch && matchGroup && matchNonZero;
   });
 
   const getSkuTotal = (sku) => months.reduce((sum, m) => sum + (forecastMap[`${sku}_${m}`] || 0), 0);
@@ -335,6 +337,10 @@ export default function MonthlyForecast({ currentBU, user }) {
               <option key={g.code} value={g.code}>{g.name}</option>
             ))}
           </select>
+          <label className="flex items-center gap-1.5 text-xs text-slate-600 whitespace-nowrap">
+            <input type="checkbox" checked={onlyNonZero} onChange={(e) => setOnlyNonZero(e.target.checked)} />
+            Chỉ hiện SKU có số lượng
+          </label>
           {isEditor && (
             <>
               <button
@@ -380,7 +386,6 @@ export default function MonthlyForecast({ currentBU, user }) {
             monthColumns={months}
             monthColumnLabel={monthLabel}
             weekColumns={months[0] ? weeksOfMonth(months[0]) : []}
-            weekColumnLabel={(w) => weekLabel(months[0], w)}
             weekBaseMonthLabel={months[0] ? monthLabel(months[0]) : ''}
             regionCodes={regions.map((r) => r.code)}
             onClose={() => setShowImport(false)}
