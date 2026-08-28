@@ -7,7 +7,7 @@ import AddProductModal from '../components/AddProductModal';
 // người dùng không bấm "Nhập từ file" mỗi lần vào trang này.
 const ImportForecastModal = React.lazy(() => import('../components/ImportForecastModal'));
 import { Save, Send, Search, Filter, AlertCircle, CheckCircle2, Loader2, ArrowDownToLine, PackagePlus, FileSpreadsheet } from 'lucide-react';
-import { monthsOfCycle, monthLabel } from '../utils/period';
+import { monthsOfCycle, monthLabel, weeksOfMonth, weekLabel } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
 import { useGridEditing, parsePastedNumber } from '../utils/useGridEditing';
 
@@ -23,6 +23,7 @@ export default function MonthlyForecast({ currentBU, user }) {
   const [products, setProducts] = useState([]);
   const [groups, setGroups] = useState([]);
   const [bus, setBus] = useState([]);
+  const [regions, setRegions] = useState([]);
   const [forecastMap, setForecastMap] = useState({});
   const [dirtyKeys, setDirtyKeys] = useState(() => new Set());
 
@@ -71,17 +72,19 @@ export default function MonthlyForecast({ currentBU, user }) {
     setLoading(true);
     setMessage(null);
     try {
-      const [cycleList, groupList, productList, buList] = await Promise.all([
+      const [cycleList, groupList, productList, buList, regionList] = await Promise.all([
         api.getCycles({ bu: currentBU }),
         api.getGroups(),
         api.getProducts({ bu: currentBU }),
-        api.getBUs()
+        api.getBUs(),
+        api.getRegions()
       ]);
 
       setCycles(cycleList);
       setGroups(groupList);
       setProducts(productList);
       setBus(buList);
+      setRegions(regionList);
 
       const cycle = cycleList.find((c) => c.id === preferCycleId) || cycleList[0] || null;
       setSelectedCycle(cycle);
@@ -374,15 +377,34 @@ export default function MonthlyForecast({ currentBU, user }) {
             currentBU={currentBU}
             groups={groups}
             bus={bus}
-            columns={months}
-            columnLabel={monthLabel}
+            monthColumns={months}
+            monthColumnLabel={monthLabel}
+            weekColumns={months[0] ? weeksOfMonth(months[0]) : []}
+            weekColumnLabel={(w) => weekLabel(months[0], w)}
+            weekBaseMonthLabel={months[0] ? monthLabel(months[0]) : ''}
+            regionCodes={regions.map((r) => r.code)}
             onClose={() => setShowImport(false)}
             onProductsAdded={(newProducts) => {
               setProducts((prev) => [...prev, ...newProducts]);
             }}
-            onImport={(updates) => {
-              handleCellsChange(updates);
-              setMessage({ type: 'success', text: `Đã áp ${updates.length} ô từ file nhập — nhớ bấm "Lưu bản thảo".` });
+            onImported={async ({ monthlyUpdates, weeklyUpdates }) => {
+              const parts = [];
+              if (monthlyUpdates.length) {
+                const lines = monthlyUpdates.map(({ rowKey, col, value }) => ({
+                  skuCode: rowKey, forecastMonth: col, quantity: value
+                }));
+                await api.saveMonthlyLines(selectedVersion.id, lines);
+                parts.push(`${lines.length} ô Bảng tháng`);
+              }
+              if (weeklyUpdates.length) {
+                const splits = weeklyUpdates.map(({ rowKey, col, value }) => ({
+                  skuCode: rowKey, weekNumber: col.week, regionCode: col.region, quantity: value
+                }));
+                await api.saveWeeklySplits(selectedVersion.id, splits);
+                parts.push(`${splits.length} ô Bảng tuần/miền`);
+              }
+              if (monthlyUpdates.length) await loadLines(selectedVersion.id);
+              setMessage({ type: 'success', text: parts.length ? `Đã lưu ${parts.join(' và ')}.` : 'Không có ô nào được cập nhật.' });
             }}
           />
         </React.Suspense>

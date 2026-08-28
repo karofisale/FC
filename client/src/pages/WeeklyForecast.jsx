@@ -4,7 +4,10 @@ import { api } from '../services/api';
 import CycleBar from '../components/CycleBar';
 import ValidationAlert from '../components/ValidationAlert';
 import AddProductModal from '../components/AddProductModal';
-import { Save, Send, Search, CheckCircle2, AlertCircle, Loader2, Wand2, ArrowDownToLine, PackagePlus } from 'lucide-react';
+// Tải lười — kéo theo thư viện xlsx (~290KB) chỉ để đọc file Excel, đa số
+// người dùng không bấm "Nhập từ file" mỗi lần vào trang này.
+const ImportForecastModal = React.lazy(() => import('../components/ImportForecastModal'));
+import { Save, Send, Search, CheckCircle2, AlertCircle, Loader2, Wand2, ArrowDownToLine, PackagePlus, FileSpreadsheet } from 'lucide-react';
 import { monthsOfCycle, weeksOfMonth, weekLabel, monthLabel, normalizeMonth } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
 import { useGridEditing, parsePastedNumber } from '../utils/useGridEditing';
@@ -24,6 +27,7 @@ export default function WeeklyForecast({ currentBU, user }) {
   const [groups, setGroups] = useState([]);
   const [bus, setBus] = useState([]);
   const [showAddProduct, setShowAddProduct] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [monthlyMap, setMonthlyMap] = useState({});
   const [weeklyMap, setWeeklyMap] = useState({});
   const [dirtyKeys, setDirtyKeys] = useState(() => new Set());
@@ -369,15 +373,64 @@ export default function WeeklyForecast({ currentBU, user }) {
           />
         </div>
         {isEditor && (
-          <button
-            onClick={() => setShowAddProduct(true)}
-            className="flex items-center gap-1.5 border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
-          >
-            <PackagePlus className="w-3.5 h-3.5" />
-            Thêm SKU
-          </button>
+          <>
+            <button
+              onClick={() => setShowAddProduct(true)}
+              className="flex items-center gap-1.5 border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
+            >
+              <PackagePlus className="w-3.5 h-3.5" />
+              Thêm SKU
+            </button>
+            <button
+              onClick={() => setShowImport(true)}
+              disabled={!canWrite}
+              className="flex items-center gap-1.5 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 text-emerald-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              Nhập từ file
+            </button>
+          </>
         )}
       </div>
+
+      {showImport && (
+        <React.Suspense fallback={null}>
+          <ImportForecastModal
+            currentBU={currentBU}
+            groups={groups}
+            bus={bus}
+            monthColumns={monthsOfCycle(selectedCycle)}
+            monthColumnLabel={monthLabel}
+            weekColumns={weeks}
+            weekColumnLabel={(w) => weekLabel(baseMonth, w)}
+            weekBaseMonthLabel={baseMonth ? monthLabel(baseMonth) : ''}
+            regionCodes={regionCodes}
+            onClose={() => setShowImport(false)}
+            onProductsAdded={(newProducts) => {
+              setProducts((prev) => [...prev, ...newProducts]);
+            }}
+            onImported={async ({ monthlyUpdates, weeklyUpdates }) => {
+              const parts = [];
+              if (monthlyUpdates.length) {
+                const lines = monthlyUpdates.map(({ rowKey, col, value }) => ({
+                  skuCode: rowKey, forecastMonth: col, quantity: value
+                }));
+                await api.saveMonthlyLines(selectedVersion.id, lines);
+                parts.push(`${lines.length} ô Bảng tháng`);
+              }
+              if (weeklyUpdates.length) {
+                const splits = weeklyUpdates.map(({ rowKey, col, value }) => ({
+                  skuCode: rowKey, weekNumber: col.week, regionCode: col.region, quantity: value
+                }));
+                await api.saveWeeklySplits(selectedVersion.id, splits);
+                parts.push(`${splits.length} ô Bảng tuần/miền`);
+              }
+              await loadForecasts(selectedVersion.id, normalizeMonth(selectedCycle.base_month));
+              setMessage({ type: 'success', text: parts.length ? `Đã lưu ${parts.join(' và ')}.` : 'Không có ô nào được cập nhật.' });
+            }}
+          />
+        </React.Suspense>
+      )}
 
       {showAddProduct && (
         <AddProductModal

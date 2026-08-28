@@ -5,27 +5,38 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { parsePastedNumber } from '../utils/useGridEditing';
-import { parseExcelFile, extractSpreadsheetId, trimBlankRows } from '../utils/importParsing';
+import { parseExcelFile, extractSpreadsheetId, trimBlankRows, splitEvenly } from '../utils/importParsing';
 
 const NONE = '__none__';
 
 /**
  * Nhập forecast hàng loạt từ file Excel tải lên hoặc một tab Google
  * Sheet ngoài. Luồng: chọn nguồn -> (nếu nhiều tab, chọn tab) -> gán cột
- * (mã SKU + từng tháng) -> phát hiện SKU chưa có trong danh mục, cho
- * điền nhanh rồi ghi hàng loạt -> áp số vào lưới đang mở.
+ * (mã SKU + từng tháng, và tuỳ chọn từng tuần) -> phát hiện SKU chưa có
+ * trong danh mục, cho điền nhanh rồi ghi hàng loạt -> lưu thẳng lên server.
  *
- * columns: mảng cột đích của lưới đang mở (thường = months của MonthlyForecast).
- * columnLabel(col): nhãn hiển thị cho một cột đích.
- * onImport(updates): updates = [{ rowKey: skuCode, col, value }], cùng
- *   hình dạng với onCellsChange của useGridEditing — gọi thẳng handler
- *   đã có sẵn ở trang cha, không cần logic áp dụng riêng.
+ * monthColumns/monthColumnLabel: cột tháng đích (Bảng 0).
+ * weekColumns/weekColumnLabel/regionCodes/weekBaseMonthLabel: cột tuần
+ *   đích (Bảng 1), chỉ hiện khi được truyền vào — vì Bảng 1 chỉ chia tuần
+ *   cho tháng đầu chu kỳ, và file nguồn thường chỉ có tổng theo tuần (không
+ *   theo từng miền) nên số lượng mỗi tuần được chia đều cho các miền, tuần
+ *   nào không gán cột sẽ ghi 0 (không giữ nguyên số cũ) để tổng tuần luôn
+ *   khớp với số liệu vừa nhập.
+ * onImported({ monthlyUpdates, weeklyUpdates }): gọi (và được await) sau
+ *   khi người dùng xác nhận — updates dạng [{ rowKey: skuCode, col, value }].
+ *   Trang cha tự lưu thẳng lên server (saveMonthlyLines/saveWeeklySplits)
+ *   và tải lại dữ liệu, vì bảng còn lại có thể không đang mở để tô ô chờ lưu.
  * onProductsAdded(products): gọi khi có SKU mới vừa được ghi vào danh
  *   mục — trang cha cần đẩy ngay vào state `products` của mình (giống
  *   AddProductModal.onAdded), nếu không SKU mới không hiện lên lưới và
  *   không được tính vào tổng cho tới khi tải lại trang.
  */
-export default function ImportForecastModal({ currentBU, groups, bus, columns, columnLabel, onClose, onImport, onProductsAdded }) {
+export default function ImportForecastModal({
+  currentBU, groups, bus,
+  monthColumns, monthColumnLabel,
+  weekColumns, weekColumnLabel = (w) => `Tuần ${w}`, regionCodes = [], weekBaseMonthLabel,
+  onClose, onImported, onProductsAdded
+}) {
   const [step, setStep] = useState('source'); // source | sheetPicker | mapping | missing | done
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -42,12 +53,18 @@ export default function ImportForecastModal({ currentBU, groups, bus, columns, c
   const [skuColIdx, setSkuColIdx] = useState(NONE);
   const [nameColIdx, setNameColIdx] = useState(NONE);
   const [monthColMap, setMonthColMap] = useState({}); // { colKey: colIdx }
+  const [weekColMap, setWeekColMap] = useState({}); // { weekNumber: colIdx }
 
-  const [parsedRows, setParsedRows] = useState([]); // [{ skuCode, name, values: {col: qty} }]
+  const canImportWeekly = weekColumns?.length > 0 && regionCodes.length > 0;
+  const hasMonthMapping = Object.values(monthColMap).some((v) => v !== NONE && v !== undefined);
+  const hasWeekMapping = canImportWeekly && Object.values(weekColMap).some((v) => v !== NONE && v !== undefined);
+
+  const [parsedRows, setParsedRows] = useState([]); // [{ skuCode, name, values: {col: qty}, weekValues?: {week: qty} }]
   const [missingSkus, setMissingSkus] = useState([]); // [{ skuCode, name, productGroupCode, defaultChannel, avgPrice }]
   const [bulkGroup, setBulkGroup] = useState(groups[0]?.code || '');
   const [bulkChannel, setBulkChannel] = useState(currentBU || bus[0]?.code || '');
   const [result, setResult] = useState(null);
+  const [resultCounts, setResultCounts] = useState({ monthly: 0, weekly: 0 });
 
   const aoa = activeSheet && sheets ? sheets[activeSheet] : null;
   const previewRows = aoa ? trimBlankRows(aoa) : [];
@@ -124,7 +141,7 @@ export default function ImportForecastModal({ currentBU, groups, bus, columns, c
 
   // ---- Bước 2: gán cột ----
 
-  const canProceedMapping = skuColIdx !== NONE && Object.values(monthColMap).some((v) => v !== NONE && v !== undefined);
+  const canProceedMapping = skuColIdx !== NONE && (hasMonthMapping || hasWeekMapping);
 
   const handleParseMapping = async () => {
     setError(null);
@@ -133,17 +150,31 @@ export default function ImportForecastModal({ currentBU, groups, bus, columns, c
     rows.forEach((row) => {
       const sku = String(row[skuColIdx] ?? '').trim();
       if (!sku) return;
+
       const values = {};
-      columns.forEach((col) => {
+      monthColumns.forEach((col) => {
         const idx = monthColMap[colKey(col)];
         if (idx === undefined || idx === NONE) return;
         values[colKey(col)] = parsePastedNumber(row[idx]);
       });
-      if (!Object.keys(values).length) return;
+
+      // Tuần không gán cột vẫn ghi 0 (không bỏ qua) để tổng tuần luôn khớp
+      // với dữ liệu vừa nhập, không lẫn số cũ còn sót lại ở tuần thiếu.
+      let weekValues;
+      if (hasWeekMapping) {
+        weekValues = {};
+        weekColumns.forEach((w) => {
+          const idx = weekColMap[w];
+          weekValues[w] = idx === undefined || idx === NONE ? 0 : parsePastedNumber(row[idx]);
+        });
+      }
+
+      if (!Object.keys(values).length && !weekValues) return;
       parsed.push({
         skuCode: sku,
         name: nameColIdx !== NONE ? String(row[nameColIdx] ?? '').trim() : '',
-        values
+        values,
+        weekValues
       });
     });
 
@@ -165,9 +196,12 @@ export default function ImportForecastModal({ currentBU, groups, bus, columns, c
 
       setParsedRows(parsed);
       const missing = Array.from(missingMap.values());
-      setMissingSkus(missing);
-      setStep(missing.length ? 'missing' : 'done');
-      if (!missing.length) applyImport(parsed);
+      if (missing.length) {
+        setMissingSkus(missing);
+        setStep('missing');
+      } else {
+        await applyImport(parsed);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -205,7 +239,7 @@ export default function ImportForecastModal({ currentBU, groups, bus, columns, c
       })));
       setResult(res);
       if (res.products?.length) onProductsAdded?.(res.products);
-      applyImport(parsedRows);
+      await applyImport(parsedRows);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -213,16 +247,29 @@ export default function ImportForecastModal({ currentBU, groups, bus, columns, c
     }
   };
 
-  // ---- Hoàn tất: áp số vào lưới ----
+  // ---- Hoàn tất: lưu thẳng lên server ----
 
-  function applyImport(rows) {
-    const updates = [];
+  async function applyImport(rows) {
+    const monthlyUpdates = [];
     rows.forEach((r) => {
       Object.entries(r.values).forEach(([col, value]) => {
-        updates.push({ rowKey: r.skuCode, col: columnByKey(columns, col), value });
+        monthlyUpdates.push({ rowKey: r.skuCode, col: columnByKey(monthColumns, col), value });
       });
     });
-    onImport(updates);
+
+    const weeklyUpdates = [];
+    rows.forEach((r) => {
+      if (!r.weekValues) return;
+      Object.entries(r.weekValues).forEach(([week, qty]) => {
+        const parts = splitEvenly(qty, regionCodes.length);
+        regionCodes.forEach((region, i) => {
+          weeklyUpdates.push({ rowKey: r.skuCode, col: { week: Number(week), region }, value: parts[i] });
+        });
+      });
+    });
+
+    await onImported({ monthlyUpdates, weeklyUpdates });
+    setResultCounts({ monthly: monthlyUpdates.length, weekly: weeklyUpdates.length });
     setStep('done');
   }
 
@@ -336,10 +383,10 @@ export default function ImportForecastModal({ currentBU, groups, bus, columns, c
               <div className="border-t border-slate-100 pt-3">
                 <p className="text-xs font-semibold text-slate-700 mb-2">Gán cột dữ liệu cho từng tháng:</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {columns.map((col) => (
+                  {monthColumns.map((col) => (
                     <ColumnSelect
                       key={colKey(col)}
-                      label={columnLabel(col)}
+                      label={monthColumnLabel(col)}
                       value={monthColMap[colKey(col)] ?? NONE}
                       onChange={(v) => setMonthColMap((prev) => ({ ...prev, [colKey(col)]: v }))}
                       options={colOptions}
@@ -348,6 +395,30 @@ export default function ImportForecastModal({ currentBU, groups, bus, columns, c
                   ))}
                 </div>
               </div>
+
+              {canImportWeekly && (
+                <div className="border-t border-slate-100 pt-3">
+                  <p className="text-xs font-semibold text-slate-700 mb-1">
+                    Gán cột dữ liệu cho từng tuần (áp cho {weekBaseMonthLabel}):
+                  </p>
+                  <p className="text-[11px] text-slate-500 mb-2">
+                    Số lượng mỗi tuần sẽ được chia đều cho {regionCodes.length} miền ({regionCodes.join(', ')}).
+                    Nếu đã gán ít nhất 1 tuần, tuần nào không gán cột sẽ ghi 0.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {weekColumns.map((w) => (
+                      <ColumnSelect
+                        key={`week-${w}`}
+                        label={weekColumnLabel(w)}
+                        value={weekColMap[w] ?? NONE}
+                        onChange={(v) => setWeekColMap((prev) => ({ ...prev, [w]: v }))}
+                        options={colOptions}
+                        allowNone
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="flex justify-between pt-2">
                 <button onClick={() => setStep(sheetNames.length > 1 ? 'sheetPicker' : 'source')} className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700">
@@ -449,16 +520,13 @@ export default function ImportForecastModal({ currentBU, groups, bus, columns, c
             <div className="text-center py-6 space-y-3">
               <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
               <p className="text-sm font-semibold text-slate-900">
-                Đã áp {parsedRows.length} dòng dữ liệu vào lưới.
+                {doneMessage(resultCounts)}
               </p>
               {result && (
                 <p className="text-xs text-slate-500">
                   {result.inserted} SKU mới đã thêm vào danh mục{result.skippedExisting?.length ? `, bỏ qua ${result.skippedExisting.length} SKU đã tồn tại` : ''}.
                 </p>
               )}
-              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5 inline-block">
-                Số liệu chưa được lưu — kiểm tra lại rồi bấm "Lưu bản thảo" như bình thường.
-              </p>
               <div className="pt-2">
                 <button onClick={onClose} className="bg-slate-800 hover:bg-slate-900 text-white px-5 py-2 rounded-lg text-xs font-semibold">
                   Đóng
@@ -471,6 +539,13 @@ export default function ImportForecastModal({ currentBU, groups, bus, columns, c
       </div>
     </div>
   );
+}
+
+function doneMessage(counts) {
+  const parts = [];
+  if (counts.monthly > 0) parts.push(`${counts.monthly} ô Bảng tháng`);
+  if (counts.weekly > 0) parts.push(`${counts.weekly} ô Bảng tuần/miền`);
+  return parts.length ? `Đã lưu ${parts.join(' và ')}.` : 'Không có ô nào được cập nhật.';
 }
 
 function colKey(col) {

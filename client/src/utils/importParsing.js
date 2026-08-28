@@ -43,3 +43,11 @@ export function trimBlankRows(aoa) {
 
 /** Chuẩn hoá số dán từ Excel (dấu chấm/phẩy ngăn cách) — dùng chung với useGridEditing. */
 export { parsePastedNumber } from './useGridEditing';
+
+/** Chia đều `total` cho `count` phần, dồn phần dư vào phần cuối. */
+export function splitEvenly(total, count) {
+  if (count <= 0) return [];
+  const per = Math.floor(total / count);
+  const remainder = total - per * count;
+  return Array.from({ length: count }, (_, i) => (i === count - 1 ? per + remainder : per));
+}
