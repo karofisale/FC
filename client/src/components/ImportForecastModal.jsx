@@ -104,9 +104,12 @@ export default function ImportForecastModal({
     return labels.join(' · ');
   }
 
-  function addWeekCellMapping() {
-    if (weekCellPickCol === NONE || !weekCellPickKey) return;
-    setWeekCellMap((prev) => ({ ...prev, [weekCellPickKey]: weekCellPickCol }));
+  /** Gán ngay khi chọn cột (không cần nút "Thêm" riêng) rồi trả ô chọn cột về rỗng
+   * để sẵn sàng gán tiếp ô tuần/miền khác — tránh trường hợp người dùng chọn xong
+   * tưởng đã gán nhưng quên bấm nút xác nhận, dẫn đến bảng tuần không có dữ liệu. */
+  function pickWeekCellColumn(colIdx) {
+    if (colIdx === NONE) return;
+    setWeekCellMap((prev) => ({ ...prev, [weekCellPickKey]: colIdx }));
     setWeekCellPickCol(NONE);
   }
 
@@ -475,7 +478,8 @@ export default function ImportForecastModal({
                   {weekStartCol === NONE && (
                     <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
                       <p className="text-[11px] text-slate-600 mb-2">
-                        Không chọn cột bắt đầu — gán riêng từng ô tuần/miền cụ thể vào cột tương ứng trong file:
+                        Không chọn cột bắt đầu — gán riêng từng ô tuần/miền cụ thể: chọn tuần/miền rồi chọn cột,
+                        gán ngay lập tức (không cần bấm nút xác nhận nào khác) và hiện trong danh sách bên dưới.
                       </p>
                       <div className="flex items-end gap-2">
                         <div className="flex-1">
@@ -491,16 +495,8 @@ export default function ImportForecastModal({
                           </select>
                         </div>
                         <div className="flex-1">
-                          <ColumnSelect label="Cột dữ liệu" value={weekCellPickCol} onChange={setWeekCellPickCol} options={colOptions} allowNone />
+                          <ColumnSelect label="Cột dữ liệu" value={weekCellPickCol} onChange={pickWeekCellColumn} options={colOptions} allowNone />
                         </div>
-                        <button
-                          type="button"
-                          onClick={addWeekCellMapping}
-                          disabled={weekCellPickCol === NONE}
-                          className="flex-shrink-0 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-semibold"
-                        >
-                          Thêm
-                        </button>
                       </div>
                       {Object.keys(weekCellMap).length > 0 && (
                         <div className="mt-2 space-y-1">
