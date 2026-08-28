@@ -53,11 +53,13 @@ const READ_ACTIONS = [
   'getMonthlyWorkspace', 'getWeeklyWorkspace', 'getDashboardWorkspace',
   'getActualsWorkspace', 'getApprovalsWorkspace',
   // Xuất báo cáo
-  'getB0SumExport', 'getSapGt2Weekly'
+  'getB0SumExport', 'getSapGt2Weekly',
+  // Nhập từ Google Sheet ngoài
+  'readExternalSheet'
 ];
 const WRITE_ACTIONS = [
   'createCycle', 'createVersion', 'saveMonthlyLines', 'saveWeeklySplits',
   'submitCycle', 'decideApproval', 'changeMyPin', 'setUserPin', 'importProducts',
-  'saveActuals', 'addProduct'
+  'saveActuals', 'addProduct', 'addProducts'
 ];
 

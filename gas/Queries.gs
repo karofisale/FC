@@ -580,3 +580,36 @@ function getSapGt2Weekly_(session, baseMonth) {
     rows: Object.keys(weekTotals).map(function (sku) { return { sku_code: sku, weeks: weekTotals[sku] }; })
   };
 }
+
+/**
+ * Đọc thô một tab từ MỘT Google Sheet KHÁC (ID bất kỳ) — dùng cho màn
+ * nhập forecast từ file Excel gốc mà sale đang dùng. Sheet đó phải được
+ * chia sẻ cho đúng tài khoản Google đang chạy Apps Script này (tài khoản
+ * bấm "Execute as: Me" lúc deploy), không phải tài khoản đăng nhập app.
+ */
+function readExternalSheet_(session, spreadsheetId, sheetName) {
+  assertRole_(session, ['bu_editor', 'central_admin']);
+  if (!spreadsheetId) throw new Error('Thiếu ID hoặc URL Google Sheet.');
+
+  var ss;
+  try {
+    ss = SpreadsheetApp.openById(spreadsheetId);
+  } catch (err) {
+    throw new Error('Không mở được Google Sheet. Kiểm tra lại ID/URL, và chắc chắn Sheet đã được chia sẻ cho tài khoản chạy hệ thống.');
+  }
+
+  var sheet = sheetName ? ss.getSheetByName(sheetName) : ss.getSheets()[0];
+  if (!sheet) throw new Error('Không tìm thấy tab "' + sheetName + '" trong Sheet này.');
+
+  var values = sheet.getDataRange().getValues().map(function (row) {
+    return row.map(function (cell) { return cell instanceof Date ? cell.toISOString() : cell; });
+  });
+  if (!values.length) throw new Error('Tab "' + sheet.getName() + '" không có dữ liệu.');
+
+  return {
+    spreadsheetName: ss.getName(),
+    sheetName: sheet.getName(),
+    availableSheets: ss.getSheets().map(function (s) { return s.getName(); }),
+    values: values
+  };
+}

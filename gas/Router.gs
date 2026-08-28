@@ -116,6 +116,7 @@ function dispatch_(action, p, session) {
     case 'getApprovalsWorkspace': return getApprovalsWorkspace_(session, p);
     case 'getB0SumExport':  return getB0SumExport_(session, p.baseMonth);
     case 'getSapGt2Weekly': return getSapGt2Weekly_(session, p.baseMonth);
+    case 'readExternalSheet': return readExternalSheet_(session, p.spreadsheetId, p.sheetName);
 
     // ----- ghi -----
     case 'createCycle':      return createCycle_(session, p);
@@ -128,6 +129,7 @@ function dispatch_(action, p, session) {
     case 'setUserPin':       return setUserPin_(session, p.userId, p.newPin);
     case 'importProducts':   return importProducts_(session, p.products, p.replace);
     case 'addProduct':       return addProduct_(session, p.product);
+    case 'addProducts':      return addProducts_(session, p.products);
     case 'saveActuals':      return saveActuals_(session, p.rows);
   }
   throw new Error('Action chưa được cài đặt: ' + action);

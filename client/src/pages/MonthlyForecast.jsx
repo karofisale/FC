@@ -3,7 +3,10 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { api } from '../services/api';
 import CycleBar from '../components/CycleBar';
 import AddProductModal from '../components/AddProductModal';
-import { Save, Send, Search, Filter, AlertCircle, CheckCircle2, Loader2, ArrowDownToLine, PackagePlus } from 'lucide-react';
+// Tải lười — kéo theo thư viện xlsx (~290KB) chỉ để đọc file Excel, đa số
+// người dùng không bấm "Nhập từ file" mỗi lần vào trang này.
+const ImportForecastModal = React.lazy(() => import('../components/ImportForecastModal'));
+import { Save, Send, Search, Filter, AlertCircle, CheckCircle2, Loader2, ArrowDownToLine, PackagePlus, FileSpreadsheet } from 'lucide-react';
 import { monthsOfCycle, monthLabel } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
 import { useGridEditing, parsePastedNumber } from '../utils/useGridEditing';
@@ -34,6 +37,7 @@ export default function MonthlyForecast({ currentBU, user }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
   const [showAddProduct, setShowAddProduct] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   const months = monthsOfCycle(selectedCycle);
   const isEditor = user?.role === 'bu_editor' || user?.role === 'central_admin';
@@ -329,13 +333,23 @@ export default function MonthlyForecast({ currentBU, user }) {
             ))}
           </select>
           {isEditor && (
-            <button
-              onClick={() => setShowAddProduct(true)}
-              className="flex items-center gap-1.5 border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
-            >
-              <PackagePlus className="w-3.5 h-3.5" />
-              Thêm SKU
-            </button>
+            <>
+              <button
+                onClick={() => setShowAddProduct(true)}
+                className="flex items-center gap-1.5 border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
+              >
+                <PackagePlus className="w-3.5 h-3.5" />
+                Thêm SKU
+              </button>
+              <button
+                onClick={() => setShowImport(true)}
+                disabled={!canWrite}
+                className="flex items-center gap-1.5 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 text-emerald-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                Nhập từ file
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -352,6 +366,26 @@ export default function MonthlyForecast({ currentBU, user }) {
             setMessage({ type: 'success', text: `Đã thêm SKU ${product.sku_code} vào danh mục.` });
           }}
         />
+      )}
+
+      {showImport && (
+        <React.Suspense fallback={null}>
+          <ImportForecastModal
+            currentBU={currentBU}
+            groups={groups}
+            bus={bus}
+            columns={months}
+            columnLabel={monthLabel}
+            onClose={() => setShowImport(false)}
+            onProductsAdded={(newProducts) => {
+              setProducts((prev) => [...prev, ...newProducts]);
+            }}
+            onImport={(updates) => {
+              handleCellsChange(updates);
+              setMessage({ type: 'success', text: `Đã áp ${updates.length} ô từ file nhập — nhớ bấm "Lưu bản thảo".` });
+            }}
+          />
+        </React.Suspense>
       )}
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">

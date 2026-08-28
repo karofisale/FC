@@ -35,6 +35,8 @@ export const api = {
   getGroups: async () => (await bootstrap()).productGroups || [],
   getProducts: (params = {}) => callGAS('getProducts', auth(params)),
   addProduct: (product) => callGAS('addProduct', auth({ product })),
+  addProducts: (products) => callGAS('addProducts', auth({ products })),
+  readExternalSheet: (spreadsheetId, sheetName) => callGAS('readExternalSheet', auth({ spreadsheetId, sheetName })),
 
   // ----- chu kỳ & version -----
   getCycles: (params = {}) => callGAS('getCycles', auth(params)),

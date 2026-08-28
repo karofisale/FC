@@ -407,3 +407,54 @@ function addProduct_(session, p) {
 
   return { message: 'Đã thêm SKU ' + skuCode + ' vào danh mục.', product: record };
 }
+
+/**
+ * Thêm NHIỀU SKU mới cùng lúc — dùng khi nhập forecast từ file ngoài
+ * (Excel/Google Sheet) và phát hiện một loạt mã chưa có trong danh mục.
+ * Bỏ qua (không lỗi) SKU đã tồn tại thay vì chặn cả batch, vì thường chỉ
+ * một phần trong file là SKU thật sự mới.
+ */
+function addProducts_(session, products) {
+  assertRole_(session, ['bu_editor', 'central_admin']);
+  if (!Array.isArray(products) || !products.length) throw new Error('Danh sách sản phẩm rỗng.');
+
+  var existingSkus = {};
+  readObjects_(SHEETS.PRODUCTS).forEach(function (p) { existingSkus[p.sku_code] = true; });
+
+  var toInsert = [];
+  var skippedExisting = [];
+  var seenInBatch = {};
+
+  products.forEach(function (p) {
+    var skuCode = String(p.skuCode || '').trim();
+    if (!skuCode) return;
+    if (existingSkus[skuCode] || seenInBatch[skuCode]) {
+      skippedExisting.push(skuCode);
+      return;
+    }
+    seenInBatch[skuCode] = true;
+    toInsert.push({
+      sku_code: skuCode,
+      name: p.name || skuCode,
+      short_name: p.shortName || '',
+      product_group_code: p.productGroupCode || '',
+      product_group_name: p.productGroupName || '',
+      technology: p.technology || '',
+      default_channel: p.defaultChannel || '',
+      avg_price: Number(p.avgPrice) || 0,
+      is_active: 1
+    });
+  });
+
+  if (toInsert.length) {
+    appendObjects_(SHEETS.PRODUCTS, toInsert);
+    logAuth_(session.userId, 'products_bulk_added', toInsert.length + ' SKU');
+  }
+
+  return {
+    message: 'Đã thêm ' + toInsert.length + ' SKU mới' + (skippedExisting.length ? ', bỏ qua ' + skippedExisting.length + ' SKU đã tồn tại.' : '.'),
+    inserted: toInsert.length,
+    products: toInsert,
+    skippedExisting: skippedExisting
+  };
+}
