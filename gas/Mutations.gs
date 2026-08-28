@@ -153,26 +153,42 @@ function saveMonthlyLines_(session, versionId, lines) {
   assertCanEdit_(session, ctx.cycle);
 
   var now = new Date().toISOString();
-  var records = lines.map(function (l) {
+  var toUpsert = [];
+  var toDelete = [];
+  lines.forEach(function (l) {
     var qty = Number(l.quantity);
     if (!isFinite(qty) || qty < 0) {
       throw new Error('Số lượng không hợp lệ tại SKU ' + l.skuCode + ': ' + l.quantity);
     }
     if (!l.skuCode || !l.forecastMonth) throw new Error('Dòng thiếu skuCode hoặc forecastMonth.');
-    return {
-      id: Utilities.getUuid(),
-      version_id: versionId,
-      sku_code: String(l.skuCode),
-      forecast_month: normalizeMonth_(l.forecastMonth),
-      quantity: qty,
-      note: l.note || '',
-      updated_at: now,
-      updated_by: session.userId
-    };
+    var skuCode = String(l.skuCode);
+    var forecastMonth = normalizeMonth_(l.forecastMonth);
+    // Số lượng 0 nghĩa là không dùng đến SKU/tháng đó — xoá hẳn dòng thay
+    // vì lưu số 0, tránh bảng phình to vô hạn theo SKU x tháng x version.
+    if (qty === 0) {
+      toDelete.push({ version_id: versionId, sku_code: skuCode, forecast_month: forecastMonth });
+    } else {
+      toUpsert.push({
+        id: Utilities.getUuid(),
+        version_id: versionId,
+        sku_code: skuCode,
+        forecast_month: forecastMonth,
+        quantity: qty,
+        note: l.note || '',
+        updated_at: now,
+        updated_by: session.userId
+      });
+    }
   });
 
-  var written = upsertRows_(SHEETS.MONTHLY_LINES, ['version_id', 'sku_code', 'forecast_month'], records);
-  return { message: 'Đã lưu ' + written.total + ' dòng kế hoạch tháng.', updated: written.updated, inserted: written.inserted };
+  var del = deleteRowsByKeys_(SHEETS.MONTHLY_LINES, ['version_id', 'sku_code', 'forecast_month'], toDelete);
+  var written = upsertRows_(SHEETS.MONTHLY_LINES, ['version_id', 'sku_code', 'forecast_month'], toUpsert);
+  return {
+    message: 'Đã lưu ' + written.total + ' dòng kế hoạch tháng.',
+    updated: written.updated,
+    inserted: written.inserted,
+    deleted: del.deleted
+  };
 }
 
 function saveWeeklySplits_(session, versionId, splits) {
@@ -181,7 +197,9 @@ function saveWeeklySplits_(session, versionId, splits) {
   assertCanEdit_(session, ctx.cycle);
 
   var now = new Date().toISOString();
-  var records = splits.map(function (s) {
+  var toUpsert = [];
+  var toDelete = [];
+  splits.forEach(function (s) {
     var qty = Number(s.quantity);
     if (!isFinite(qty) || qty < 0) {
       throw new Error('Số lượng không hợp lệ tại SKU ' + s.skuCode + ': ' + s.quantity);
@@ -189,20 +207,34 @@ function saveWeeklySplits_(session, versionId, splits) {
     var week = Number(s.weekNumber);
     if (!(week >= 1 && week <= 6)) throw new Error('Số tuần phải trong khoảng 1–6, nhận được: ' + s.weekNumber);
     if (!s.skuCode || !s.regionCode) throw new Error('Dòng thiếu skuCode hoặc regionCode.');
-    return {
-      id: Utilities.getUuid(),
-      version_id: versionId,
-      sku_code: String(s.skuCode),
-      week_number: week,
-      region_code: String(s.regionCode),
-      quantity: qty,
-      updated_at: now,
-      updated_by: session.userId
-    };
+    var skuCode = String(s.skuCode);
+    var regionCode = String(s.regionCode);
+    // Số lượng 0 nghĩa là không dùng đến SKU/tuần/miền đó — xoá hẳn dòng
+    // thay vì lưu số 0, tránh bảng phình to vô hạn theo SKU x tuần x miền x version.
+    if (qty === 0) {
+      toDelete.push({ version_id: versionId, sku_code: skuCode, week_number: week, region_code: regionCode });
+    } else {
+      toUpsert.push({
+        id: Utilities.getUuid(),
+        version_id: versionId,
+        sku_code: skuCode,
+        week_number: week,
+        region_code: regionCode,
+        quantity: qty,
+        updated_at: now,
+        updated_by: session.userId
+      });
+    }
   });
 
-  var written = upsertRows_(SHEETS.WEEKLY_SPLITS, ['version_id', 'sku_code', 'week_number', 'region_code'], records);
-  return { message: 'Đã lưu ' + written.total + ' dòng kế hoạch tuần/miền.', updated: written.updated, inserted: written.inserted };
+  var del = deleteRowsByKeys_(SHEETS.WEEKLY_SPLITS, ['version_id', 'sku_code', 'week_number', 'region_code'], toDelete);
+  var written = upsertRows_(SHEETS.WEEKLY_SPLITS, ['version_id', 'sku_code', 'week_number', 'region_code'], toUpsert);
+  return {
+    message: 'Đã lưu ' + written.total + ' dòng kế hoạch tuần/miền.',
+    updated: written.updated,
+    inserted: written.inserted,
+    deleted: del.deleted
+  };
 }
 
 function submitCycle_(session, cycleId, versionId) {

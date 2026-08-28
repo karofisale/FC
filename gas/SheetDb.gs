@@ -265,6 +265,39 @@ function upsertRows_(name, keyFields, records) {
   return { total: records.length, updated: updated, inserted: inserted };
 }
 
+/**
+ * Xoá theo khoá tổ hợp (đối xứng với upsertRows_) — dùng khi giá trị về 0
+ * nghĩa là "không dùng đến" chứ không phải "0 nhưng vẫn cần nhớ", để bảng
+ * không phình to vô hạn theo số SKU x tháng/tuần x version theo thời gian.
+ * Khoá không tồn tại thì bỏ qua, không lỗi.
+ */
+function deleteRowsByKeys_(name, keyFields, records) {
+  if (!records.length) return { deleted: 0 };
+
+  var t = readTable_(name);
+  keyFields.forEach(function (f) {
+    if (t.idx[f] === undefined) throw new Error('Sheet ' + name + ' thiếu cột khoá "' + f + '".');
+  });
+
+  var keyOf = function (getter) {
+    return keyFields.map(function (f) { return String(getter(f)); }).join('');
+  };
+
+  var toDelete = {};
+  records.forEach(function (rec) {
+    toDelete[keyOf(function (f) { return rec[f]; })] = true;
+  });
+
+  var before = t.rows.length;
+  t.rows = t.rows.filter(function (row) {
+    return !toDelete[keyOf(function (f) { return row[t.idx[f]]; })];
+  });
+
+  var deleted = before - t.rows.length;
+  if (deleted > 0) writeTable_(name, t);
+  return { deleted: deleted };
+}
+
 function findRowIndex_(table, field, value) {
   var col = table.idx[field];
   if (col === undefined) return -1;
