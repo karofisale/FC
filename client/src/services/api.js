@@ -77,6 +77,9 @@ export const api = {
   // lần chạy, đọc mỗi sheet một lần thay vì mỗi request đọc lại từ đầu.
   getMonthlyWorkspace: (params = {}) => callGAS('getMonthlyWorkspace', auth(params)),
   getWeeklyWorkspace: (params = {}) => callGAS('getWeeklyWorkspace', auth(params)),
+  getDashboardWorkspace: (params = {}) => callGAS('getDashboardWorkspace', auth(params)),
+  getActualsWorkspace: (params = {}) => callGAS('getActualsWorkspace', auth(params)),
+  getApprovalsWorkspace: (params = {}) => callGAS('getApprovalsWorkspace', auth(params)),
 
   // ----- chu kỳ & version -----
   getCycles: (params = {}) => callGAS('getCycles', auth(params)),

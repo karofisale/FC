@@ -39,28 +39,33 @@ export default function Actuals({ currentBU, user }) {
   const isEditor = user?.role === 'bu_editor' || user?.role === 'central_admin';
   const regionCodes = regions.map((r) => r.code);
 
+  /**
+   * Một lượt gọi thay cho getProducts + getRegions + getActuals +
+   * getFcVsActual. Bốn lượt này trước đây chạy ở hai effect riêng, tưởng là
+   * song song nhưng Apps Script xử lý tuần tự nên chúng vẫn cộng dồn.
+   */
   const loadGrid = useCallback(async () => {
     setLoading(true);
+    setComparisonLoading(true);
     setMessage(null);
     try {
-      const [prods, regionList, existing] = await Promise.all([
-        api.getProducts({ bu: currentBU }),
-        api.getRegions(),
-        api.getActuals({ bu: currentBU, month })
-      ]);
-      setProducts(prods);
-      setRegions(regionList);
+      const ws = await api.getActualsWorkspace({ bu: currentBU, month });
+      setProducts(ws.products || []);
+      setRegions(ws.regions || []);
 
       const map = {};
-      existing.forEach((a) => {
+      (ws.actuals || []).forEach((a) => {
         map[`${a.sku_code}_${a.region_code}`] = Number(a.quantity) || 0;
       });
       setActualsMap(map);
       setDirtyKeys(new Set());
+      setComparison(ws.comparison || null);
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
+      setComparison(null);
     } finally {
       setLoading(false);
+      setComparisonLoading(false);
     }
   }, [currentBU, month]);
 
@@ -80,9 +85,8 @@ export default function Actuals({ currentBU, user }) {
     if (currentBU) loadGrid();
   }, [currentBU, loadGrid]);
 
-  useEffect(() => {
-    if (currentBU) loadComparison();
-  }, [currentBU, loadComparison]);
+  // Không còn effect riêng cho phần so sánh — loadGrid đã lấy sẵn trong cùng
+  // lượt gọi. loadComparison chỉ dùng để làm mới sau khi lưu.
 
   const handleCellChange = (skuCode, regionCode, value) => {
     const key = `${skuCode}_${regionCode}`;

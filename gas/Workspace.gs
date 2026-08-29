@@ -54,22 +54,15 @@ function getMonthlyWorkspace_(session, p) {
   var version = pickVersion_(versions, p.versionId);
 
   var products = getProducts_(bu, null, null);
-  var lines = [];
-
-  if (version) {
-    var productIndex = {};
-    products.forEach(function (pr) { productIndex[pr.sku_code] = pr; });
-
-    readObjects_(SHEETS.MONTHLY_LINES).forEach(function (l) {
-      if (String(l.version_id) !== String(version.id)) return;
-      lines.push({
-        sku_code: l.sku_code,
-        forecast_month: normalizeMonth_(l.forecast_month),
-        quantity: Number(l.quantity) || 0,
-        note: l.note || ''
-      });
-    });
-  }
+  // getMonthlyLines_ trả forecast_month thô từ sheet; client dựng khoá ô
+  // theo trường này và so với mốc tháng dạng YYYY-MM-01, nên phải chuẩn hoá
+  // ở đây — giữ đúng hình dạng dữ liệu client đang nhận.
+  var lines = version
+    ? getMonthlyLines_(version.id).map(function (l) {
+        l.forecast_month = normalizeMonth_(l.forecast_month);
+        return l;
+      })
+    : [];
 
   return {
     businessUnitCode: bu,
@@ -99,54 +92,15 @@ function getWeeklyWorkspace_(session, p) {
   var products = getProducts_(bu, null, null);
   var baseMonth = cycle ? normalizeMonth_(cycle.base_month) : '';
 
+  // Tổng theo SKU của tháng đầu chu kỳ — client dùng làm cột "FC tháng 1"
+  // để đối chiếu với tổng các tuần.
   var monthQty = {};
-  var splits = [];
-
   if (version) {
-    readObjects_(SHEETS.MONTHLY_LINES).forEach(function (l) {
-      if (String(l.version_id) !== String(version.id)) return;
+    getMonthlyLines_(version.id).forEach(function (l) {
       if (normalizeMonth_(l.forecast_month) !== baseMonth) return;
       monthQty[l.sku_code] = (monthQty[l.sku_code] || 0) + (Number(l.quantity) || 0);
     });
-
-    readObjects_(SHEETS.WEEKLY_SPLITS).forEach(function (w) {
-      if (String(w.version_id) !== String(version.id)) return;
-      splits.push({
-        sku_code: w.sku_code,
-        week_number: Number(w.week_number) || 0,
-        region_code: w.region_code,
-        quantity: Number(w.quantity) || 0
-      });
-    });
   }
-
-  var weekQty = {};
-  splits.forEach(function (w) {
-    weekQty[w.sku_code] = (weekQty[w.sku_code] || 0) + w.quantity;
-  });
-
-  var productNames = {};
-  products.forEach(function (pr) { productNames[pr.sku_code] = pr.name; });
-
-  var skus = {};
-  Object.keys(monthQty).forEach(function (s) { skus[s] = 1; });
-  Object.keys(weekQty).forEach(function (s) { skus[s] = 1; });
-
-  var mismatches = [];
-  Object.keys(skus).forEach(function (sku) {
-    var m = monthQty[sku] || 0;
-    var w = weekQty[sku] || 0;
-    if (Math.abs(m - w) < 0.0001) return;
-    if (m === 0 && w === 0) return;
-    mismatches.push({
-      sku_code: sku,
-      product_name: productNames[sku] || sku,
-      month_qty: m,
-      week_sum: w,
-      variance: w - m
-    });
-  });
-  mismatches.sort(function (a, b) { return Math.abs(b.variance) - Math.abs(a.variance); });
 
   return {
     businessUnitCode: bu,
@@ -158,150 +112,57 @@ function getWeeklyWorkspace_(session, p) {
     regions: activeOnly_(readObjects_(SHEETS.REGIONS)),
     products: products,
     monthlyQuantities: monthQty,
-    splits: splits,
-    validation: {
-      isValid: mismatches.length === 0,
-      mismatchesCount: mismatches.length,
-      baseMonth: baseMonth,
-      mismatches: mismatches.slice(0, 200)
-    }
+    splits: version ? getWeeklySplits_(version.id) : [],
+    // Gọi thẳng validateWeekly_ thay vì tính lại. Bản cũ chép nguyên phép so
+    // khớp (kể cả ngưỡng sai lệch 0.0001 và giới hạn 200 dòng) sang đây, nên
+    // mỗi lần đổi quy tắc phải nhớ sửa cả hai chỗ — sửa sót một chỗ là cùng
+    // một câu hỏi cho ra hai câu trả lời khác nhau.
+    validation: version
+      ? validateWeekly_(version.id)
+      : { isValid: true, mismatchesCount: 0, baseMonth: baseMonth, mismatches: [] }
   };
 }
 
-/** Màn Tổng quan — gộp getCycles + getProducts + getB0Summary. */
+/**
+ * Màn Tổng quan — gộp getCycles + getProducts + getB0Summary.
+ *
+ * Chỉ ghép kết quả của các hàm trong Queries.gs, không chép lại phép tính
+ * nào. Bản cũ tự dựng lại toàn bộ phần tổng hợp theo nhóm hàng để mỗi sheet
+ * chỉ phải đọc một lần — nhưng __tableCache_ đã lo việc đó cho cả request
+ * rồi, nên phần chép lại chỉ còn là hai chỗ phải sửa mỗi khi đổi nghiệp vụ.
+ */
 function getDashboardWorkspace_(session, p) {
   var bu = p.bu || session.bu;
   var cycles = cyclesForBU_(session, bu);
   var cycle = pickCycle_(cycles, p.cycleId);
   var products = getProducts_(bu, null, null);
 
-  var summary = [];
-  if (cycle) {
-    var productIndex = {};
-    products.forEach(function (pr) { productIndex[pr.sku_code] = pr; });
-
-    var finalVersions = {};
-    readObjects_(SHEETS.VERSIONS).forEach(function (v) {
-      if (String(v.cycle_id) !== String(cycle.id)) return;
-      if (String(v.is_final) !== '1' && v.is_final !== true) return;
-      finalVersions[v.id] = true;
-    });
-
-    var map = {};
-    readObjects_(SHEETS.MONTHLY_LINES).forEach(function (l) {
-      if (!finalVersions[l.version_id]) return;
-      var pr = productIndex[l.sku_code] || {};
-      var groupCode = pr.product_group_code || 'KHAC';
-      var month = normalizeMonth_(l.forecast_month);
-      var key = groupCode + '|' + month;
-      if (!map[key]) {
-        map[key] = {
-          business_unit_code: cycle.business_unit_code,
-          business_unit_name: cycle.business_unit_code,
-          product_group_code: groupCode,
-          product_group_name: pr.product_group_name || 'Chưa phân nhóm',
-          forecast_month: month,
-          total_quantity: 0,
-          total_revenue: 0
-        };
-      }
-      var qty = Number(l.quantity) || 0;
-      map[key].total_quantity += qty;
-      map[key].total_revenue += qty * (Number(pr.avg_price) || 0);
-    });
-    summary = Object.keys(map).map(function (k) { return map[k]; });
-  }
-
   return {
     businessUnitCode: bu,
     cycles: cycles,
     cycle: cycle,
     productCount: products.length,
-    b0Summary: summary
+    b0Summary: cycle ? getB0Summary_(cycle.base_month, bu) : []
   };
 }
 
-/** Màn Sản lượng thực hiện — gộp getProducts + getRegions + getActuals + getFcVsActual. */
+/**
+ * Màn Sản lượng thực hiện — gộp getProducts + getRegions + getActuals +
+ * getFcVsActual. Cũng chỉ ghép kết quả, không chép phép tính.
+ */
 function getActualsWorkspace_(session, p) {
   var bu = p.bu || session.bu;
   var month = normalizeMonth_(p.month);
   if (!month) throw new Error('Thiếu tháng cần xem.');
-
-  var products = getProducts_(bu, null, null);
-  var productIndex = {};
-  products.forEach(function (pr) { productIndex[pr.sku_code] = pr; });
-
-  var actualBySku = {};
-  var actuals = [];
-  readObjects_(SHEETS.ACTUALS).forEach(function (a) {
-    if (String(a.business_unit_code) !== String(bu)) return;
-    if (normalizeMonth_(a.actual_month) !== month) return;
-    var qty = Number(a.quantity) || 0;
-    actuals.push({
-      sku_code: a.sku_code,
-      region_code: a.region_code,
-      quantity: qty
-    });
-    actualBySku[a.sku_code] = (actualBySku[a.sku_code] || 0) + qty;
-  });
-
-  var cycles = cyclesForBU_(session, bu);
-  var cycle = cycles.length ? cycles[0] : null;
-  var fcBySku = {};
-
-  if (cycle) {
-    var finalVersionId = null;
-    readObjects_(SHEETS.VERSIONS).forEach(function (v) {
-      if (String(v.cycle_id) !== String(cycle.id)) return;
-      if (String(v.is_final) === '1' || v.is_final === true) finalVersionId = v.id;
-    });
-    if (finalVersionId) {
-      readObjects_(SHEETS.MONTHLY_LINES).forEach(function (l) {
-        if (String(l.version_id) !== String(finalVersionId)) return;
-        if (normalizeMonth_(l.forecast_month) !== month) return;
-        fcBySku[l.sku_code] = (fcBySku[l.sku_code] || 0) + (Number(l.quantity) || 0);
-      });
-    }
-  }
-
-  var skus = {};
-  Object.keys(fcBySku).forEach(function (s) { skus[s] = 1; });
-  Object.keys(actualBySku).forEach(function (s) { skus[s] = 1; });
-
-  var rows = Object.keys(skus).map(function (sku) {
-    var pr = productIndex[sku] || {};
-    var fc = fcBySku[sku] || 0;
-    var actual = actualBySku[sku] || 0;
-    return {
-      sku_code: sku,
-      product_name: pr.name || sku,
-      product_group_code: pr.product_group_code || '',
-      forecast_qty: fc,
-      actual_qty: actual,
-      variance_qty: actual - fc,
-      variance_pct: fc > 0 ? Math.round(((actual - fc) / fc) * 1000) / 10 : null
-    };
-  }).filter(function (r) { return r.forecast_qty !== 0 || r.actual_qty !== 0; });
-
-  rows.sort(function (a, b) { return Math.abs(b.variance_qty) - Math.abs(a.variance_qty); });
-
-  var totalFc = rows.reduce(function (s, r) { return s + r.forecast_qty; }, 0);
-  var totalActual = rows.reduce(function (s, r) { return s + r.actual_qty; }, 0);
+  assertCanReadBU_(session, bu);
 
   return {
     businessUnitCode: bu,
     month: month,
     regions: activeOnly_(readObjects_(SHEETS.REGIONS)),
-    products: products,
-    actuals: actuals,
-    comparison: {
-      cycleFound: !!cycle,
-      totalForecast: totalFc,
-      totalActual: totalActual,
-      totalVariance: totalActual - totalFc,
-      totalVariancePct: totalFc > 0 ? Math.round(((totalActual - totalFc) / totalFc) * 1000) / 10 : null,
-      rows: rows
-    }
+    products: getProducts_(bu, null, null),
+    actuals: getActuals_(bu, month, null),
+    comparison: getFcVsActual_(bu, month)
   };
 }
 

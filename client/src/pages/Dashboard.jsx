@@ -20,15 +20,12 @@ export default function Dashboard({ currentBU }) {
     setLoading(true);
     setError(null);
     try {
-      const [cycles, prods] = await Promise.all([
-        api.getCycles({ bu: currentBU }),
-        api.getProducts({ bu: currentBU })
-      ]);
-      setProductsCount(prods.length);
-
-      const latest = cycles[0] || null;
-      setCycle(latest);
-      setB0Summary(latest ? await api.getB0Summary(latest.base_month, currentBU) : []);
+      // Một lượt gọi thay cho (getCycles ‖ getProducts) rồi mới getB0Summary —
+      // hai chặng nối tiếp, mà Apps Script xử lý tuần tự nên chúng cộng dồn.
+      const ws = await api.getDashboardWorkspace({ bu: currentBU });
+      setProductsCount(ws.productCount || 0);
+      setCycle(ws.cycle || null);
+      setB0Summary(ws.b0Summary || []);
     } catch (err) {
       setError(err.message);
       setB0Summary([]);

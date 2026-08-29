@@ -17,6 +17,8 @@ export default function Approvals({ currentBU, user, onCountChange }) {
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState(null);
+  // Số liệu tổng hợp backend đã gửi kèm cho mục đầu tiên, để không gọi lại
+  const [preloadedSummary, setPreloadedSummary] = useState(null);
 
   // Chỉ người thẩm định của đơn vị (hoặc quản trị) mới thấy nút quyết định
   const canApprove = user?.role === 'bu_approver' || user?.role === 'central_admin';
@@ -25,10 +27,16 @@ export default function Approvals({ currentBU, user, onCountChange }) {
     setLoading(true);
     setError(null);
     try {
-      const list = await api.getApprovals({ bu: currentBU });
+      // Một lượt gọi lấy cả danh sách lẫn số liệu tổng hợp của mục đầu tiên,
+      // thay vì getApprovals rồi mới getVersionSummary ở effect kế tiếp.
+      const ws = await api.getApprovalsWorkspace({ bu: currentBU });
+      const list = ws.approvals || [];
       setApprovals(list);
-      setSelectedApproval((prev) => list.find((a) => a.id === prev?.id) || list[0] || null);
+      const chosen = list[0] || null;
+      setSelectedApproval((prev) => list.find((a) => a.id === prev?.id) || chosen);
       onCountChange?.(list.filter((a) => a.status === 'pending').length);
+      // Chỉ dùng được khi mục đang chọn đúng là mục backend đã tính sẵn
+      if (ws.summary && chosen) setPreloadedSummary({ versionId: chosen.version_id, data: ws.summary });
     } catch (err) {
       setError(err.message);
       setApprovals([]);
@@ -48,6 +56,14 @@ export default function Approvals({ currentBU, user, onCountChange }) {
       setSummary(null);
       return;
     }
+    // Mục đầu tiên đã có sẵn số liệu từ lượt gọi gộp — không gọi lại.
+    if (preloadedSummary && preloadedSummary.versionId === selectedApproval.version_id) {
+      setSummary(preloadedSummary.data);
+      setSummaryError(null);
+      setSummaryLoading(false);
+      return;
+    }
+
     let cancelled = false;
     setSummaryLoading(true);
     setSummaryError(null);
@@ -56,7 +72,7 @@ export default function Approvals({ currentBU, user, onCountChange }) {
       .catch((err) => { if (!cancelled) setSummaryError(err.message); })
       .finally(() => { if (!cancelled) setSummaryLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedApproval?.version_id]);
+  }, [selectedApproval?.version_id, preloadedSummary]);
 
   const handleDecision = async (decision) => {
     if (!selectedApproval) return;
