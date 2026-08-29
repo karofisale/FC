@@ -3,7 +3,12 @@ import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import ErrorBoundary from './components/ErrorBoundary';
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
+// Tải lười — kéo theo recharts và các thư viện d3 đi kèm (~377KB build,
+// 108KB gzip), chiếm hơn nửa gói JS ban đầu chỉ để vẽ 2 biểu đồ của đúng
+// màn này. Đây là tab mặc định nên có hàm làm ấm ở dưới, tải sẵn ngay sau
+// khi app mount để chunk về song song với lượt gọi API mà màn này vốn đã
+// phải chờ — người dùng không thấy chậm thêm.
+const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 import MonthlyForecast from './pages/MonthlyForecast';
 import WeeklyForecast from './pages/WeeklyForecast';
 import Approvals from './pages/Approvals';
@@ -75,6 +80,20 @@ export default function App() {
   useEffect(() => {
     if (!loading) setRetryNotice(null);
   }, [loading]);
+
+  // Làm ấm chunk Dashboard lúc trình duyệt rảnh. Dashboard là tab mặc định
+  // nhưng được tải lười để recharts không nằm trong gói JS ban đầu; kéo sẵn
+  // ở đây để chunk về song song với lượt gọi API mà màn này vốn phải chờ,
+  // thay vì chỉ bắt đầu tải khi người dùng đã nhìn thấy màn trống.
+  useEffect(() => {
+    const warm = () => { import('./pages/Dashboard'); };
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(warm, { timeout: 2000 });
+      return () => window.cancelIdleCallback?.(id);
+    }
+    const id = setTimeout(warm, 300);
+    return () => clearTimeout(id);
+  }, []);
 
   // Đẩy tab đang xem lên #hash để bookmark/chia sẻ được và nút Back hoạt động.
   useEffect(() => {
@@ -205,7 +224,11 @@ export default function App() {
             </div>
           ) : (
             <ErrorBoundary key={activeTab}>
-              {activeTab === 'dashboard' && <Dashboard currentBU={currentBU} />}
+              {activeTab === 'dashboard' && (
+                <React.Suspense fallback={<div className="text-xs text-slate-400 p-4">Đang tải...</div>}>
+                  <Dashboard currentBU={currentBU} />
+                </React.Suspense>
+              )}
               {activeTab === 'monthly' && <MonthlyForecast currentBU={currentBU} user={user} />}
               {activeTab === 'weekly' && <WeeklyForecast currentBU={currentBU} user={user} />}
               {activeTab === 'approvals' && (

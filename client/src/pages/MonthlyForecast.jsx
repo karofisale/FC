@@ -46,8 +46,7 @@ export default function MonthlyForecast({ currentBU, user }) {
   const cycleLocked = selectedCycle?.status === 'approved' || selectedCycle?.status === 'locked';
   const canWrite = isEditor && !!selectedVersion && !cycleLocked;
 
-  const loadLines = useCallback(async (versionId) => {
-    const lines = await api.getMonthlyLines(versionId);
+  const applyLines = useCallback((lines) => {
     const map = {};
     lines.forEach((l) => {
       map[`${l.sku_code}_${l.forecast_month}`] = Number(l.quantity) || 0;
@@ -55,6 +54,10 @@ export default function MonthlyForecast({ currentBU, user }) {
     setForecastMap(map);
     setDirtyKeys(new Set());
   }, []);
+
+  const loadLines = useCallback(async (versionId) => {
+    applyLines(await api.getMonthlyLines(versionId));
+  }, [applyLines]);
 
   const loadVersions = useCallback(async (cycleId, preferVersionId) => {
     const list = await api.getCycleVersions(cycleId);
@@ -69,40 +72,39 @@ export default function MonthlyForecast({ currentBU, user }) {
     else setForecastMap({});
   }, [loadLines]);
 
+  /**
+   * Một lượt gọi duy nhất thay cho chuỗi getCycles -> getVersions ->
+   * getMonthlyLines (3 chặng nối tiếp, mỗi chặng 1-5 giây vì Apps Script
+   * xử lý tuần tự). getBUs/getRegions/getGroups đều lấy từ bootstrap đã
+   * cache nên không tốn thêm lượt gọi mạng nào.
+   */
   const loadAll = useCallback(async (preferCycleId, preferVersionId) => {
     setLoading(true);
     setMessage(null);
     try {
-      const [cycleList, groupList, productList, buList, regionList] = await Promise.all([
-        api.getCycles({ bu: currentBU }),
-        api.getGroups(),
-        api.getProducts({ bu: currentBU }),
+      const [ws, buList, regionList, groupList] = await Promise.all([
+        api.getMonthlyWorkspace({ bu: currentBU, cycleId: preferCycleId, versionId: preferVersionId }),
         api.getBUs(),
-        api.getRegions()
+        api.getRegions(),
+        api.getGroups()
       ]);
 
-      setCycles(cycleList);
+      setCycles(ws.cycles || []);
+      setProducts(ws.products || []);
       setGroups(groupList);
-      setProducts(productList);
       setBus(buList);
       setRegions(regionList);
 
-      const cycle = cycleList.find((c) => c.id === preferCycleId) || cycleList[0] || null;
-      setSelectedCycle(cycle);
-
-      if (cycle) {
-        await loadVersions(cycle.id, preferVersionId);
-      } else {
-        setVersions([]);
-        setSelectedVersion(null);
-        setForecastMap({});
-      }
+      setSelectedCycle(ws.cycle || null);
+      setVersions(ws.versions || []);
+      setSelectedVersion(ws.version || null);
+      applyLines(ws.lines || []);
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
     } finally {
       setLoading(false);
     }
-  }, [currentBU, loadVersions]);
+  }, [currentBU, applyLines]);
 
   useEffect(() => {
     if (currentBU) loadAll();

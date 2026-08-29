@@ -70,6 +70,14 @@ export const api = {
     callGAS('addProducts', auth({ products })).then((res) => { productsCache.clear(); return res; }),
   readExternalSheet: (spreadsheetId, sheetName) => callGAS('readExternalSheet', auth({ spreadsheetId, sheetName })),
 
+  // ----- action gộp cho từng màn hình -----
+  // Apps Script chạy TUẦN TỰ các request của cùng một chủ script, nên
+  // Promise.all ở client không hề song song — các lượt gọi xếp hàng và cộng
+  // dồn. Hai action này trả về toàn bộ dữ liệu một màn cần trong đúng một
+  // lần chạy, đọc mỗi sheet một lần thay vì mỗi request đọc lại từ đầu.
+  getMonthlyWorkspace: (params = {}) => callGAS('getMonthlyWorkspace', auth(params)),
+  getWeeklyWorkspace: (params = {}) => callGAS('getWeeklyWorkspace', auth(params)),
+
   // ----- chu kỳ & version -----
   getCycles: (params = {}) => callGAS('getCycles', auth(params)),
   createCycle: (data) => callGAS('createCycle', auth(data)),

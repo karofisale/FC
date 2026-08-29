@@ -244,6 +244,59 @@ function assertBU_(session, buCode) {
   }
 }
 
+/**
+ * Phạm vi ĐỌC theo đơn vị kinh doanh.
+ *
+ * Tách riêng khỏi assertBU_ (dùng cho đường ghi) vì hai vai trò khác nhau:
+ * viewer được xem mọi đơn vị nhưng không được ghi gì, nên không thể dùng
+ * chung một hàm. Khác biệt thứ hai: assertBU_ cho qua khi đối tượng không
+ * có mã đơn vị (`if (!buCode) return`), còn ở đây thiếu mã đơn vị là TỪ
+ * CHỐI — dữ liệu không xác định được chủ thì không ai ngoài admin được xem.
+ */
+function assertCanReadBU_(session, buCode) {
+  if (session.role === 'central_admin' || session.role === 'viewer') return;
+  if (!session.bu) {
+    throw new Error('FORBIDDEN: Tài khoản chưa được gán đơn vị kinh doanh.');
+  }
+  if (!buCode || String(session.bu) !== String(buCode)) {
+    throw new Error('FORBIDDEN: Bạn chỉ được xem dữ liệu của đơn vị ' + session.bu + '.');
+  }
+}
+
+/** Chặn đọc version của đơn vị khác (versionId do client gửi lên, đoán được). */
+function assertCanReadVersion_(session, versionId) {
+  if (session.role === 'central_admin' || session.role === 'viewer') return;
+  if (!versionId) throw new Error('Thiếu versionId.');
+  assertCanReadBU_(session, versionContext_(versionId).cycle.business_unit_code);
+}
+
+/** Chặn đọc chu kỳ của đơn vị khác. */
+function assertCanReadCycle_(session, cycleId) {
+  if (session.role === 'central_admin' || session.role === 'viewer') return;
+  if (!cycleId) throw new Error('Thiếu cycleId.');
+  var cycle = findOne_(SHEETS.CYCLES, 'id', cycleId);
+  if (!cycle) throw new Error('Không tìm thấy chu kỳ: ' + cycleId);
+  assertCanReadBU_(session, cycle.business_unit_code);
+}
+
+/**
+ * Mã đơn vị hiệu lực cho các action nhận thẳng tham số `bu` từ client.
+ * Người dùng thường luôn bị ép về đúng đơn vị của mình, kể cả khi không gửi
+ * tham số — trước đây bỏ trống nghĩa là "lấy tất cả đơn vị".
+ */
+function scopedBU_(session, requestedBU) {
+  if (session.role === 'central_admin' || session.role === 'viewer') {
+    return requestedBU || null;
+  }
+  if (!session.bu) {
+    throw new Error('FORBIDDEN: Tài khoản chưa được gán đơn vị kinh doanh.');
+  }
+  if (requestedBU && String(requestedBU) !== String(session.bu)) {
+    throw new Error('FORBIDDEN: Bạn chỉ được xem dữ liệu của đơn vị ' + session.bu + '.');
+  }
+  return session.bu;
+}
+
 function assertCanEdit_(session, cycle) {
   assertRole_(session, ['bu_editor', 'central_admin']);
   assertBU_(session, cycle.business_unit_code);

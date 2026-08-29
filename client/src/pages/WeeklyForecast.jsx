@@ -52,6 +52,19 @@ export default function WeeklyForecast({ currentBU, user }) {
   const cycleLocked = selectedCycle?.status === 'approved' || selectedCycle?.status === 'locked';
   const canWrite = isEditor && !!selectedVersion && !cycleLocked;
 
+  /** Áp dữ liệu đã có sẵn (từ action gộp) vào state, không gọi mạng thêm. */
+  const applyForecasts = useCallback((monthlyQuantities, splits, valRes) => {
+    setMonthlyMap(monthlyQuantities || {});
+
+    const wMap = {};
+    (splits || []).forEach((s) => {
+      wMap[`${s.sku_code}_${s.week_number}_${s.region_code}`] = Number(s.quantity) || 0;
+    });
+    setWeeklyMap(wMap);
+    setValidationResult(valRes || null);
+    setDirtyKeys(new Set());
+  }, []);
+
   const loadForecasts = useCallback(async (versionId, month) => {
     const [mLines, wSplits, valRes] = await Promise.all([
       api.getMonthlyLines(versionId),
@@ -65,16 +78,8 @@ export default function WeeklyForecast({ currentBU, user }) {
         mMap[l.sku_code] = Number(l.quantity) || 0;
       }
     });
-    setMonthlyMap(mMap);
-
-    const wMap = {};
-    wSplits.forEach((s) => {
-      wMap[`${s.sku_code}_${s.week_number}_${s.region_code}`] = Number(s.quantity) || 0;
-    });
-    setWeeklyMap(wMap);
-    setValidationResult(valRes);
-    setDirtyKeys(new Set());
-  }, []);
+    applyForecasts(mMap, wSplits, valRes);
+  }, [applyForecasts]);
 
   const loadVersions = useCallback(async (cycle, preferVersionId) => {
     const list = await api.getCycleVersions(cycle.id);
@@ -89,42 +94,39 @@ export default function WeeklyForecast({ currentBU, user }) {
     else { setWeeklyMap({}); setMonthlyMap({}); setValidationResult(null); }
   }, [loadForecasts]);
 
+  /**
+   * Một lượt gọi thay cho chuỗi getCycles -> getVersions -> (getMonthlyLines
+   * + getWeeklySplits + validateWeekly): 3 chặng nối tiếp, tổng 5 lượt gọi
+   * mạng. Phần kiểm tra khớp số được backend tính ngay từ dữ liệu vừa đọc.
+   * getRegions/getGroups/getBUs lấy từ bootstrap đã cache, không tốn lượt gọi.
+   */
   const loadAll = useCallback(async (preferCycleId, preferVersionId) => {
     setLoading(true);
     setMessage(null);
     try {
-      const [cycleList, productList, regionList, groupList, buList] = await Promise.all([
-        api.getCycles({ bu: currentBU }),
-        api.getProducts({ bu: currentBU }),
+      const [ws, regionList, groupList, buList] = await Promise.all([
+        api.getWeeklyWorkspace({ bu: currentBU, cycleId: preferCycleId, versionId: preferVersionId }),
         api.getRegions(),
         api.getGroups(),
         api.getBUs()
       ]);
 
-      setCycles(cycleList);
-      setProducts(productList);
-      setRegions(regionList);
+      setCycles(ws.cycles || []);
+      setProducts(ws.products || []);
+      setRegions(ws.regions?.length ? ws.regions : regionList);
       setGroups(groupList);
       setBus(buList);
 
-      const cycle = cycleList.find((c) => c.id === preferCycleId) || cycleList[0] || null;
-      setSelectedCycle(cycle);
-
-      if (cycle) {
-        await loadVersions(cycle, preferVersionId);
-      } else {
-        setVersions([]);
-        setSelectedVersion(null);
-        setWeeklyMap({});
-        setMonthlyMap({});
-        setValidationResult(null);
-      }
+      setSelectedCycle(ws.cycle || null);
+      setVersions(ws.versions || []);
+      setSelectedVersion(ws.version || null);
+      applyForecasts(ws.monthlyQuantities, ws.splits, ws.validation);
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
     } finally {
       setLoading(false);
     }
-  }, [currentBU, loadVersions]);
+  }, [currentBU, applyForecasts]);
 
   useEffect(() => {
     if (currentBU) loadAll();

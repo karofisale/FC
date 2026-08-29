@@ -104,17 +104,32 @@ function dispatch_(action, p, session) {
     case 'getBootstrap':    return getBootstrap_(session);
     case 'getProducts':     return getProducts_(p.bu, p.group, p.search);
     case 'getCycles':       return getCycles_(session, p.bu, p.status);
-    case 'getVersions':     return getVersions_(p.cycleId);
-    case 'getMonthlyLines': return getMonthlyLines_(p.versionId);
-    case 'getWeeklySplits': return getWeeklySplits_(p.versionId);
-    case 'validateWeekly':  return validateWeekly_(p.versionId);
-    case 'getB0Summary':    return getB0Summary_(p.baseMonth, p.bu);
-    case 'getB1Summary':    return getB1Summary_(p.baseMonth, p.bu);
-    case 'getVariance':     return getVariance_(p.cycleId);
+    // Các action dưới đây nhận versionId/cycleId/bu THẲNG TỪ CLIENT. Trước
+    // đây chúng không nhận session nên không kiểm tra gì: một người dùng có
+    // token hợp lệ chỉ cần đổi tham số là đọc được số liệu của kênh khác.
+    // Chặn ngay tại đây để giữ Queries.gs thuần truy vấn, và để toàn bộ quy
+    // tắc phân quyền đọc nằm gọn một chỗ dễ rà.
+    //
+    // getProducts KHÔNG bị ép phạm vi: danh mục SKU dùng chung toàn hệ thống,
+    // và màn nhập từ file cần đọc toàn bộ danh mục để biết mã nào chưa có —
+    // ép theo kênh sẽ khiến SKU của kênh khác bị báo nhầm là "chưa tồn tại".
+    case 'getVersions':     assertCanReadCycle_(session, p.cycleId);
+                            return getVersions_(p.cycleId);
+    case 'getMonthlyLines': assertCanReadVersion_(session, p.versionId);
+                            return getMonthlyLines_(p.versionId);
+    case 'getWeeklySplits': assertCanReadVersion_(session, p.versionId);
+                            return getWeeklySplits_(p.versionId);
+    case 'validateWeekly':  assertCanReadVersion_(session, p.versionId);
+                            return validateWeekly_(p.versionId);
+    case 'getB0Summary':    return getB0Summary_(p.baseMonth, scopedBU_(session, p.bu));
+    case 'getB1Summary':    return getB1Summary_(p.baseMonth, scopedBU_(session, p.bu));
+    case 'getVariance':     assertCanReadCycle_(session, p.cycleId);
+                            return getVariance_(p.cycleId);
     case 'getApprovals':    return getApprovals_(session, p.bu, p.status);
-    case 'getVersionSummary': return getVersionSummary_(p.versionId);
-    case 'getActuals':      return getActuals_(p.bu, p.month, p.sku);
-    case 'getFcVsActual':   return getFcVsActual_(p.bu, p.month);
+    case 'getVersionSummary': assertCanReadVersion_(session, p.versionId);
+                            return getVersionSummary_(p.versionId);
+    case 'getActuals':      return getActuals_(scopedBU_(session, p.bu), p.month, p.sku);
+    case 'getFcVsActual':   return getFcVsActual_(scopedBU_(session, p.bu), p.month);
 
     // ----- đọc gộp theo màn hình (1 request thay cho 5-7) -----
     case 'getMonthlyWorkspace':   return getMonthlyWorkspace_(session, p);
