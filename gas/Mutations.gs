@@ -203,7 +203,7 @@ function saveMonthlyLines_(session, versionId, lines) {
       throw new Error('Số lượng không hợp lệ tại SKU ' + l.skuCode + ': ' + l.quantity);
     }
     if (!l.skuCode || !l.forecastMonth) throw new Error('Dòng thiếu skuCode hoặc forecastMonth.');
-    var skuCode = String(l.skuCode);
+    var skuCode = normalizeSku_(l.skuCode);
     var forecastMonth = normalizeMonth_(l.forecastMonth);
     // Số lượng 0 nghĩa là không dùng đến SKU/tháng đó — xoá hẳn dòng thay
     // vì lưu số 0, tránh bảng phình to vô hạn theo SKU x tháng x version.
@@ -225,6 +225,8 @@ function saveMonthlyLines_(session, versionId, lines) {
 
   // Một lượt ghi duy nhất cho cả xoá lẫn cập nhật (trước đây là hai lượt,
   // mỗi lượt ghi lại toàn bộ bảng).
+  assertKnownSkus_(toUpsert.map(function (r) { return r.sku_code; }));
+
   var written = applyRowChanges_(
     SHEETS.MONTHLY_LINES, ['version_id', 'sku_code', 'forecast_month'], toUpsert, toDelete);
   return {
@@ -251,7 +253,7 @@ function saveWeeklySplits_(session, versionId, splits) {
     var week = Number(s.weekNumber);
     if (!(week >= 1 && week <= 6)) throw new Error('Số tuần phải trong khoảng 1–6, nhận được: ' + s.weekNumber);
     if (!s.skuCode || !s.regionCode) throw new Error('Dòng thiếu skuCode hoặc regionCode.');
-    var skuCode = String(s.skuCode);
+    var skuCode = normalizeSku_(s.skuCode);
     var regionCode = String(s.regionCode);
     // Số lượng 0 nghĩa là không dùng đến SKU/tuần/miền đó — xoá hẳn dòng
     // thay vì lưu số 0, tránh bảng phình to vô hạn theo SKU x tuần x miền x version.
@@ -272,6 +274,8 @@ function saveWeeklySplits_(session, versionId, splits) {
   });
 
   // Một lượt ghi duy nhất cho cả xoá lẫn cập nhật.
+  assertKnownSkus_(toUpsert.map(function (r) { return r.sku_code; }));
+
   var written = applyRowChanges_(
     SHEETS.WEEKLY_SPLITS, ['version_id', 'sku_code', 'week_number', 'region_code'], toUpsert, toDelete);
   return {
@@ -445,7 +449,7 @@ function saveActuals_(session, rows) {
     return {
       id: Utilities.getUuid(),
       business_unit_code: bu,
-      sku_code: String(r.skuCode),
+      sku_code: normalizeSku_(r.skuCode),
       actual_month: normalizeMonth_(r.actualMonth),
       region_code: String(r.regionCode),
       quantity: qty,
@@ -454,6 +458,8 @@ function saveActuals_(session, rows) {
       imported_at: now
     };
   });
+
+  assertKnownSkus_(records.map(function (r) { return r.sku_code; }));
 
   var written = upsertRows_(SHEETS.ACTUALS, ['business_unit_code', 'sku_code', 'actual_month', 'region_code'], records);
   return { message: 'Đã lưu ' + written.total + ' dòng sản lượng thực hiện.', updated: written.updated, inserted: written.inserted };
@@ -506,15 +512,17 @@ function addProducts_(session, products) {
   assertRole_(session, ['bu_editor', 'central_admin']);
   if (!Array.isArray(products) || !products.length) throw new Error('Danh sách sản phẩm rỗng.');
 
+  // Khoá đã chuẩn hoá ở cả hai phía, nếu không thì một dòng Products lỡ có
+  // khoảng trắng thừa sẽ không khớp với mã sạch, và SKU đó bị thêm lần nữa.
   var existingSkus = {};
-  readObjects_(SHEETS.PRODUCTS).forEach(function (p) { existingSkus[p.sku_code] = true; });
+  readObjects_(SHEETS.PRODUCTS).forEach(function (p) { existingSkus[normalizeSku_(p.sku_code)] = true; });
 
   var toInsert = [];
   var skippedExisting = [];
   var seenInBatch = {};
 
   products.forEach(function (p) {
-    var skuCode = String(p.skuCode || '').trim();
+    var skuCode = normalizeSku_(p.skuCode);
     if (!skuCode) return;
     if (existingSkus[skuCode] || seenInBatch[skuCode]) {
       skippedExisting.push(skuCode);

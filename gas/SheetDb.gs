@@ -370,6 +370,43 @@ function productMap_() {
   return map;
 }
 
+/**
+ * Từ chối ghi số cho SKU không có trong danh mục Products.
+ *
+ * Không có ràng buộc khoá ngoại nào giữa các bảng, và mọi chỗ đọc đều lặng
+ * lẽ dùng giá trị mặc định khi tra không thấy (nhóm hàng rơi về 'KHAC',
+ * doanh thu tính bằng 0). Nghĩa là một mã gõ sai sẽ không báo lỗi ở đâu cả:
+ * số vẫn được cộng vào báo cáo và vẫn xuất sang SAP, nhưng dòng đó không
+ * hiện trên lưới để sửa. Chặn ngay lúc ghi là chỗ duy nhất phát hiện được.
+ *
+ * So khớp trên mã đã chuẩn hoá ở CẢ HAI phía, để một dòng Products lỡ có
+ * khoảng trắng thừa vẫn khớp với mã sạch mà client gửi lên.
+ */
+function assertKnownSkus_(skuCodes) {
+  if (!skuCodes.length) return;
+
+  var known = {};
+  readObjects_(SHEETS.PRODUCTS).forEach(function (p) {
+    known[normalizeSku_(p.sku_code)] = true;
+  });
+
+  var unknown = [];
+  var seen = {};
+  skuCodes.forEach(function (sku) {
+    if (!sku || known[sku] || seen[sku]) return;
+    seen[sku] = true;
+    unknown.push(sku);
+  });
+
+  if (unknown.length) {
+    throw new Error(
+      'Có ' + unknown.length + ' mã SKU chưa có trong danh mục Products: ' +
+      unknown.slice(0, 10).join(', ') + (unknown.length > 10 ? ', ...' : '') +
+      '. Thêm vào danh mục trước khi nhập số cho các mã này.'
+    );
+  }
+}
+
 function activeOnly_(list) {
   return list.filter(function (x) {
     if (x.is_active === undefined || x.is_active === '') return true;

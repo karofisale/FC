@@ -41,6 +41,21 @@ function normalizeMonth_(value) {
   return s;
 }
 
+/**
+ * Mã SKU quy về dạng chuẩn trước khi dùng làm khoá.
+ *
+ * Ba bảng số liệu (MonthlyForecastLines, WeeklyRegionSplits,
+ * ActualSalesResults) đều tham chiếu sản phẩm bằng chính chuỗi sku_code,
+ * không qua ID riêng. Nên "KAQ-P95 " và "KAQ-P95" sẽ thành HAI dòng độc lập,
+ * hiển thị y hệt nhau trên lưới nhưng cộng vào tổng hai lần — kiểu sai dữ
+ * liệu rất khó nhận ra về sau. Chỉ cắt khoảng trắng hai đầu, KHÔNG đổi hoa
+ * thường: danh mục hiện có thể đang dùng chữ thường ở đâu đó, đổi hoa sẽ
+ * khiến số mới không khớp với các dòng đã lưu.
+ */
+function normalizeSku_(value) {
+  return String(value === null || value === undefined ? '' : value).trim();
+}
+
 function isoDate_(d) {
   return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
 }
