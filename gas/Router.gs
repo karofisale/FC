@@ -49,7 +49,7 @@ function doPost(e) {
     } else if (action === 'login') {
       // login_ vẫn cần đọc sheet Users -> prefetch chung 1 lần cho gọn,
       // rẻ hơn hẳn so với để nó tự mở round-trip riêng.
-      prefetchAllSheets_();
+      prefetchForAction_('login');
       result = login_(payload.userId, payload.pin);
     } else if (action === 'logout') {
       result = logout_(payload.token);
@@ -74,13 +74,13 @@ function doPost(e) {
       if (WRITE_ACTIONS.indexOf(action) >= 0) {
         result = runExclusive_(function () {
           resetTableCache_();
-          prefetchAllSheets_();
+          prefetchForAction_(action);
           return dispatch_(action, payload, session);
         });
       } else {
-        // Gom toàn bộ sheet cần thiết trong 1 lần gọi Sheets API, thay vì
+        // Gom các sheet action này cần trong 1 lần gọi Sheets API, thay vì
         // để mỗi hàm nghiệp vụ tự mở round-trip riêng khi đọc tới.
-        prefetchAllSheets_();
+        prefetchForAction_(action);
         result = dispatch_(action, payload, session);
       }
     }

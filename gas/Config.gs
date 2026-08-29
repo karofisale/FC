@@ -57,6 +57,58 @@ const READ_ACTIONS = [
   // Nhập từ Google Sheet ngoài
   'readExternalSheet'
 ];
+/**
+ * Bảng nào cần đọc sẵn cho từng action.
+ *
+ * Trước đây mọi request đều batchGet TOÀN BỘ 12 tab, kể cả getBootstrap chỉ
+ * cần ba danh mục nhỏ. Vì MonthlyForecastLines/WeeklyRegionSplits phình dần
+ * theo từng version, chi phí đó cộng vào MỌI lượt gọi — app chậm dần theo
+ * thời gian kể cả với người chỉ mở xem tháng hiện tại.
+ *
+ * An toàn khi khai thiếu: readTable_ tự động đọc rời bảng chưa có trong
+ * cache, nên khai sót chỉ tốn thêm một lượt đọc chứ không sai kết quả. Vì
+ * vậy nên khai HƠI DƯ còn hơn thiếu — riêng bốn bảng lớn (PRODUCTS,
+ * MONTHLY_LINES, WEEKLY_SPLITS, ACTUALS) thì cân nhắc kỹ, đó mới là chỗ tốn.
+ *
+ * Action không có trong bảng này sẽ đọc tất cả như cũ.
+ */
+const ACTION_TABLES = {
+  // --- đọc ---
+  login:              [SHEETS.USERS, SHEETS.AUDIT],
+  getBootstrap:       [SHEETS.BUSINESS_UNITS, SHEETS.REGIONS, SHEETS.PRODUCT_GROUPS],
+  getProducts:        [SHEETS.PRODUCTS],
+  getCycles:          [SHEETS.CYCLES],
+  getVersions:        [SHEETS.VERSIONS, SHEETS.CYCLES],
+  getMonthlyLines:    [SHEETS.MONTHLY_LINES, SHEETS.PRODUCTS, SHEETS.VERSIONS, SHEETS.CYCLES],
+  getWeeklySplits:    [SHEETS.WEEKLY_SPLITS, SHEETS.PRODUCTS, SHEETS.VERSIONS, SHEETS.CYCLES],
+  validateWeekly:     [SHEETS.MONTHLY_LINES, SHEETS.WEEKLY_SPLITS, SHEETS.PRODUCTS, SHEETS.VERSIONS, SHEETS.CYCLES],
+  getB0Summary:       [SHEETS.MONTHLY_LINES, SHEETS.PRODUCTS, SHEETS.VERSIONS, SHEETS.CYCLES],
+  getB1Summary:       [SHEETS.WEEKLY_SPLITS, SHEETS.PRODUCTS, SHEETS.VERSIONS, SHEETS.CYCLES],
+  getVariance:        [SHEETS.MONTHLY_LINES, SHEETS.PRODUCTS, SHEETS.VERSIONS, SHEETS.CYCLES],
+  getApprovals:       [SHEETS.APPROVALS, SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.USERS],
+  getVersionSummary:  [SHEETS.MONTHLY_LINES, SHEETS.WEEKLY_SPLITS, SHEETS.PRODUCTS, SHEETS.VERSIONS, SHEETS.CYCLES],
+  getActuals:         [SHEETS.ACTUALS, SHEETS.PRODUCTS, SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.MONTHLY_LINES],
+  getFcVsActual:      [SHEETS.ACTUALS, SHEETS.PRODUCTS, SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.MONTHLY_LINES],
+  readExternalSheet:  [SHEETS.AUDIT],
+
+  getMonthlyWorkspace: [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.PRODUCT_GROUPS, SHEETS.MONTHLY_LINES],
+  getWeeklyWorkspace:  [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.REGIONS, SHEETS.MONTHLY_LINES, SHEETS.WEEKLY_SPLITS],
+
+  // --- ghi ---
+  createCycle:        [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.BUSINESS_UNITS],
+  createVersion:      [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.MONTHLY_LINES, SHEETS.WEEKLY_SPLITS, SHEETS.AUDIT],
+  saveMonthlyLines:   [SHEETS.MONTHLY_LINES, SHEETS.VERSIONS, SHEETS.CYCLES],
+  saveWeeklySplits:   [SHEETS.WEEKLY_SPLITS, SHEETS.VERSIONS, SHEETS.CYCLES],
+  submitCycle:        [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.APPROVALS, SHEETS.MONTHLY_LINES, SHEETS.WEEKLY_SPLITS, SHEETS.PRODUCTS],
+  reopenCycle:        [SHEETS.CYCLES, SHEETS.AUDIT],
+  decideApproval:     [SHEETS.APPROVALS, SHEETS.CYCLES],
+  changeMyPin:        [SHEETS.USERS, SHEETS.AUDIT],
+  setUserPin:         [SHEETS.USERS, SHEETS.AUDIT],
+  addProduct:         [SHEETS.PRODUCTS],
+  addProducts:        [SHEETS.PRODUCTS],
+  saveActuals:        [SHEETS.ACTUALS, SHEETS.BUSINESS_UNITS]
+};
+
 const WRITE_ACTIONS = [
   'createCycle', 'createVersion', 'saveMonthlyLines', 'saveWeeklySplits',
   'submitCycle', 'reopenCycle', 'decideApproval', 'changeMyPin', 'setUserPin',

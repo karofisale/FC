@@ -46,6 +46,24 @@ export const GAS_WEB_APP_URL =
 const ATTEMPT_TIMEOUTS_MS = [12000, 25000, 45000];
 const RETRY_DELAYS_MS = [1500, 3000];
 
+/**
+ * Action KHÔNG được tự thử lại khi lỗi tầng vận chuyển.
+ *
+ * Vòng thử lại không phân biệt được "request chưa tới server" với "request
+ * đã chạy xong nhưng phản hồi về chậm". Với các action tạo mới, gửi lại lần
+ * hai sẽ tạo chu kỳ/version/yêu cầu duyệt trùng, hoặc báo lỗi "đã tồn tại"
+ * cho một lượt gọi thực ra đã thành công.
+ *
+ * saveMonthlyLines/saveWeeklySplits/saveActuals CỐ TÌNH không nằm trong danh
+ * sách này: chúng là upsert theo khoá, gửi lại cùng payload cho ra đúng cùng
+ * kết quả — mà đây lại là các action chạy thường xuyên nhất, cần được thử lại
+ * khi mạng chập chờn.
+ */
+const NON_IDEMPOTENT_ACTIONS = new Set([
+  'createCycle', 'createVersion', 'submitCycle', 'reopenCycle', 'decideApproval',
+  'addProduct', 'addProducts', 'importProducts', 'changeMyPin', 'setUserPin'
+]);
+
 export class ApiError extends Error {
   constructor(message, { unauthorized = false, forbidden = false } = {}) {
     super(message);
@@ -121,21 +139,36 @@ export async function callGAS(action, payload = {}) {
     throw new ApiError('Chưa cấu hình URL Google Apps Script Web App.');
   }
 
+  const noRetry = NON_IDEMPOTENT_ACTIONS.has(action);
+  const maxAttempt = noRetry ? 0 : RETRY_DELAYS_MS.length;
   let lastFailure = null;
 
-  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+  for (let attempt = 0; attempt <= maxAttempt; attempt++) {
     if (attempt > 0) {
       retryHandlers.forEach((h) => h({ action, attempt }));
       await sleep(RETRY_DELAYS_MS[attempt - 1]);
     }
 
-    const result = await callOnce(action, payload, ATTEMPT_TIMEOUTS_MS[attempt]);
+    // Action không thử lại thì cho hẳn ngưỡng chờ dài nhất ngay lần đầu —
+    // chỉ có một cơ hội duy nhất nên phải đủ kiên nhẫn với cold start.
+    const timeout = noRetry
+      ? ATTEMPT_TIMEOUTS_MS[ATTEMPT_TIMEOUTS_MS.length - 1]
+      : ATTEMPT_TIMEOUTS_MS[attempt];
+    const result = await callOnce(action, payload, timeout);
 
     if (!result.transportError) {
       return handleData_(result.data);
     }
 
     lastFailure = result;
+  }
+
+  if (noRetry) {
+    throw new ApiError(
+      'Mất kết nối trong lúc gửi yêu cầu, và hệ thống KHÔNG tự gửi lại để tránh ' +
+      'tạo dữ liệu trùng. Hãy tải lại trang để kiểm tra thao tác vừa rồi đã được ' +
+      'ghi nhận hay chưa, rồi mới làm lại nếu cần.'
+    );
   }
 
   // Hết số lần thử — báo lỗi đúng với nguyên nhân tầng vận chuyển cuối cùng

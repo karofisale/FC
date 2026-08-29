@@ -117,8 +117,26 @@ function readTable_(name) {
  * cache — readTable_ ở trên tự động rơi về đọc rời từng sheet như cũ,
  * KHÔNG làm hỏng request đang chạy.
  */
+/**
+ * Chỉ đọc sẵn những bảng mà action đang chạy thực sự cần (xem ACTION_TABLES
+ * trong Config.gs). Action lạ hoặc chưa khai thì đọc tất cả như cũ.
+ */
+function prefetchForAction_(action) {
+  var names = ACTION_TABLES[action];
+  prefetchSheets_(names && names.length ? names : Object.keys(SCHEMA));
+}
+
 function prefetchAllSheets_() {
-  var names = Object.keys(SCHEMA);
+  prefetchSheets_(Object.keys(SCHEMA));
+}
+
+function prefetchSheets_(names) {
+  // Chốt an toàn: chỉ chấp nhận tên bảng có trong SCHEMA. Nếu không lọc, một
+  // lỗi gõ tên trong ACTION_TABLES sẽ khiến getOrCreateSheet_ TẠO RA một tab
+  // rỗng vô nghĩa trong file dữ liệu thật.
+  names = (names || []).filter(function (n) { return SCHEMA[n] !== undefined; });
+  if (!names.length) return;
+
   names.forEach(function (name) { getOrCreateSheet_(name); }); // đảm bảo tồn tại, tra cứu local sau openById
 
   try {
