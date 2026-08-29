@@ -247,13 +247,24 @@ function submitCycle_(session, cycleId, versionId) {
     throw new Error('Version không thuộc chu kỳ này.');
   }
 
-  // Không cho gửi duyệt khi tổng tuần chưa khớp tháng đầu chu kỳ
+  // Không cho gửi duyệt khi tổng tuần chưa khớp tháng đầu chu kỳ.
+  //
+  // Bản cũ chỉ kiểm tra khi ĐÃ CÓ dòng tuần (`hasWeekly && !isValid`), nên
+  // bản chưa phân bổ tuần lần nào lại lọt qua sạch sẽ rồi được duyệt — sau
+  // đó Bảng 1 hiện lệch toàn bộ và bản xuất SAP không có số tuần. Đường đi
+  // tự nhiên của người dùng dẫn thẳng vào lỗi này: điền Bảng 0, bấm gửi
+  // duyệt, không mở Bảng 1 lần nào. Việc bỏ lưu dòng số lượng 0 càng làm nó
+  // dễ xảy ra hơn, vì bản điền toàn 0 giờ không còn dòng nào để `hasWeekly`
+  // nhận ra. validateWeekly_ vốn đã trả isValid=true cho bản rỗng hoàn toàn
+  // nên bỏ điều kiện này không chặn nhầm chu kỳ chưa nhập gì.
   var check = validateWeekly_(versionId);
-  var hasWeekly = readObjects_(SHEETS.WEEKLY_SPLITS).some(function (w) {
-    return String(w.version_id) === String(versionId);
-  });
-  if (hasWeekly && !check.isValid) {
-    throw new Error('Còn ' + check.mismatchesCount + ' SKU có tổng tuần/miền chưa khớp kế hoạch tháng 1. Sửa xong mới gửi duyệt được.');
+  if (!check.isValid) {
+    var hasWeekly = readObjects_(SHEETS.WEEKLY_SPLITS).some(function (w) {
+      return String(w.version_id) === String(versionId);
+    });
+    throw new Error(hasWeekly
+      ? ('Còn ' + check.mismatchesCount + ' SKU có tổng tuần/miền chưa khớp kế hoạch tháng 1. Sửa xong mới gửi duyệt được.')
+      : ('Chưa phân bổ kế hoạch tuần/miền cho ' + check.mismatchesCount + ' SKU. Vào Bảng 1 chia số theo tuần và miền trước khi gửi duyệt.'));
   }
 
   var now = new Date().toISOString();

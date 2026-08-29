@@ -164,23 +164,40 @@ function objectToRow_(headers, obj, existingRow) {
   });
 }
 
-/** Ghi lại toàn bộ vùng dữ liệu bằng MỘT lệnh setValues. */
+/**
+ * Ghi lại toàn bộ vùng dữ liệu bằng MỘT lệnh setValues.
+ *
+ * Thứ tự GHI TRƯỚC - XOÁ SAU là có chủ đích. Bản cũ xoá sạch vùng dữ liệu
+ * rồi mới ghi lại; hai lệnh đó không nguyên tử, nên nếu request chết ở giữa
+ * (chạm giới hạn 6 phút của Apps Script, hết quota, mất kết nối) thì bảng đã
+ * bị xoá mà chưa kịp ghi lại — mất trắng, không có backup tự động. Bảng càng
+ * nhiều dòng thì cửa sổ rủi ro đó càng rộng.
+ *
+ * Cách này không bao giờ để bảng ở trạng thái rỗng: dữ liệu mới đè lên chỗ
+ * dữ liệu cũ trước, phần dư phía sau (khi bảng co lại) mới bị xoá. Chết giữa
+ * chừng thì tệ nhất là còn sót vài dòng cũ ở đuôi — sai lệch thấy được và
+ * sửa được, thay vì mất sạch.
+ */
 function writeTable_(name, table) {
   var sheet = table.sheet || getOrCreateSheet_(name);
   var headers = table.headers;
   var lastRow = sheet.getLastRow();
+  var newCount = table.rows.length;
 
-  if (lastRow > 1) {
-    sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
-  }
-  if (table.rows.length) {
-    sheet.getRange(2, 1, table.rows.length, headers.length).setValues(
+  if (newCount) {
+    sheet.getRange(2, 1, newCount, headers.length).setValues(
       table.rows.map(function (r) {
         var out = r.slice(0, headers.length);
         while (out.length < headers.length) out.push('');
         return out;
       })
     );
+  }
+
+  // Số dòng dữ liệu cũ còn thừa lại phía dưới vùng vừa ghi
+  var surplus = (lastRow - 1) - newCount;
+  if (surplus > 0) {
+    sheet.getRange(newCount + 2, 1, surplus, headers.length).clearContent();
   }
 }
 

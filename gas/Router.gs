@@ -58,21 +58,29 @@ function doPost(e) {
       var session = requireSession_(payload.token);
       diagMark_('xác thực token xong');
 
-      // Gom toàn bộ sheet cần thiết trong 1 lần gọi Sheets API, thay vì
-      // để mỗi hàm nghiệp vụ tự mở round-trip riêng khi đọc tới.
-      prefetchAllSheets_();
-
       if (READ_ACTIONS.indexOf(action) < 0 && WRITE_ACTIONS.indexOf(action) < 0) {
         return jsonOutput_({ error: 'Action không hợp lệ: ' + action });
       }
 
       // 3. Action ghi thì chạy trong LockService để hai người lưu cùng lúc
-      //    không ghi đè nhau
+      //    không ghi đè nhau.
+      //
+      //    QUAN TRỌNG: phải đọc dữ liệu bên TRONG lock. Bản cũ gọi
+      //    prefetchAllSheets_() ở ngoài, trước khi lấy lock — mà upsertRows_
+      //    ghi đè LẠI CẢ BẢNG dựa trên bản chụp đó. Hai người cùng mở trang,
+      //    A lưu xong rồi B lưu, thì B ghi đè bằng bản chụp chưa có thay đổi
+      //    của A -> toàn bộ số A vừa nhập biến mất, không báo lỗi. Lock khi
+      //    đó chỉ khiến hai request chạy nối tiếp chứ không bảo vệ dữ liệu.
       if (WRITE_ACTIONS.indexOf(action) >= 0) {
         result = runExclusive_(function () {
+          resetTableCache_();
+          prefetchAllSheets_();
           return dispatch_(action, payload, session);
         });
       } else {
+        // Gom toàn bộ sheet cần thiết trong 1 lần gọi Sheets API, thay vì
+        // để mỗi hàm nghiệp vụ tự mở round-trip riêng khi đọc tới.
+        prefetchAllSheets_();
         result = dispatch_(action, payload, session);
       }
     }

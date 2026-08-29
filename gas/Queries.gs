@@ -591,6 +591,30 @@ function readExternalSheet_(session, spreadsheetId, sheetName) {
   assertRole_(session, ['bu_editor', 'central_admin']);
   if (!spreadsheetId) throw new Error('Thiếu ID hoặc URL Google Sheet.');
 
+  // Hàm này chạy dưới quyền tài khoản deploy ("Execute as: Me") và trả về
+  // TOÀN BỘ nội dung sheet được yêu cầu. Nếu không chặn, bất kỳ ai có quyền
+  // bu_editor cũng đọc được chính file dữ liệu của app — gồm tab Users chứa
+  // pin_hash, email và vai trò của mọi người.
+  if (String(spreadsheetId) === String(SPREADSHEET_ID)) {
+    logAuth_(session.userId, 'external_sheet_denied', 'Cố đọc chính file dữ liệu hệ thống');
+    throw new Error('Không được phép đọc chính file dữ liệu của hệ thống qua chức năng này.');
+  }
+
+  // Allowlist tuỳ chọn: đặt Script Property EXTERNAL_SHEET_ALLOWLIST (các ID
+  // cách nhau bằng dấu phẩy) để siết chỉ cho phép nhập từ đúng những file đã
+  // duyệt. Bỏ trống thì cho phép mọi file mà tài khoản hệ thống mở được —
+  // giữ nguyên hành vi hiện tại để không chặn nhầm sale đang dùng.
+  var allowRaw = PropertiesService.getScriptProperties().getProperty('EXTERNAL_SHEET_ALLOWLIST');
+  if (allowRaw && allowRaw.trim()) {
+    var allowed = allowRaw.split(',').map(function (s) { return s.trim(); }).filter(String);
+    if (allowed.indexOf(String(spreadsheetId)) < 0) {
+      logAuth_(session.userId, 'external_sheet_denied', spreadsheetId);
+      throw new Error('File Google Sheet này chưa nằm trong danh sách được phép nhập. Liên hệ quản trị hệ thống để bổ sung.');
+    }
+  }
+
+  logAuth_(session.userId, 'external_sheet_read', spreadsheetId + (sheetName ? (' / ' + sheetName) : ''));
+
   var ss;
   try {
     ss = SpreadsheetApp.openById(spreadsheetId);

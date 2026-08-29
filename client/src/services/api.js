@@ -13,18 +13,47 @@ function auth(payload = {}) {
   return { ...payload, token: getToken() };
 }
 
-// Danh mục dùng chung ít khi đổi trong một phiên làm việc
-let bootstrapCache = null;
+/**
+ * Danh mục dùng chung ít khi đổi trong một phiên làm việc.
+ *
+ * Cache giữ chính PROMISE chứ không phải kết quả đã resolve. Bản cũ gán
+ * `bootstrapCache = await callGAS(...)` — tức chỉ có giá trị SAU khi request
+ * xong — nên khi các trang gọi Promise.all([getGroups(), getBUs(), getRegions()])
+ * lúc cache còn rỗng thì cả ba cùng thấy null và cùng bắn một request
+ * getBootstrap giống hệt nhau. Ba lượt gọi Apps Script, mỗi lượt 1-5 giây,
+ * cho đúng một tập dữ liệu.
+ */
+let bootstrapPromise = null;
+
+// Danh mục sản phẩm ~750 SKU. Mỗi lần chuyển tab là trang bị unmount và mất
+// sạch state, nên không cache ở đây thì cứ quay lại tab là tải lại toàn bộ.
+// Khoá theo toàn bộ tham số để không trả nhầm kết quả đã lọc theo kênh/nhóm.
+const productsCache = new Map();
 
 export function clearBootstrapCache() {
-  bootstrapCache = null;
+  bootstrapPromise = null;
+  productsCache.clear();
 }
 
-async function bootstrap() {
-  if (!bootstrapCache) {
-    bootstrapCache = await callGAS('getBootstrap', auth());
+function bootstrap() {
+  if (!bootstrapPromise) {
+    bootstrapPromise = callGAS('getBootstrap', auth()).catch((err) => {
+      bootstrapPromise = null; // lỗi thì cho phép thử lại, không cache lỗi
+      throw err;
+    });
   }
-  return bootstrapCache;
+  return bootstrapPromise;
+}
+
+function getProductsCached(params) {
+  const key = JSON.stringify([params.bu || '', params.group || '', params.search || '']);
+  if (!productsCache.has(key)) {
+    productsCache.set(key, callGAS('getProducts', auth(params)).catch((err) => {
+      productsCache.delete(key);
+      throw err;
+    }));
+  }
+  return productsCache.get(key);
 }
 
 export const api = {
@@ -33,9 +62,12 @@ export const api = {
   getBUs: async () => (await bootstrap()).businessUnits || [],
   getRegions: async () => (await bootstrap()).regions || [],
   getGroups: async () => (await bootstrap()).productGroups || [],
-  getProducts: (params = {}) => callGAS('getProducts', auth(params)),
-  addProduct: (product) => callGAS('addProduct', auth({ product })),
-  addProducts: (products) => callGAS('addProducts', auth({ products })),
+  getProducts: (params = {}) => getProductsCached(params),
+  // Thêm SKU mới làm danh mục đổi -> bỏ cache để lần đọc sau lấy bản mới
+  addProduct: (product) =>
+    callGAS('addProduct', auth({ product })).then((res) => { productsCache.clear(); return res; }),
+  addProducts: (products) =>
+    callGAS('addProducts', auth({ products })).then((res) => { productsCache.clear(); return res; }),
   readExternalSheet: (spreadsheetId, sheetName) => callGAS('readExternalSheet', auth({ spreadsheetId, sheetName })),
 
   // ----- chu kỳ & version -----
