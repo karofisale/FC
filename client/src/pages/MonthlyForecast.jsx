@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { api } from '../services/api';
 import CycleBar from '../components/CycleBar';
@@ -35,16 +35,28 @@ export default function MonthlyForecast({ currentBU, user }) {
   const [search, setSearch] = useState('');
   const [selectedGroup, setSelectedGroup] = useState('ALL');
   const [onlyNonZero, setOnlyNonZero] = useState(true);
+  const [nonZeroSkus, setNonZeroSkus] = useState(() => new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showImport, setShowImport] = useState(false);
 
-  const months = monthsOfCycle(selectedCycle);
+  // Memo hoá để mảng không đổi định danh mỗi lần render — nếu không thì mọi
+  // useMemo phụ thuộc vào `months` đều bị tính lại sau từng phím gõ.
+  const months = useMemo(() => monthsOfCycle(selectedCycle), [selectedCycle]);
   const isEditor = user?.role === 'bu_editor' || user?.role === 'central_admin';
   const cycleLocked = selectedCycle?.status === 'approved' || selectedCycle?.status === 'locked';
   const canWrite = isEditor && !!selectedVersion && !cycleLocked;
+
+  /** Tập SKU có ít nhất một tháng > 0, tính từ một map số lượng. */
+  const computeNonZero = useCallback((map) => {
+    const s = new Set();
+    Object.keys(map).forEach((k) => {
+      if ((map[k] || 0) > 0) s.add(k.slice(0, k.lastIndexOf('_')));
+    });
+    return s;
+  }, []);
 
   const applyLines = useCallback((lines) => {
     const map = {};
@@ -52,8 +64,9 @@ export default function MonthlyForecast({ currentBU, user }) {
       map[`${l.sku_code}_${l.forecast_month}`] = Number(l.quantity) || 0;
     });
     setForecastMap(map);
+    setNonZeroSkus(computeNonZero(map));
     setDirtyKeys(new Set());
-  }, []);
+  }, [computeNonZero]);
 
   const loadLines = useCallback(async (versionId) => {
     applyLines(await api.getMonthlyLines(versionId));
@@ -211,20 +224,49 @@ export default function MonthlyForecast({ currentBU, user }) {
     }
   };
 
-  const filteredProducts = products.filter((p) => {
+  /**
+   * Danh sách SKU hiển thị được chốt theo TỪNG LẦN TẢI DỮ LIỆU, không tính
+   * lại theo từng phím gõ. Bản cũ đọc thẳng forecastMap đang chỉnh sửa, nên
+   * khi người dùng xoá giá trị cuối cùng còn khác 0 của một dòng thì dòng đó
+   * rớt khỏi danh sách ngay lập tức — ô input đang nhập bị gỡ, mất con trỏ,
+   * và các dòng bên dưới nhảy vị trí. Bộ lọc chỉ được áp lại khi người dùng
+   * chủ động bật lại ô tick hoặc khi tải lại dữ liệu.
+   */
+  const filteredProducts = useMemo(() => {
     const s = search.trim().toLowerCase();
-    const matchSearch = !s
-      || String(p.sku_code).toLowerCase().includes(s)
-      || String(p.name).toLowerCase().includes(s);
-    const matchGroup = selectedGroup === 'ALL' || p.product_group_code === selectedGroup;
-    const matchNonZero = !onlyNonZero || months.some((m) => (forecastMap[`${p.sku_code}_${m}`] || 0) > 0);
-    return matchSearch && matchGroup && matchNonZero;
-  });
+    return products.filter((p) => {
+      const matchSearch = !s
+        || String(p.sku_code).toLowerCase().includes(s)
+        || String(p.name).toLowerCase().includes(s);
+      const matchGroup = selectedGroup === 'ALL' || p.product_group_code === selectedGroup;
+      const matchNonZero = !onlyNonZero || nonZeroSkus.has(p.sku_code);
+      return matchSearch && matchGroup && matchNonZero;
+    });
+  }, [products, search, selectedGroup, onlyNonZero, nonZeroSkus]);
+
+  /**
+   * Bật lại bộ lọc thì chốt lại danh sách theo số hiện tại (kể cả số vừa gõ
+   * chưa lưu) — đây là thời điểm DUY NHẤT bộ lọc được tính lại ngoài lúc tải
+   * dữ liệu, và vì do người dùng chủ động bấm nên dòng biến mất không gây bất ngờ.
+   */
+  const handleToggleNonZero = (checked) => {
+    setOnlyNonZero(checked);
+    if (checked) setNonZeroSkus(computeNonZero(forecastMap));
+  };
 
   const getSkuTotal = (sku) => months.reduce((sum, m) => sum + (forecastMap[`${sku}_${m}`] || 0), 0);
-  const getMonthTotal = (month) =>
-    filteredProducts.reduce((sum, p) => sum + (forecastMap[`${p.sku_code}_${month}`] || 0), 0);
-  const grandTotal = months.reduce((sum, m) => sum + getMonthTotal(m), 0);
+
+  // Gộp tổng theo tháng và tổng chu kỳ vào một lượt duyệt. Bản cũ tính
+  // getMonthTotal hai lần cho mỗi tháng (một lần cho grandTotal, một lần khi
+  // vẽ hàng tổng), tức quét filteredProducts gấp đôi số cần thiết.
+  const { monthTotals, grandTotal } = useMemo(() => {
+    const per = {};
+    months.forEach((m) => { per[m] = 0; });
+    filteredProducts.forEach((p) => {
+      months.forEach((m) => { per[m] += forecastMap[`${p.sku_code}_${m}`] || 0; });
+    });
+    return { monthTotals: per, grandTotal: months.reduce((sum, m) => sum + per[m], 0) };
+  }, [filteredProducts, forecastMap, months]);
 
   const scrollParentRef = useRef(null);
   const rowVirtualizer = useVirtualizer({
@@ -340,7 +382,7 @@ export default function MonthlyForecast({ currentBU, user }) {
             ))}
           </select>
           <label className="flex items-center gap-1.5 text-xs text-slate-600 whitespace-nowrap">
-            <input type="checkbox" checked={onlyNonZero} onChange={(e) => setOnlyNonZero(e.target.checked)} />
+            <input type="checkbox" checked={onlyNonZero} onChange={(e) => handleToggleNonZero(e.target.checked)} />
             Chỉ hiện SKU có số lượng
           </label>
           {isEditor && (
@@ -521,7 +563,7 @@ export default function MonthlyForecast({ currentBU, user }) {
                 </td>
                 {months.map((m) => (
                   <td key={m} className="py-3 px-3 text-right font-mono text-blue-900 font-black">
-                    {getMonthTotal(m).toLocaleString('vi-VN')}
+                    {(monthTotals[m] || 0).toLocaleString('vi-VN')}
                   </td>
                 ))}
                 <td className="py-3 px-3 text-right font-mono text-cyan-900 font-black text-sm bg-cyan-100/50">

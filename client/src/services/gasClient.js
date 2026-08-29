@@ -31,7 +31,19 @@ export const GAS_WEB_APP_URL =
  * (đo được 1-5 giây kể cả có đọc Sheet), nên không cắt ngang một lượt
  * gọi hợp lệ đang chạy chậm.
  */
-const ATTEMPT_TIMEOUT_MS = 12000;
+/**
+ * Ngưỡng chờ TĂNG DẦN theo từng lần thử.
+ *
+ * Bản cũ đặt cứng 12 giây cho mọi lần thử, trong khi chính chú thích ở trên
+ * ghi cold-start mất 30-42 giây. Hệ quả: tổng thời gian chờ vẫn ~40 giây
+ * nhưng KHÔNG lần thử nào được phép chạy quá 12 giây, nên một lần khởi động
+ * nguội luôn thất bại cả ba lượt rồi kết thúc bằng "Vui lòng tải lại trang"
+ * — đúng vào lượt truy cập đầu buổi sáng hoặc ngay sau khi deploy.
+ *
+ * Lần đầu vẫn ngắn để thất bại nhanh khi thật sự có sự cố mạng; lần cuối đủ
+ * dài để bắt được container vừa khởi động xong.
+ */
+const ATTEMPT_TIMEOUTS_MS = [12000, 25000, 45000];
 const RETRY_DELAYS_MS = [1500, 3000];
 
 export class ApiError extends Error {
@@ -64,9 +76,9 @@ function sleep(ms) {
 }
 
 /** Một lần gọi thô, không thử lại. Trả về { transportError } khi lỗi tầng vận chuyển. */
-async function callOnce(action, payload) {
+async function callOnce(action, payload, timeoutMs) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   let res;
   try {
@@ -117,7 +129,7 @@ export async function callGAS(action, payload = {}) {
       await sleep(RETRY_DELAYS_MS[attempt - 1]);
     }
 
-    const result = await callOnce(action, payload);
+    const result = await callOnce(action, payload, ATTEMPT_TIMEOUTS_MS[attempt]);
 
     if (!result.transportError) {
       return handleData_(result.data);
@@ -133,7 +145,7 @@ export async function callGAS(action, payload = {}) {
   if (lastFailure.transportError === 'timeout' || lastFailure.transportError === 'status') {
     throw new ApiError(
       `Máy chủ phản hồi quá chậm (có thể đang khởi động lại sau thời gian nghỉ). ` +
-      `Đã thử lại ${RETRY_DELAYS_MS.length} lần trong khoảng ${Math.round((ATTEMPT_TIMEOUT_MS * (RETRY_DELAYS_MS.length + 1) + RETRY_DELAYS_MS.reduce((a, b) => a + b, 0)) / 1000)}s. Vui lòng tải lại trang.`
+      `Đã thử lại ${RETRY_DELAYS_MS.length} lần trong khoảng ${Math.round((ATTEMPT_TIMEOUTS_MS.reduce((a, b) => a + b, 0) + RETRY_DELAYS_MS.reduce((a, b) => a + b, 0)) / 1000)}s. Vui lòng tải lại trang.`
     );
   }
   throw new ApiError('Máy chủ trả về dữ liệu không hợp lệ. Kiểm tra lại URL và quyền truy cập của Web App.');

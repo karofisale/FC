@@ -236,17 +236,36 @@ function appendObjects_(name, objects) {
  * tại chỗ, dòng mới thì nối thêm, rồi ghi bằng một lệnh setValues.
  * Đây là chỗ thay cho appendRow-trong-vòng-lặp của bản cũ.
  */
-function upsertRows_(name, keyFields, records) {
-  if (!records.length) return { total: 0, updated: 0, inserted: 0 };
+function applyRowChanges_(name, keyFields, upserts, deletes) {
+  var records = upserts || [];
+  deletes = deletes || [];
+  if (!records.length && !deletes.length) {
+    return { total: 0, updated: 0, inserted: 0, deleted: 0 };
+  }
 
   var t = readTable_(name);
   keyFields.forEach(function (f) {
     if (t.idx[f] === undefined) throw new Error('Sheet ' + name + ' thiếu cột khoá "' + f + '".');
   });
 
+  // Co ky tu phan cach de hai khoa khac nhau khong don thanh cung mot chuoi
+  // (vd 'v-w1'+'2' va 'v-w'+'12' deu cho ra 'v-w12' neu noi tran).
   var keyOf = function (getter) {
-    return keyFields.map(function (f) { return String(getter(f)); }).join('');
+    return keyFields.map(function (f) { return String(getter(f)); }).join(' ');
   };
+
+  var deleted = 0;
+  if (deletes.length) {
+    var toDelete = {};
+    deletes.forEach(function (rec) {
+      toDelete[keyOf(function (f) { return rec[f]; })] = true;
+    });
+    var beforeCount = t.rows.length;
+    t.rows = t.rows.filter(function (row) {
+      return !toDelete[keyOf(function (f) { return row[t.idx[f]]; })];
+    });
+    deleted = beforeCount - t.rows.length;
+  }
 
   var index = {};
   t.rows.forEach(function (row, i) {
@@ -276,10 +295,15 @@ function upsertRows_(name, keyFields, records) {
     }
   });
 
-  t.rows = t.rows.concat(newRows);
+  if (newRows.length) t.rows = t.rows.concat(newRows);
   writeTable_(name, t);
 
-  return { total: records.length, updated: updated, inserted: inserted };
+  return { total: records.length, updated: updated, inserted: inserted, deleted: deleted };
+}
+
+/** Chi upsert. Giu lai cho cac cho goi cu (Admin.gs, importProducts_...). */
+function upsertRows_(name, keyFields, records) {
+  return applyRowChanges_(name, keyFields, records, []);
 }
 
 /**
@@ -289,30 +313,7 @@ function upsertRows_(name, keyFields, records) {
  * Khoá không tồn tại thì bỏ qua, không lỗi.
  */
 function deleteRowsByKeys_(name, keyFields, records) {
-  if (!records.length) return { deleted: 0 };
-
-  var t = readTable_(name);
-  keyFields.forEach(function (f) {
-    if (t.idx[f] === undefined) throw new Error('Sheet ' + name + ' thiếu cột khoá "' + f + '".');
-  });
-
-  var keyOf = function (getter) {
-    return keyFields.map(function (f) { return String(getter(f)); }).join('');
-  };
-
-  var toDelete = {};
-  records.forEach(function (rec) {
-    toDelete[keyOf(function (f) { return rec[f]; })] = true;
-  });
-
-  var before = t.rows.length;
-  t.rows = t.rows.filter(function (row) {
-    return !toDelete[keyOf(function (f) { return row[t.idx[f]]; })];
-  });
-
-  var deleted = before - t.rows.length;
-  if (deleted > 0) writeTable_(name, t);
-  return { deleted: deleted };
+  return applyRowChanges_(name, keyFields, [], records);
 }
 
 function findRowIndex_(table, field, value) {

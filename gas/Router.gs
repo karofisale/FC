@@ -147,6 +147,7 @@ function dispatch_(action, p, session) {
     case 'saveMonthlyLines': return saveMonthlyLines_(session, p.versionId, p.lines);
     case 'saveWeeklySplits': return saveWeeklySplits_(session, p.versionId, p.splits);
     case 'submitCycle':      return submitCycle_(session, p.cycleId, p.versionId);
+    case 'reopenCycle':      return reopenCycle_(session, p.cycleId, p.reason);
     case 'decideApproval':   return decideApproval_(session, p.approvalId, p.decision, p.comment);
     case 'changeMyPin':      return changeMyPin_(session, p.currentPin, p.newPin);
     case 'setUserPin':       return setUserPin_(session, p.userId, p.newPin);

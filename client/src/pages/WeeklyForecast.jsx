@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { api } from '../services/api';
 import CycleBar from '../components/CycleBar';
@@ -40,13 +40,31 @@ export default function WeeklyForecast({ currentBU, user }) {
   const [validationResult, setValidationResult] = useState(null);
   const [search, setSearch] = useState('');
   const [onlyNonZero, setOnlyNonZero] = useState(true);
+  const [nonZeroSkus, setNonZeroSkus] = useState(() => new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
 
   const baseMonth = normalizeMonth(selectedCycle?.base_month) || monthsOfCycle(selectedCycle)[0] || '';
-  const weeks = baseMonth ? weeksOfMonth(baseMonth) : [];
-  const regionCodes = regions.map((r) => r.code);
+  // Memo hoá để mảng giữ nguyên định danh giữa các lần render, nếu không mọi
+  // useMemo phụ thuộc vào chúng đều bị tính lại sau từng phím gõ.
+  const weeks = useMemo(() => (baseMonth ? weeksOfMonth(baseMonth) : []), [baseMonth]);
+  const regionCodes = useMemo(() => regions.map((r) => r.code), [regions]);
+
+  /** Tập SKU có số ở bảng tháng HOẶC ở bất kỳ ô tuần/miền nào. */
+  const computeNonZero = useCallback((mMap, wMap) => {
+    const s = new Set();
+    Object.keys(mMap).forEach((sku) => { if ((mMap[sku] || 0) > 0) s.add(sku); });
+    Object.keys(wMap).forEach((k) => {
+      if (!(wMap[k] || 0)) return;
+      // Khoá dạng `${sku}_${tuần}_${miền}` — bỏ đúng hai hậu tố cuối, vì
+      // bản thân mã SKU có thể chứa dấu gạch dưới.
+      const lastUnd = k.lastIndexOf('_');
+      const secondLast = k.lastIndexOf('_', lastUnd - 1);
+      if (secondLast > 0) s.add(k.slice(0, secondLast));
+    });
+    return s;
+  }, []);
 
   const isEditor = user?.role === 'bu_editor' || user?.role === 'central_admin';
   const cycleLocked = selectedCycle?.status === 'approved' || selectedCycle?.status === 'locked';
@@ -54,16 +72,18 @@ export default function WeeklyForecast({ currentBU, user }) {
 
   /** Áp dữ liệu đã có sẵn (từ action gộp) vào state, không gọi mạng thêm. */
   const applyForecasts = useCallback((monthlyQuantities, splits, valRes) => {
-    setMonthlyMap(monthlyQuantities || {});
+    const mMap = monthlyQuantities || {};
+    setMonthlyMap(mMap);
 
     const wMap = {};
     (splits || []).forEach((s) => {
       wMap[`${s.sku_code}_${s.week_number}_${s.region_code}`] = Number(s.quantity) || 0;
     });
     setWeeklyMap(wMap);
+    setNonZeroSkus(computeNonZero(mMap, wMap));
     setValidationResult(valRes || null);
     setDirtyKeys(new Set());
-  }, []);
+  }, [computeNonZero]);
 
   const loadForecasts = useCallback(async (versionId, month) => {
     const [mLines, wSplits, valRes] = await Promise.all([
@@ -264,19 +284,33 @@ export default function WeeklyForecast({ currentBU, user }) {
     }
   };
 
+  /** Bật lại bộ lọc thì chốt lại danh sách theo số hiện tại (kể cả số chưa lưu). */
+  const handleToggleNonZero = (checked) => {
+    setOnlyNonZero(checked);
+    if (checked) setNonZeroSkus(computeNonZero(monthlyMap, weeklyMap));
+  };
+
   const getSkuWeeklySum = (skuCode) =>
     weeks.reduce((sum, w) => sum + regionCodes.reduce(
       (s, r) => s + (weeklyMap[`${skuCode}_${w}_${r}`] || 0), 0
     ), 0);
 
-  const filteredProducts = products.filter((p) => {
+  /**
+   * Chốt danh sách hiển thị theo từng lần TẢI dữ liệu, không tính lại theo
+   * từng phím gõ. Bản cũ duyệt 750 SKU x số tuần x số miền cho MỖI lần
+   * render, và vì đọc thẳng weeklyMap đang sửa nên xoá ô cuối cùng của một
+   * dòng là dòng đó biến mất ngay dưới con trỏ.
+   */
+  const filteredProducts = useMemo(() => {
     const s = search.trim().toLowerCase();
-    const matchSearch = !s
-      || String(p.sku_code).toLowerCase().includes(s)
-      || String(p.name).toLowerCase().includes(s);
-    const matchNonZero = !onlyNonZero || (monthlyMap[p.sku_code] || 0) > 0 || getSkuWeeklySum(p.sku_code) > 0;
-    return matchSearch && matchNonZero;
-  });
+    return products.filter((p) => {
+      const matchSearch = !s
+        || String(p.sku_code).toLowerCase().includes(s)
+        || String(p.name).toLowerCase().includes(s);
+      const matchNonZero = !onlyNonZero || nonZeroSkus.has(p.sku_code);
+      return matchSearch && matchNonZero;
+    });
+  }, [products, search, onlyNonZero, nonZeroSkus]);
 
   const columnCount = 3 + weeks.length * regionCodes.length + 2;
 
@@ -378,7 +412,7 @@ export default function WeeklyForecast({ currentBU, user }) {
           />
         </div>
         <label className="flex items-center gap-1.5 text-xs text-slate-600 whitespace-nowrap">
-          <input type="checkbox" checked={onlyNonZero} onChange={(e) => setOnlyNonZero(e.target.checked)} />
+          <input type="checkbox" checked={onlyNonZero} onChange={(e) => handleToggleNonZero(e.target.checked)} />
           Chỉ hiện SKU có số lượng
         </label>
         {isEditor && (

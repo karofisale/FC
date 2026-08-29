@@ -58,7 +58,15 @@ function createCycle_(session, p) {
 function createVersion_(session, p) {
   var cycle = findOne_(SHEETS.CYCLES, 'id', p.cycleId);
   if (!cycle) throw new Error('Không tìm thấy chu kỳ: ' + p.cycleId);
-  assertCanEdit_(session, cycle);
+
+  // Cố tình KHÔNG dùng assertCanEdit_ ở đây. Hàm đó chặn mọi thao tác khi
+  // chu kỳ đã duyệt, nhưng tạo bản cập nhật tuần chỉ THÊM một version mới,
+  // không sửa gì trong bản đã duyệt — bản cũ vẫn nguyên vẹn làm bằng chứng.
+  // Chặn ở đây biến chu kỳ đã duyệt thành ngõ cụt: không còn đường nào làm
+  // tiếp forecast tuần trong app, buộc phải sửa tay cột trạng thái trên
+  // Sheet, vừa mất dấu vết vừa khiến lần lưu sau ghi đè lên số đã duyệt.
+  assertRole_(session, ['bu_editor', 'central_admin']);
+  assertBU_(session, cycle.business_unit_code);
 
   var updateWeek = Number(p.updateWeek);
   if (!isFinite(updateWeek) || updateWeek < 0) {
@@ -136,15 +144,49 @@ function createVersion_(session, p) {
     copied = monthly.length + weekly.length;
   }
 
-  // Mở lại chu kỳ đã bị từ chối khi có bản cập nhật mới
-  if (cycle.status === 'rejected' || cycle.status === 'submitted') {
+  // Có bản cập nhật mới thì chu kỳ quay lại trạng thái soạn thảo. Bao gồm
+  // cả 'approved': bản đã duyệt vẫn còn nguyên trong ForecastVersions và
+  // trong hồ sơ Approvals, nhưng chu kỳ phải mở lại thì mới nhập tiếp và
+  // gửi duyệt lại được cho bản mới.
+  if (cycle.status === 'rejected' || cycle.status === 'submitted' || cycle.status === 'approved') {
     updateCycleStatus_(cycle.id, 'draft');
+    logAuth_(session.userId, 'cycle_reopened_by_new_version',
+      cycle.id + ': ' + cycle.status + ' -> draft (bản cập nhật tuần ' + updateWeek + ')');
   }
 
   return {
     version: findOne_(SHEETS.VERSIONS, 'id', versionId),
     copiedRows: copied
   };
+}
+
+/**
+ * Mở lại một chu kỳ đã duyệt/khoá để sửa số.
+ *
+ * Dùng khi chính số đã duyệt bị sai và chưa tới kỳ cập nhật tuần mới (nếu
+ * tới kỳ thì createVersion_ đã tự mở lại). Yêu cầu vai trò THẨM ĐỊNH chứ
+ * không phải người lập kế hoạch: người đã duyệt mới là người được rút lại
+ * phê duyệt. Bắt buộc nêu lý do và ghi vào AuthLog, để việc sửa số sau khi
+ * duyệt luôn để lại dấu vết — thay vì sửa tay cột trạng thái trên Sheet.
+ */
+function reopenCycle_(session, cycleId, reason) {
+  assertRole_(session, ['bu_approver', 'central_admin']);
+
+  var cycle = findOne_(SHEETS.CYCLES, 'id', cycleId);
+  if (!cycle) throw new Error('Không tìm thấy chu kỳ: ' + cycleId);
+  assertBU_(session, cycle.business_unit_code);
+
+  if (cycle.status !== 'approved' && cycle.status !== 'locked') {
+    throw new Error('Chu kỳ đang ở trạng thái "' + cycle.status + '", không cần mở lại.');
+  }
+
+  var note = String(reason || '').trim();
+  if (!note) throw new Error('Phải nêu lý do mở lại chu kỳ đã duyệt.');
+
+  updateCycleStatus_(cycleId, 'draft');
+  logAuth_(session.userId, 'cycle_reopened', cycleId + ' (' + cycle.status + ' -> draft): ' + note);
+
+  return { message: 'Đã mở lại chu kỳ ' + cycleId + ' để chỉnh sửa.' };
 }
 
 function saveMonthlyLines_(session, versionId, lines) {
@@ -181,13 +223,15 @@ function saveMonthlyLines_(session, versionId, lines) {
     }
   });
 
-  var del = deleteRowsByKeys_(SHEETS.MONTHLY_LINES, ['version_id', 'sku_code', 'forecast_month'], toDelete);
-  var written = upsertRows_(SHEETS.MONTHLY_LINES, ['version_id', 'sku_code', 'forecast_month'], toUpsert);
+  // Một lượt ghi duy nhất cho cả xoá lẫn cập nhật (trước đây là hai lượt,
+  // mỗi lượt ghi lại toàn bộ bảng).
+  var written = applyRowChanges_(
+    SHEETS.MONTHLY_LINES, ['version_id', 'sku_code', 'forecast_month'], toUpsert, toDelete);
   return {
     message: 'Đã lưu ' + written.total + ' dòng kế hoạch tháng.',
     updated: written.updated,
     inserted: written.inserted,
-    deleted: del.deleted
+    deleted: written.deleted
   };
 }
 
@@ -227,13 +271,14 @@ function saveWeeklySplits_(session, versionId, splits) {
     }
   });
 
-  var del = deleteRowsByKeys_(SHEETS.WEEKLY_SPLITS, ['version_id', 'sku_code', 'week_number', 'region_code'], toDelete);
-  var written = upsertRows_(SHEETS.WEEKLY_SPLITS, ['version_id', 'sku_code', 'week_number', 'region_code'], toUpsert);
+  // Một lượt ghi duy nhất cho cả xoá lẫn cập nhật.
+  var written = applyRowChanges_(
+    SHEETS.WEEKLY_SPLITS, ['version_id', 'sku_code', 'week_number', 'region_code'], toUpsert, toDelete);
   return {
     message: 'Đã lưu ' + written.total + ' dòng kế hoạch tuần/miền.',
     updated: written.updated,
     inserted: written.inserted,
-    deleted: del.deleted
+    deleted: written.deleted
   };
 }
 

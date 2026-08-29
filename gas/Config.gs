@@ -59,7 +59,7 @@ const READ_ACTIONS = [
 ];
 const WRITE_ACTIONS = [
   'createCycle', 'createVersion', 'saveMonthlyLines', 'saveWeeklySplits',
-  'submitCycle', 'decideApproval', 'changeMyPin', 'setUserPin', 'importProducts',
-  'saveActuals', 'addProduct', 'addProducts'
+  'submitCycle', 'reopenCycle', 'decideApproval', 'changeMyPin', 'setUserPin',
+  'importProducts', 'saveActuals', 'addProduct', 'addProducts'
 ];
 
