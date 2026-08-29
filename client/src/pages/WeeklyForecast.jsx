@@ -67,6 +67,8 @@ export default function WeeklyForecast({ currentBU, user }) {
   }, []);
 
   const isEditor = user?.role === 'bu_editor' || user?.role === 'central_admin';
+  // Rút lại phê duyệt là quyền của người thẩm định, không phải người lập kế hoạch
+  const canReopen = user?.role === 'bu_approver' || user?.role === 'central_admin';
   const cycleLocked = selectedCycle?.status === 'approved' || selectedCycle?.status === 'locked';
   const canWrite = isEditor && !!selectedVersion && !cycleLocked;
 
@@ -382,6 +384,7 @@ export default function WeeklyForecast({ currentBU, user }) {
         selectedVersion={selectedVersion}
         onSelectVersion={handleSelectVersion}
         canEdit={isEditor}
+        canReopen={canReopen}
         onChanged={(cycleId, versionId) => loadAll(cycleId, versionId)}
       />
 

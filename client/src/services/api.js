@@ -104,6 +104,9 @@ export const api = {
   // ----- phê duyệt -----
   getApprovals: (params = {}) => callGAS('getApprovals', auth(params)),
   submitCycle: (cycleId, versionId) => callGAS('submitCycle', auth({ cycleId, versionId })),
+  // Mở lại chu kỳ đã duyệt để sửa số. Backend bắt buộc vai trò thẩm định và
+  // có lý do, rồi ghi vào AuthLog.
+  reopenCycle: (cycleId, reason) => callGAS('reopenCycle', auth({ cycleId, reason })),
   decideApproval: (approvalId, decision, comment) =>
     callGAS('decideApproval', auth({ approvalId, decision, comment })),
 
