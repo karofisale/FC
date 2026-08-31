@@ -44,6 +44,39 @@ function getProducts_(bu, group, search) {
   return list;
 }
 
+/**
+ * Đếm SKU đang dùng của một đơn vị, theo đúng bộ lọc của getProducts_.
+ *
+ * Màn Tổng quan chỉ hiển thị MỘT con số đếm, nhưng trước đây phải dựng
+ * đủ 1.141 object sản phẩm rồi mới lấy .length của mảng — toàn bộ phần
+ * dựng object đó bị vứt đi ngay sau đó.
+ *
+ * Hai bộ lọc dưới đây phải khớp với activeOnly_ và với điều kiện bu trong
+ * getProducts_; đổi một bên mà quên bên kia thì số đếm sẽ lệch với số dòng
+ * thực sự hiện trên lưới.
+ */
+function countProducts_(bu) {
+  var t = readTable_(SHEETS.PRODUCTS);
+  var colActive = t.idx['is_active'];
+  var colChannel = t.idx['default_channel'];
+  var n = 0;
+
+  for (var i = 0; i < t.rows.length; i++) {
+    var row = t.rows[i];
+
+    var active = colActive === undefined ? undefined : row[colActive];
+    if (!(active === undefined || active === ''
+          || String(active) === '1' || String(active).toLowerCase() === 'true')) continue;
+
+    if (bu && colChannel !== undefined) {
+      var channel = row[colChannel];
+      if (channel && String(channel) !== String(bu)) continue;
+    }
+    n++;
+  }
+  return n;
+}
+
 function getCycles_(session, bu, status) {
   var list = readObjects_(SHEETS.CYCLES);
 
@@ -61,16 +94,14 @@ function getCycles_(session, bu, status) {
 
 function getVersions_(cycleId) {
   if (!cycleId) throw new Error('Thiếu cycleId.');
-  return readObjects_(SHEETS.VERSIONS)
-    .filter(function (v) { return String(v.cycle_id) === String(cycleId); })
+  return readObjectsWhere_(SHEETS.VERSIONS, 'cycle_id', cycleId)
     .sort(function (a, b) { return Number(a.update_week) - Number(b.update_week); });
 }
 
 function getMonthlyLines_(versionId) {
   if (!versionId) throw new Error('Thiếu versionId.');
   var products = productMap_();
-  return readObjects_(SHEETS.MONTHLY_LINES)
-    .filter(function (l) { return String(l.version_id) === String(versionId); })
+  return readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', versionId)
     .map(function (l) {
       var p = products[l.sku_code] || {};
       l.quantity = Number(l.quantity) || 0;
@@ -86,8 +117,7 @@ function getMonthlyLines_(versionId) {
 function getWeeklySplits_(versionId) {
   if (!versionId) throw new Error('Thiếu versionId.');
   var products = productMap_();
-  return readObjects_(SHEETS.WEEKLY_SPLITS)
-    .filter(function (w) { return String(w.version_id) === String(versionId); })
+  return readObjectsWhere_(SHEETS.WEEKLY_SPLITS, 'version_id', versionId)
     .map(function (w) {
       var p = products[w.sku_code] || {};
       w.quantity = Number(w.quantity) || 0;
@@ -111,15 +141,13 @@ function validateWeekly_(versionId) {
   var products = productMap_();
 
   var monthQty = {};
-  readObjects_(SHEETS.MONTHLY_LINES).forEach(function (l) {
-    if (String(l.version_id) !== String(versionId)) return;
+  readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', versionId).forEach(function (l) {
     if (normalizeMonth_(l.forecast_month) !== baseMonth) return;
     monthQty[l.sku_code] = (monthQty[l.sku_code] || 0) + (Number(l.quantity) || 0);
   });
 
   var weekQty = {};
-  readObjects_(SHEETS.WEEKLY_SPLITS).forEach(function (w) {
-    if (String(w.version_id) !== String(versionId)) return;
+  readObjectsWhere_(SHEETS.WEEKLY_SPLITS, 'version_id', versionId).forEach(function (w) {
     weekQty[w.sku_code] = (weekQty[w.sku_code] || 0) + (Number(w.quantity) || 0);
   });
 
@@ -153,9 +181,16 @@ function validateWeekly_(versionId) {
   };
 }
 
-function getB0Summary_(baseMonth, bu) {
-  var month = normalizeMonth_(baseMonth);
-  var products = productMap_();
+/**
+ * Map version_id → chu kỳ, chỉ gồm bản chốt (is_final) của những chu kỳ khớp
+ * tháng gốc và đơn vị được yêu cầu.
+ *
+ * Bảng 0 và Bảng 1 tổng hợp hai bảng số khác nhau nhưng chọn version theo
+ * đúng một quy tắc; trước đây quy tắc đó được chép nguyên sang cả hai hàm,
+ * nên sửa một bản mà quên bản kia sẽ cho hai báo cáo lệch nhau mà không
+ * báo lỗi ở đâu cả.
+ */
+function finalVersionsByCycle_(month, bu) {
   var cycles = {};
   readObjects_(SHEETS.CYCLES).forEach(function (c) { cycles[c.id] = c; });
 
@@ -168,11 +203,19 @@ function getB0Summary_(baseMonth, bu) {
     if (bu && String(c.business_unit_code) !== String(bu)) return;
     finalVersions[v.id] = c;
   });
+  return finalVersions;
+}
+
+function getB0Summary_(baseMonth, bu) {
+  var month = normalizeMonth_(baseMonth);
+  var products = productMap_();
+  var finalVersions = finalVersionsByCycle_(month, bu);
 
   var map = {};
-  readObjects_(SHEETS.MONTHLY_LINES).forEach(function (l) {
+  readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', function (v) {
+    return finalVersions[v] !== undefined;
+  }).forEach(function (l) {
     var cycle = finalVersions[l.version_id];
-    if (!cycle) return;
     var p = products[l.sku_code] || {};
     var key = cycle.business_unit_code + '|' + (p.product_group_code || 'KHAC') + '|' + normalizeMonth_(l.forecast_month);
     if (!map[key]) {
@@ -197,23 +240,13 @@ function getB0Summary_(baseMonth, bu) {
 function getB1Summary_(baseMonth, bu) {
   var month = normalizeMonth_(baseMonth);
   var products = productMap_();
-  var cycles = {};
-  readObjects_(SHEETS.CYCLES).forEach(function (c) { cycles[c.id] = c; });
-
-  var finalVersions = {};
-  readObjects_(SHEETS.VERSIONS).forEach(function (v) {
-    if (String(v.is_final) !== '1' && v.is_final !== true) return;
-    var c = cycles[v.cycle_id];
-    if (!c) return;
-    if (month && normalizeMonth_(c.base_month) !== month) return;
-    if (bu && String(c.business_unit_code) !== String(bu)) return;
-    finalVersions[v.id] = c;
-  });
+  var finalVersions = finalVersionsByCycle_(month, bu);
 
   var map = {};
-  readObjects_(SHEETS.WEEKLY_SPLITS).forEach(function (w) {
+  readObjectsWhere_(SHEETS.WEEKLY_SPLITS, 'version_id', function (v) {
+    return finalVersions[v] !== undefined;
+  }).forEach(function (w) {
     var cycle = finalVersions[w.version_id];
-    if (!cycle) return;
     var p = products[w.sku_code] || {};
     var key = cycle.business_unit_code + '|' + (p.product_group_code || 'KHAC') + '|' + w.week_number + '|' + w.region_code;
     if (!map[key]) {
@@ -243,17 +276,14 @@ function getVariance_(cycleId) {
   var curr = versions[versions.length - 1];
   var prev = versions[versions.length - 2];
   var products = productMap_();
-  var lines = readObjects_(SHEETS.MONTHLY_LINES);
 
   var prevMap = {};
-  lines.forEach(function (l) {
-    if (String(l.version_id) !== String(prev.id)) return;
+  readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', prev.id).forEach(function (l) {
     prevMap[l.sku_code + '|' + normalizeMonth_(l.forecast_month)] = Number(l.quantity) || 0;
   });
 
   var variance = [];
-  lines.forEach(function (l) {
-    if (String(l.version_id) !== String(curr.id)) return;
+  readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', curr.id).forEach(function (l) {
     var month = normalizeMonth_(l.forecast_month);
     var key = l.sku_code + '|' + month;
     var currentQty = Number(l.quantity) || 0;
@@ -322,14 +352,12 @@ function getVersionSummary_(versionId) {
   if (!cycle) throw new Error('Version không gắn với chu kỳ nào.');
 
   var products = productMap_();
-  var lines = readObjects_(SHEETS.MONTHLY_LINES);
 
   function aggregate(vId) {
     var groups = {};
     var months = {};
     var total = 0;
-    lines.forEach(function (l) {
-      if (String(l.version_id) !== String(vId)) return;
+    readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', vId).forEach(function (l) {
       var p = products[l.sku_code] || {};
       var groupCode = p.product_group_code || 'KHAC';
       var groupName = p.product_group_name || 'Chưa phân nhóm';
@@ -353,8 +381,7 @@ function getVersionSummary_(versionId) {
 
   var current = aggregate(versionId);
 
-  var siblings = readObjects_(SHEETS.VERSIONS)
-    .filter(function (v) { return String(v.cycle_id) === String(cycle.id); })
+  var siblings = readObjectsWhere_(SHEETS.VERSIONS, 'cycle_id', cycle.id)
     .sort(function (a, b) { return Number(a.update_week) - Number(b.update_week); });
   var idx = -1;
   for (var i = 0; i < siblings.length; i++) {
@@ -383,7 +410,14 @@ function getVersionSummary_(versionId) {
 
 function getActuals_(bu, month, sku) {
   var products = productMap_();
-  var list = readObjects_(SHEETS.ACTUALS).map(function (a) {
+
+  // Lọc đơn vị ngay trên dòng thô: bảng này chứa sản lượng thực hiện của
+  // MỌI đơn vị qua MỌI tháng đã nhập, trong khi màn hình luôn xem đúng một
+  // đơn vị — không lọc trước thì phần lớn công dựng object là bỏ đi.
+  var list = (bu
+    ? readObjectsWhere_(SHEETS.ACTUALS, 'business_unit_code', bu)
+    : readObjects_(SHEETS.ACTUALS)
+  ).map(function (a) {
     var p = products[a.sku_code] || {};
     a.quantity = Number(a.quantity) || 0;
     a.actual_month = normalizeMonth_(a.actual_month);
@@ -392,7 +426,6 @@ function getActuals_(bu, month, sku) {
     return a;
   });
 
-  if (bu) list = list.filter(function (a) { return String(a.business_unit_code) === String(bu); });
   if (month) {
     var m = normalizeMonth_(month);
     list = list.filter(function (a) { return a.actual_month === m; });
@@ -420,12 +453,11 @@ function getFcVsActual_(bu, month) {
 
   var fcBySku = {};
   if (cycle) {
-    var finalVersion = readObjects_(SHEETS.VERSIONS).filter(function (v) {
-      return String(v.cycle_id) === String(cycle.id) && (String(v.is_final) === '1' || v.is_final === true);
+    var finalVersion = readObjectsWhere_(SHEETS.VERSIONS, 'cycle_id', cycle.id).filter(function (v) {
+      return String(v.is_final) === '1' || v.is_final === true;
     })[0];
     if (finalVersion) {
-      readObjects_(SHEETS.MONTHLY_LINES).forEach(function (l) {
-        if (String(l.version_id) !== String(finalVersion.id)) return;
+      readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', finalVersion.id).forEach(function (l) {
         if (normalizeMonth_(l.forecast_month) !== normMonth) return;
         fcBySku[l.sku_code] = (fcBySku[l.sku_code] || 0) + (Number(l.quantity) || 0);
       });
@@ -433,8 +465,7 @@ function getFcVsActual_(bu, month) {
   }
 
   var actualBySku = {};
-  readObjects_(SHEETS.ACTUALS).forEach(function (a) {
-    if (String(a.business_unit_code) !== String(bu)) return;
+  readObjectsWhere_(SHEETS.ACTUALS, 'business_unit_code', bu).forEach(function (a) {
     if (normalizeMonth_(a.actual_month) !== normMonth) return;
     actualBySku[a.sku_code] = (actualBySku[a.sku_code] || 0) + (Number(a.quantity) || 0);
   });
@@ -512,9 +543,10 @@ function getB0SumExport_(session, baseMonth) {
   });
 
   var rowsMap = {};
-  readObjects_(SHEETS.MONTHLY_LINES).forEach(function (l) {
+  readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', function (v) {
+    return buByVersionId[v] !== undefined;
+  }).forEach(function (l) {
     var bu = buByVersionId[l.version_id];
-    if (!bu) return;
     var m = normalizeMonth_(l.forecast_month);
     if (months.indexOf(m) < 0) return;
 
@@ -568,8 +600,7 @@ function getSapGt2Weekly_(session, baseMonth) {
   if (!version) return { baseMonth: month0, rows: [] };
 
   var weekTotals = {};
-  readObjects_(SHEETS.WEEKLY_SPLITS).forEach(function (w) {
-    if (String(w.version_id) !== String(version.id)) return;
+  readObjectsWhere_(SHEETS.WEEKLY_SPLITS, 'version_id', version.id).forEach(function (w) {
     var wk = Number(w.week_number);
     if (!weekTotals[w.sku_code]) weekTotals[w.sku_code] = {};
     weekTotals[w.sku_code][wk] = (weekTotals[w.sku_code][wk] || 0) + (Number(w.quantity) || 0);

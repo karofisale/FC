@@ -70,7 +70,6 @@ function getMonthlyWorkspace_(session, p) {
     cycle: cycle,
     versions: versions,
     version: version,
-    productGroups: readObjects_(SHEETS.PRODUCT_GROUPS),
     products: products,
     lines: lines
   };
@@ -135,13 +134,12 @@ function getDashboardWorkspace_(session, p) {
   var bu = p.bu || session.bu;
   var cycles = cyclesForBU_(session, bu);
   var cycle = pickCycle_(cycles, p.cycleId);
-  var products = getProducts_(bu, null, null);
 
   return {
     businessUnitCode: bu,
     cycles: cycles,
     cycle: cycle,
-    productCount: products.length,
+    productCount: countProducts_(bu),
     b0Summary: cycle ? getB0Summary_(cycle.base_month, bu) : []
   };
 }

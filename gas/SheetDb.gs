@@ -61,6 +61,7 @@ var __tableCache_ = {};
 
 function resetTableCache_() {
   __tableCache_ = {};
+  __productMapCache_ = null;
 }
 
 /** Dựng object {sheet, headers, rows, idx} từ dữ liệu 2 chiều đã đọc sẵn. */
@@ -166,6 +167,36 @@ function readObjects_(name) {
   return t.rows.map(function (r) { return rowToObject_(t.headers, r); });
 }
 
+/**
+ * Đọc bảng nhưng CHỈ dựng object cho những dòng thoả điều kiện trên một cột.
+ *
+ * readObjects_ dựng object cho TOÀN BỘ bảng rồi để chỗ gọi .filter() bỏ đi
+ * phần lớn. Với MonthlyForecastLines/WeeklyRegionSplits thì phần bỏ đi là
+ * gần hết: một màn hình chỉ xem MỘT version, nhưng hai bảng đó chứa dữ liệu
+ * của mọi version của mọi chu kỳ đã từng lập. Lọc trên dòng thô trước rồi
+ * mới dựng object cắt đúng phần lãng phí đó, và càng cắt nhiều hơn khi file
+ * dữ liệu càng dày lên theo thời gian.
+ *
+ * Object trả về vẫn là object MỚI mỗi lần gọi, giống hệt readObjects_, nên
+ * chỗ gọi nào đang tự gán thêm trường vào kết quả (getMonthlyLines_ ...) không
+ * bị ảnh hưởng lẫn nhau.
+ */
+function readObjectsWhere_(name, field, accept) {
+  var t = readTable_(name);
+  var col = t.idx[field];
+  if (col === undefined) throw new Error('Sheet ' + name + ' thiếu cột "' + field + '".');
+
+  var test = typeof accept === 'function'
+    ? accept
+    : function (v) { return String(v) === String(accept); };
+
+  var out = [];
+  for (var i = 0; i < t.rows.length; i++) {
+    if (test(t.rows[i][col])) out.push(rowToObject_(t.headers, t.rows[i]));
+  }
+  return out;
+}
+
 function rowToObject_(headers, row) {
   var o = {};
   headers.forEach(function (h, i) {
@@ -197,6 +228,7 @@ function objectToRow_(headers, obj, existingRow) {
  * sửa được, thay vì mất sạch.
  */
 function writeTable_(name, table) {
+  invalidateProductMap_(name);
   var sheet = table.sheet || getOrCreateSheet_(name);
   var headers = table.headers;
   var lastRow = sheet.getLastRow();
@@ -221,6 +253,7 @@ function writeTable_(name, table) {
 
 function writeRowPatch_(name, table, rowIndex, patch) {
   if (rowIndex < 0) throw new Error('Không tìm thấy dòng cần cập nhật trong ' + name);
+  invalidateProductMap_(name);
   var sheet = table.sheet || getOrCreateSheet_(name);
   var row = table.rows[rowIndex];
 
@@ -237,6 +270,7 @@ function writeRowPatch_(name, table, rowIndex, patch) {
 
 function appendObjects_(name, objects) {
   if (!objects.length) return;
+  invalidateProductMap_(name);
   var t = readTable_(name);
   var sheet = t.sheet;
   var startRow = t.rows.length + 2;
@@ -364,10 +398,33 @@ function versionContext_(versionId) {
   return { version: version, cycle: cycle };
 }
 
+/**
+ * Danh mục SKU dạng map sku_code → sản phẩm, dùng chung trong MỘT request.
+ *
+ * Gần như mọi hàm đọc đều cần map này, và trước đây mỗi hàm lại dựng lại từ
+ * đầu: một lượt getWeeklyWorkspace dựng 1.141 object sản phẩm BỐN lần cho cùng
+ * một dữ liệu không đổi. __tableCache_ đã bỏ phần đọc mạng lặp lại, đây bỏ nốt
+ * phần dựng object lặp lại.
+ *
+ * Các chỗ dùng chỉ ĐỌC thuộc tính sản phẩm (p.name, p.avg_price...), không ghi
+ * đè lên chúng, nên dùng chung một object là an toàn. Nếu sau này thêm chỗ
+ * nào sửa trực tiếp object sản phẩm thì phải sao chép trước khi sửa, nếu
+ * không thay đổi đó sẽ lan sang mọi chỗ khác trong cùng request.
+ */
+var __productMapCache_ = null;
+
 function productMap_() {
-  var map = {};
-  readObjects_(SHEETS.PRODUCTS).forEach(function (p) { map[p.sku_code] = p; });
-  return map;
+  if (!__productMapCache_) {
+    var map = {};
+    readObjects_(SHEETS.PRODUCTS).forEach(function (p) { map[p.sku_code] = p; });
+    __productMapCache_ = map;
+  }
+  return __productMapCache_;
+}
+
+/** Gọi sau mỗi lần ghi vào Products để map không còn giữ dữ liệu cũ. */
+function invalidateProductMap_(name) {
+  if (name === SHEETS.PRODUCTS) __productMapCache_ = null;
 }
 
 /**
