@@ -1,15 +1,9 @@
 # Dependencies
 node_modules/
 client/node_modules/
-server/node_modules/
 
 # Production build
 client/dist/
-
-# SQLite Database (generated dynamically via seed/boot)
-server/db/*.db
-*.sqlite
-*.sqlite3
 
 # Logs
 *.log

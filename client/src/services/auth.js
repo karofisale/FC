@@ -9,7 +9,6 @@ import { callGAS, ApiError } from './gasClient';
 const STORAGE_KEY = 'karofi_fc_session';
 
 let session = readStoredSession();
-const listeners = new Set();
 
 function readStoredSession() {
   try {
@@ -35,7 +34,6 @@ function persist(next) {
   } catch {
     // Trình duyệt chặn localStorage: phiên vẫn chạy trong bộ nhớ tới khi đóng tab
   }
-  listeners.forEach((fn) => fn(session));
 }
 
 export function getSession() {
@@ -48,11 +46,6 @@ export function getToken() {
 
 export function getCurrentUser() {
   return session?.user || null;
-}
-
-export function subscribe(listener) {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
 }
 
 export async function login(userId, pin) {

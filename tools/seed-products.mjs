@@ -6,7 +6,6 @@
  * app đọc mock trong localStorage như bản cũ.
  *
  * Dùng cờ dòng lệnh (chạy giống nhau trên PowerShell, cmd.exe, bash):
- *   node tools/seed-products.mjs --user admin --pin 123456
  *   node tools/seed-products.mjs --user admin --pin 123456 --file ./danh-muc.json
  *
  * Bỏ qua --pin để được hỏi nhập ẩn (khuyên dùng — PIN không lưu vào lịch
@@ -108,10 +107,18 @@ function promptHiddenPin(question) {
   });
 }
 
+// Danh mục mẫu kèm theo repo (client/src/data/seedProducts.json) đã bị xoá —
+// SKU thật nằm trên Sheet, không còn lý do giữ bản sao 315KB trong mã nguồn.
+// Vì vậy bây giờ bắt buộc phải chỉ rõ file bằng --file.
 const fileArg = process.argv.indexOf('--file');
-const productsPath = fileArg > -1
-  ? resolve(process.argv[fileArg + 1])
-  : join(root, 'client/src/data/seedProducts.json');
+if (fileArg < 0 || !process.argv[fileArg + 1]) {
+  console.error(
+    '✖ Thiếu file danh mục cần nạp.\n' +
+    '  Ví dụ: node tools/seed-products.mjs --user admin --file ./danh-muc.json'
+  );
+  process.exit(1);
+}
+const productsPath = resolve(process.argv[fileArg + 1]);
 
 const url = resolveUrl();
 const user = flagValue('--user') || process.env.GAS_USER;
