@@ -109,8 +109,7 @@ function createVersion_(session, p) {
   // Kế thừa số của bản trước để tuần sau chỉ cần điều chỉnh
   var copied = 0;
   if (previous && p.copyFromPrevious !== false) {
-    var monthly = readObjects_(SHEETS.MONTHLY_LINES)
-      .filter(function (l) { return String(l.version_id) === String(previous.id); })
+    var monthly = readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', previous.id)
       .map(function (l) {
         return {
           id: Utilities.getUuid(),
@@ -124,8 +123,7 @@ function createVersion_(session, p) {
         };
       });
 
-    var weekly = readObjects_(SHEETS.WEEKLY_SPLITS)
-      .filter(function (w) { return String(w.version_id) === String(previous.id); })
+    var weekly = readObjectsWhere_(SHEETS.WEEKLY_SPLITS, 'version_id', previous.id)
       .map(function (w) {
         return {
           id: Utilities.getUuid(),
@@ -308,9 +306,7 @@ function submitCycle_(session, cycleId, versionId) {
   // nên bỏ điều kiện này không chặn nhầm chu kỳ chưa nhập gì.
   var check = validateWeekly_(versionId);
   if (!check.isValid) {
-    var hasWeekly = readObjects_(SHEETS.WEEKLY_SPLITS).some(function (w) {
-      return String(w.version_id) === String(versionId);
-    });
+    var hasWeekly = readObjectsWhere_(SHEETS.WEEKLY_SPLITS, 'version_id', versionId).length > 0;
     throw new Error(hasWeekly
       ? ('Còn ' + check.mismatchesCount + ' SKU có tổng tuần/miền chưa khớp kế hoạch tháng 1. Sửa xong mới gửi duyệt được.')
       : ('Chưa phân bổ kế hoạch tuần/miền cho ' + check.mismatchesCount + ' SKU. Vào Bảng 1 chia số theo tuần và miền trước khi gửi duyệt.'));
