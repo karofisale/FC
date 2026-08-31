@@ -27,7 +27,7 @@ const SCHEMA = {
   [SHEETS.BUSINESS_UNITS]: ['code', 'name', 'is_active'],
   [SHEETS.REGIONS]: ['code', 'name', 'is_active'],
   [SHEETS.PRODUCT_GROUPS]: ['code', 'name'],
-  [SHEETS.PRODUCTS]: ['sku_code', 'name', 'short_name', 'product_group_code', 'product_group_name', 'technology', 'default_channel', 'avg_price', 'is_active'],
+  [SHEETS.PRODUCTS]: ['sku_code', 'name', 'short_name', 'product_group_code', 'product_group_name', 'technology', 'default_channel', 'avg_price', 'is_active', 'requirements_type'],
   [SHEETS.CYCLES]: ['id', 'business_unit_code', 'base_month', 'horizon_months', 'status', 'created_by', 'created_at'],
   [SHEETS.VERSIONS]: ['id', 'cycle_id', 'update_week', 'update_date', 'iso_week_label', 'submitted_by', 'submitted_at', 'is_final', 'created_at'],
   [SHEETS.MONTHLY_LINES]: ['id', 'version_id', 'sku_code', 'forecast_month', 'quantity', 'note', 'updated_at', 'updated_by'],
@@ -53,7 +53,7 @@ const READ_ACTIONS = [
   'getMonthlyWorkspace', 'getWeeklyWorkspace', 'getDashboardWorkspace',
   'getActualsWorkspace', 'getApprovalsWorkspace',
   // Xuất báo cáo
-  'getB0SumExport', 'getSapGt2Weekly',
+  'getB0SumExport', 'getSapGt2Weekly', 'getSapExport',
   // Nhập từ Google Sheet ngoài
   'readExternalSheet'
 ];
@@ -91,6 +91,7 @@ const ACTION_TABLES = {
   getFcVsActual:      [SHEETS.ACTUALS, SHEETS.PRODUCTS, SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.MONTHLY_LINES],
   readExternalSheet:  [SHEETS.AUDIT],
   getB0SumExport:     [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES],
+  getSapExport:       [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES, SHEETS.APPROVALS],
   getSapGt2Weekly:    [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.WEEKLY_SPLITS],
 
   getMonthlyWorkspace: [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES],

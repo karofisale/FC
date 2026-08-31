@@ -102,6 +102,8 @@ export const api = {
   getVariance: (cycleId) => callGAS('getVariance', auth({ cycleId })),
   getVersionSummary: (versionId) => callGAS('getVersionSummary', auth({ versionId })),
   getB0SumExport: (baseMonth) => callGAS('getB0SumExport', auth({ baseMonth })),
+  // Rieng cho file upload SAP: lay so cua BAN DA DUYET, khong theo is_final
+  getSapExport: (baseMonth) => callGAS('getSapExport', auth({ baseMonth })),
   getSapGt2Weekly: (baseMonth) => callGAS('getSapGt2Weekly', auth({ baseMonth })),
 
   // ----- phê duyệt -----

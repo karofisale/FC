@@ -76,14 +76,15 @@ export function buildB1SumSheet(rows, weeks, regions) {
 }
 
 // ---------------------------------------------------------------------
-// SAP ZPP702 — logic port từ skill upload-fc-sap (scripts/generate_upload_forms.py)
+// SAP ZPP702 — CHỬ CHƯA RIÊNG KÊNH GT2
+//
+// XK và OEM đã chuyển sang sapExport.js + zpp702Workbook.js, nơi mọi quy
+// tắc được đối chiếu khớp từng ô với file thật đã upload (354 dòng, 21 cột
+// — xem tools/verify-sap-export.mjs). Phần dưới đây vẫn là bản port từ
+// skill upload-fc-sap và CHƯA TỪNG được đối chiếu, vì chưa có form GT2
+// thật. Khi nào có form, chuyển nốt GT2 sang sapExport.js rồi xoá hết
+// phần này — đừng để hai cách sinh cùng một loại file sống song song lâu.
 // ---------------------------------------------------------------------
-
-/** (year, month 1-12) + n tháng -> {year, month} mới. */
-export function addMonths(year, month, n) {
-  const total = year * 12 + (month - 1) + n;
-  return { year: Math.floor(total / 12), month: (total % 12) + 1 };
-}
 
 /** Thứ Tư đầu tiên của một tháng, trả về chuỗi YYYYMMDD (SAP cần dạng chuỗi, không phải kiểu ngày). */
 export function firstWednesdayStr(year, month) {
@@ -95,16 +96,10 @@ export function firstWednesdayStr(year, month) {
   return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
-/** Mã vật tư bắt đầu bằng "1" -> VSE, còn lại -> VSF (quy tắc gốc trong skill). */
-export function vseVsf(skuCode) {
-  return String(skuCode).trim().startsWith('1') ? 'VSE' : 'VSF';
-}
-
-// Cột A-I giống nhau ở cả 3 kênh (theo logic skill upload-fc-sap). Tên cột
-// dưới đây là DIỄN GIẢI theo skill, KHÔNG PHẢI tiêu đề thật trong file
-// template ZPP702 gốc — file này không có sẵn để đối chiếu khi viết code.
-// Dán dữ liệu (từ dòng 3) vào đúng cột A-U của template thật, không dùng
-// trực tiếp file .xlsx này làm file upload SAP.
+// Tên cột dưới đây là DIỄN GIẢI theo skill, KHÔNG PHẢI tiêu đề thật của
+// form ZPP702 (tiêu đề thật nằm trong zpp702Workbook.js, lấy từ chính form
+// XK/OEM). File GT2 sinh ra từ đây vì vậy KHÔNG dùng thẳng để upload được:
+// phải dán dữ liệu (từ dòng 3) vào đúng cột A-U của form thật.
 const ZPP702_FIXED_HEADER = [
   'A: Nhóm kế hoạch', 'B: Mã vật tư', 'C: Nhà máy nguồn', 'D: Nhà máy đích',
   'E: Đơn vị (VSE/VSF)', 'F: Phiên bản', 'G: Chỉ báo', 'H: Năm', 'I: Ngày (YYYYMMDD)'
@@ -113,56 +108,6 @@ const ZPP702_FIXED_HEADER = [
 /** Header J-U khác nhau theo từng kênh — mô tả đúng ý nghĩa 12 cột J..U. */
 function zpp702Header(monthCols) {
   return [...ZPP702_FIXED_HEADER, ...monthCols.map((label, i) => `${String.fromCharCode(74 + i)}: ${label}`)];
-}
-
-/**
- * XK: bỏ qua tháng 1 (base_month), điền tháng 2 vào cột L, tháng 3 vào
- * P, tháng 4 vào T. Ngày upload = thứ Tư đầu tiên của tháng 2.
- */
-export function buildXkRows(b0Export) {
-  const { months, rows } = b0Export;
-  if (months.length < 4) return [];
-  const m2 = addMonths(...months[0].split('-').slice(0, 2).map(Number), 1);
-  const dateStr = firstWednesdayStr(m2.year, m2.month);
-  const year = new Date().getFullYear();
-
-  return rows
-    .filter((r) => r.default_channel === 'XK' || (r.monthly[months[1]]?.XK ?? r.monthly[months[2]]?.XK ?? r.monthly[months[3]]?.XK) !== undefined)
-    .map((r) => {
-      const q2 = r.monthly[months[1]]?.XK || 0;
-      const q3 = r.monthly[months[2]]?.XK || 0;
-      const q4 = r.monthly[months[3]]?.XK || 0;
-      return [
-        'KH_XK', Number(r.sku_code) || r.sku_code, '0400', '0400', vseVsf(r.sku_code),
-        '00', 'X', year, dateStr,
-        0, 0, q2, 0, 0, 0, q3, 0, 0, 0, q4, 0
-      ];
-    });
-}
-
-/**
- * OEM: dùng tháng 1,2,3 (không bỏ tháng đầu như XK). Ngày upload = thứ
- * Tư đầu tiên của tháng 1 (base_month).
- */
-export function buildOemRows(b0Export) {
-  const { months, rows } = b0Export;
-  if (months.length < 3) return [];
-  const [y1, m1] = months[0].split('-').slice(0, 2).map(Number);
-  const dateStr = firstWednesdayStr(y1, m1);
-  const year = new Date().getFullYear();
-
-  return rows
-    .filter((r) => r.default_channel === 'OEM' || [months[0], months[1], months[2]].some((m) => r.monthly[m]?.OEM !== undefined))
-    .map((r) => {
-      const q1 = r.monthly[months[0]]?.OEM || 0;
-      const q2 = r.monthly[months[1]]?.OEM || 0;
-      const q3 = r.monthly[months[2]]?.OEM || 0;
-      return [
-        'KH_OEM', Number(r.sku_code) || r.sku_code, '0400', '0400', vseVsf(r.sku_code),
-        '00', 'X', year, dateStr,
-        0, 0, q1, 0, 0, 0, q2, 0, 0, 0, q3, 0
-      ];
-    });
 }
 
 /**
@@ -200,24 +145,6 @@ export function buildGt2Rows(b0Export, weeklyExport) {
         m2Weekly, m2Weekly, m2Weekly, m2Weekly, m3Weekly, m3Weekly, m3Weekly
       ];
     });
-}
-
-export function buildXkSheet(b0Export) {
-  const { months } = b0Export;
-  const m2 = months[1] ? monthLabel(months[1]) : 'T2';
-  const m3 = months[2] ? monthLabel(months[2]) : 'T3';
-  const m4 = months[3] ? monthLabel(months[3]) : 'T4';
-  const header = zpp702Header(['0', '0', m2, '0', '0', '0', m3, '0', '0', '0', m4, '0']);
-  return [header, ...buildXkRows(b0Export)];
-}
-
-export function buildOemSheet(b0Export) {
-  const { months } = b0Export;
-  const m1 = months[0] ? monthLabel(months[0]) : 'T1';
-  const m2 = months[1] ? monthLabel(months[1]) : 'T2';
-  const m3 = months[2] ? monthLabel(months[2]) : 'T3';
-  const header = zpp702Header(['0', '0', m1, '0', '0', '0', m2, '0', '0', '0', m3, '0']);
-  return [header, ...buildOemRows(b0Export)];
 }
 
 export function buildGt2Sheet(b0Export, weeklyExport) {

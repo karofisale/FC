@@ -3,9 +3,10 @@ import { FileSpreadsheet, Download, Loader2, AlertCircle, AlertTriangle } from '
 import { api } from '../services/api';
 import { monthLabel, currentMonth, weeksOfMonth } from '../utils/period';
 import {
-  downloadWorkbook, buildB0SumSheet, buildB1SumSheet,
-  buildXkSheet, buildOemSheet, buildGt2Sheet
+  downloadWorkbook, buildB0SumSheet, buildB1SumSheet, buildGt2Sheet
 } from '../utils/excelExport';
+import { buildSapRows, SAP_CHANNELS } from '../utils/sapExport';
+import { downloadZpp702 } from '../utils/zpp702Workbook';
 
 export default function Exports({ user }) {
   const [baseMonth, setBaseMonth] = useState(currentMonth().slice(0, 7));
@@ -56,8 +57,61 @@ export default function Exports({ user }) {
     }
   };
 
+  /**
+   * File upload SAP cho XK và OEM.
+   *
+   * Lấy số từ BẢN ĐÃ DUYỆT. Kênh nào chưa có phê duyệt thì KHÔNG xuất và
+   * nói rõ — một file SAP thiếu hẳn một kênh trông vẫn bình thường, rất dễ
+   * upload xong mới phát hiện.
+   */
   const handleExportSap = async () => {
     setBusy('sap');
+    setMessage(null);
+    try {
+      const data = await api.getSapExport(monthValue);
+      const exportedAt = new Date();
+      const done = [];
+      const skipped = [];
+
+      Object.keys(SAP_CHANNELS).forEach((channel) => {
+        if ((data.missingApproval || []).includes(channel)) {
+          skipped.push(`${channel} (chưa có bản duyệt)`);
+          return;
+        }
+        const rows = buildSapRows({
+          channel,
+          baseMonth: data.baseMonth,
+          rows: data.rows,
+          exportedAt
+        });
+        if (!rows.length) {
+          skipped.push(`${channel} (không có SKU nào có số)`);
+          return;
+        }
+        const plant = SAP_CHANNELS[channel].plant;
+        downloadZpp702(rows, `ZPP702_Upload_KHKD_${plant}_${channel}_${baseMonth}.xlsx`);
+        done.push(`${channel}: ${rows.length} dòng, ngày ${rows[0][8]}`);
+      });
+
+      if (!done.length) {
+        setMessage({ type: 'error', text: `Không xuất được file nào — ${skipped.join('; ')}.` });
+        return;
+      }
+      setMessage({
+        type: skipped.length ? 'error' : 'success',
+        text: `Đã xuất ${done.join(' | ')}.` +
+          (skipped.length ? `  CHƯA xuất: ${skipped.join('; ')}.` : '')
+      });
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** GT2 vẫn dùng đường cũ: chưa có form thật để đối chiếu như XK/OEM. */
+  const handleExportGt2 = async () => {
+    setBusy('gt2');
     setMessage(null);
     try {
       const [b0Export, weeklyExport] = await Promise.all([
@@ -68,10 +122,8 @@ export default function Exports({ user }) {
         setMessage({ type: 'error', text: `Không có dữ liệu forecast cho ${monthLabel(monthValue)}.` });
         return;
       }
-      downloadWorkbook([['ZPP702', buildXkSheet(b0Export)]], `ZPP702_Upload_KHKD_0400_XK_${baseMonth}.xlsx`);
-      downloadWorkbook([['ZPP702', buildOemSheet(b0Export)]], `ZPP702_Upload_KHKD_0400_OEM_${baseMonth}.xlsx`);
       downloadWorkbook([['ZPP702', buildGt2Sheet(b0Export, weeklyExport)]], `ZPP702_Upload_KHKD_0200_GT2_${baseMonth}.xlsx`);
-      setMessage({ type: 'success', text: 'Đã xuất 3 file ZPP702 (XK, OEM, GT2). Đối chiếu kỹ trước khi dùng — xem cảnh báo bên dưới.' });
+      setMessage({ type: 'error', text: 'Đã xuất file GT2 — CHƯA được đối chiếu với form thật, phải kiểm tay trước khi upload.' });
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
     } finally {
@@ -137,24 +189,33 @@ export default function Exports({ user }) {
         />
 
         <ExportCard
-          title="SAP ZPP702"
-          description="3 file upload SAP (XK, OEM, GT2), theo đúng logic quy đổi từ skill upload-fc-sap."
+          title="SAP ZPP702 — XK & OEM"
+          description="File upload SAP dùng được ngay, lấy số từ bản đã duyệt. Đã đối chiếu khớp từng ô với file thật của kỳ tháng 7 (354 dòng, 21 cột)."
           busy={busy === 'sap'}
           onClick={handleExportSap}
-          warning
         />
 
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <ExportCard
+          title="SAP ZPP702 — GT2"
+          description="Chưa có form thật để đối chiếu như XK/OEM. Cách chia tuần và chia đều tháng sau vẫn là bản suy đoán — phải kiểm tay."
+          busy={busy === 'gt2'}
+          onClick={handleExportGt2}
+          warning
+        />
       </div>
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-900 space-y-2">
         <div className="flex items-center gap-2 font-bold">
           <AlertTriangle className="w-4 h-4 text-amber-600" />
-          Trước khi dùng file ZPP702 để upload SAP thật
+          Khác biệt so với file anh đang làm tay
         </div>
         <ul className="list-disc list-inside space-y-1 text-amber-800">
-          <li>File xuất ra <strong>không phải</strong> file template ZPP702 thật (không có sẵn để đối chiếu khi viết tính năng này) — cột A-U đúng vị trí, nhưng dòng tiêu đề là diễn giải, không phải tiêu đề gốc. Dán phần dữ liệu (từ dòng 3) vào đúng cột trong template thật trước khi upload.</li>
-          <li>Cột tháng của kênh <strong>GT2</strong> (O-U) đang lấy trung bình chia đều sản lượng <em>riêng GT2</em> — bản gốc dùng tổng <em>toàn công ty</em> chia đều. Đây là điểm khác biệt cố ý đơn giản hoá, cần đối chiếu số thật trước khi tin dùng.</li>
-          <li>Đối chiếu từng dòng với cách làm thủ công hiện tại ít nhất 1 tháng trước khi thay thế hẳn.</li>
+          <li><strong>Không còn dòng toàn số 0.</strong> File làm tay xuất trọn danh mục (492/756 dòng XK tháng 7 là số 0); app chỉ xuất SKU có số. Nếu SAP không xoá kế hoạch cũ trước khi nạp, SKU tụt về 0 sẽ giữ nguyên số cũ trên SAP.</li>
+          <li><strong>File chỉ có sheet ZPP702</strong>, không kèm 6 sheet tài liệu và không có định dạng màu/viền của form gốc. Giá trị, kiểu ô và công thức dòng 2 giống hệt.</li>
+          <li><strong>VSE/VSF</strong> theo quy tắc mã đầu 1, trừ khi danh mục Products có ghi sẵn cột <code>requirements_type</code> — 6 mã Lõi/Màng đầu 2 của XK cần điền VSE ở đó.</li>
         </ul>
       </div>
 

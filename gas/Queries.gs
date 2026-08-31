@@ -516,6 +516,101 @@ function getFcVsActual_(bu, month) {
  * tháng) và cho phần XK/OEM của xuất SAP ZPP702 (dùng lại đúng dữ liệu
  * này, lọc theo BU ở phía client, đỡ phải gọi thêm request).
  */
+/**
+ * Chu kỳ → version ĐÃ ĐƯỢC PHÊ DUYỆT (bản có quyết định mới nhất).
+ *
+ * Không dùng cờ is_final cho việc xuất SAP: createVersion_ chuyển cờ đó
+ * sang bản cập nhật tuần mới VÀ đặt chu kỳ về draft, nên sau khi duyệt xong
+ * mà có ai tạo bản mới thì is_final trỏ sang bản CHƯA AI DUYỆT — file lên
+ * SAP sẽ là số chưa qua thẩm định mà không báo gì.
+ *
+ * Bảng Approvals đã lưu sẵn version_id kèm trạng thái nên không cần thêm
+ * cột nào. reopenCycle_ cố ý KHÔNG xoá dòng đã duyệt: mở lại để sửa thì cái
+ * đã duyệt vẫn là cái đã duyệt, cho tới khi có phê duyệt mới.
+ */
+function approvedVersionByCycle_() {
+  var out = {};
+  readObjects_(SHEETS.APPROVALS).forEach(function (a) {
+    if (String(a.status) !== 'approved') return;
+    var cur = out[a.cycle_id];
+    if (!cur || String(a.decided_at) > String(cur.decided_at)) {
+      out[a.cycle_id] = { version_id: a.version_id, decided_at: a.decided_at };
+    }
+  });
+  return out;
+}
+
+/**
+ * Dữ liệu cho file upload SAP ZPP702, lấy từ BẢN ĐÃ DUYỆT của từng đơn vị.
+ *
+ * Trả về cả danh sách đơn vị có chu kỳ tháng này nhưng CHƯA có bản duyệt,
+ * để phía client từ chối xuất đúng kênh đó và nói rõ lý do — một file SAP
+ * thiếu hẳn một kênh trông vẫn bình thường, rất dễ upload rồi mới phát hiện.
+ *
+ * B0.SUM vẫn dùng getB0SumExport_ (theo is_final) vì đó là báo cáo để đối
+ * chiếu trong lúc đang lập kế hoạch, khi chưa có gì được duyệt cả.
+ */
+function getSapExport_(session, baseMonth) {
+  assertRole_(session, ['central_admin', 'viewer']);
+  var month0 = normalizeMonth_(baseMonth);
+  if (!month0) throw new Error('Thiếu tháng cần xuất.');
+
+  var months = [];
+  var parts = month0.split('-').map(Number);
+  for (var i = 0; i < 4; i++) {
+    var d = new Date(Date.UTC(parts[0], parts[1] - 1 + i, 1));
+    months.push(d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-01');
+  }
+
+  var approved = approvedVersionByCycle_();
+  var products = productMap_();
+
+  var buByVersionId = {};
+  var readyBUs = [];
+  var missingApproval = [];
+  readObjects_(SHEETS.CYCLES).forEach(function (c) {
+    if (normalizeMonth_(c.base_month) !== month0) return;
+    var a = approved[c.id];
+    if (a && a.version_id) {
+      buByVersionId[a.version_id] = c.business_unit_code;
+      readyBUs.push(c.business_unit_code);
+    } else {
+      missingApproval.push(c.business_unit_code);
+    }
+  });
+
+  var rowsMap = {};
+  readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', function (v) {
+    return buByVersionId[v] !== undefined;
+  }).forEach(function (l) {
+    var bu = buByVersionId[l.version_id];
+    var m = normalizeMonth_(l.forecast_month);
+    if (months.indexOf(m) < 0) return;
+
+    var sku = l.sku_code;
+    if (!rowsMap[sku]) {
+      var p = products[sku] || {};
+      rowsMap[sku] = {
+        sku_code: sku,
+        default_channel: p.default_channel || '',
+        // Ghi đè VSE/VSF cho từng mã, để trống thì client dùng quy tắc đầu-1
+        requirements_type: p.requirements_type || '',
+        monthly: {}
+      };
+    }
+    if (!rowsMap[sku].monthly[m]) rowsMap[sku].monthly[m] = {};
+    rowsMap[sku].monthly[m][bu] = (rowsMap[sku].monthly[m][bu] || 0) + (Number(l.quantity) || 0);
+  });
+
+  return {
+    baseMonth: month0,
+    months: months,
+    approvedBUs: readyBUs.sort(),
+    missingApproval: missingApproval.sort(),
+    rows: Object.keys(rowsMap).map(function (k) { return rowsMap[k]; })
+  };
+}
+
 function getB0SumExport_(session, baseMonth) {
   assertRole_(session, ['central_admin', 'viewer']);
   var month0 = normalizeMonth_(baseMonth);
