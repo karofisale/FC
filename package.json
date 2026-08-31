@@ -17,6 +17,6 @@
     "seed:products": "node tools/seed-products.mjs"
   },
   "devDependencies": {
-    "@google/clasp": "^2.4.2"
+    "@google/clasp": "^3.4.1"
   }
 }
