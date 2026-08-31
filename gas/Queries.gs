@@ -615,13 +615,29 @@ function getSapExport_(session, baseMonth) {
     weekly[sku][week] = (weekly[sku][week] || 0) + (Number(w.quantity) || 0);
   });
 
+  // Cột requirements_type là tùy chọn, nhưng nếu thiếu thì các mã cần ghi đè
+  // sẽ lặng lẽ rơi về quy tắc mã-đầu-1 và sai loại kế hoạch trên SAP mà
+  // không ai thấy. Gõ sai tên tiêu đề cũng cho ra đúng hậu quả đó. Báo lên để
+  // người xuất biết danh mục đang ở trạng thái nào.
+  var productsTable = readTable_(SHEETS.PRODUCTS);
+  var hasTypeColumn = productsTable.idx['requirements_type'] !== undefined;
+  var typeOverrides = 0;
+  if (hasTypeColumn) {
+    var col = productsTable.idx['requirements_type'];
+    productsTable.rows.forEach(function (row) {
+      if (String(row[col] || '').trim()) typeOverrides++;
+    });
+  }
+
   return {
     baseMonth: month0,
     months: months,
     approvedBUs: readyBUs.sort(),
     missingApproval: missingApproval.sort(),
     rows: Object.keys(rowsMap).map(function (k) { return rowsMap[k]; }),
-    weekly: weekly
+    weekly: weekly,
+    hasRequirementsTypeColumn: hasTypeColumn,
+    requirementsTypeOverrides: typeOverrides
   };
 }
 

@@ -67,6 +67,14 @@ export default function Exports({ user }) {
     setMessage(null);
     try {
       const data = await api.getSapExport(monthValue);
+
+      // Không chặn việc xuất, nhưng phải nói rõ: thiếu cột này thì các mã cần
+      // ghi đè VSE/VSF sẽ rơi về quy tắc mã-đầu-1 mà file nhìn vẫn bình thường.
+      const typeNote = data.hasRequirementsTypeColumn
+        ? (data.requirementsTypeOverrides
+            ? `Danh mục có ${data.requirementsTypeOverrides} mã ghi sẵn VSE/VSF.`
+            : 'Danh mục đã có cột requirements_type nhưng chưa mã nào được điền.')
+        : 'Danh mục CHƯA có cột requirements_type — mọi mã đang theo quy tắc mã đầu 1.';
       const exportedAt = new Date();
       const done = [];
       const skipped = [];
@@ -106,7 +114,8 @@ export default function Exports({ user }) {
         type: skipped.length ? 'error' : 'success',
         text: `Đã xuất ${done.join(' | ')}.` +
           (skipped.length ? `  CHƯA xuất: ${skipped.join('; ')}.` : '') +
-          (folded.length ? `  LƯU Ý — ${folded.join('; ')}.` : '')
+          (folded.length ? `  LƯU Ý — ${folded.join('; ')}.` : '') +
+          `  ${typeNote}`
       });
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
