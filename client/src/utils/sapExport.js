@@ -44,12 +44,43 @@ export const SAP_CHANNELS = {
     plant: '0400',
     monthOffsets: [0, 1, 2],
     dateRule: 'wednesdayOfNextWeek'
+  },
+
+  /**
+   * GT2 không phải một đơn vị kinh doanh mà là MỌI kênh dùng nhà máy 0200.
+   * File "GT2" tháng 7 có 302 SKU = 6 của GT2 + 296 của Online, tất cả mang
+   * chung KH_GT2 — xuất riêng đơn vị GT2 sẽ ra 6 dòng thay vì 302.
+   */
+  GT2: {
+    plan: 'KH_GT2',
+    plant: '0200',
+    dateRule: 'wednesdayOfNextWeek',
+    excludeBUs: ['XK', 'OEM'],
+    fixedRequirementsType: 'VSF',   // kênh 0200 luôn VSF, không xét mã đầu 1
+    weekColumns: 4,                 // W1..W4 lấy từ bảng chia tuần
+    spreadOffsets: [1, 2],          // hai tháng sau, mỗi tháng chia đều 4 cột
+    spreadDivisor: 4
   }
 };
 
 /** W3, W7, W11 là cột thứ 3, 7, 11 trong khối W1..W12 (đếm từ 1). */
 const QUANTITY_WEEK_SLOTS = [3, 7, 11];
 const WEEK_COUNT = 12;
+
+/**
+ * Làm tròn nửa-về-chẵn, không phải Math.round.
+ *
+ * File thật do script Python sinh ra, mà round() của Python làm tròn .5 về
+ * số chẵn: 650/4 = 162,5 → 162, trong khi Math.round của JS cho 163. Đối
+ * chiếu trên tập SKU phân biệt được: cách này khớp 19/19.
+ */
+export function roundHalfEven(x) {
+  const f = Math.floor(x);
+  const diff = x - f;
+  if (diff > 0.5) return f + 1;
+  if (diff < 0.5) return f;
+  return f % 2 === 0 ? f : f + 1;
+}
 
 function pad2(n) {
   return String(n).padStart(2, '0');
@@ -89,7 +120,7 @@ export function addMonths(month, n) {
 
 export function uploadDateFor(channel, baseMonth, exportedAt) {
   const cfg = SAP_CHANNELS[channel];
-  if (cfg?.dateRule === 'firstWednesdayOfMonthAfterBase') {
+  if (cfg && cfg.dateRule === 'firstWednesdayOfMonthAfterBase') {
     const [y, m] = addMonths(baseMonth, 1).split('-').map(Number);
     return firstWednesdayOfMonth(y, m);
   }
@@ -107,9 +138,10 @@ export function uploadDateFor(channel, baseMonth, exportedAt) {
  * chỉ dùng khi danh mục để trống.
  */
 export function requirementsTypeOf(channel, skuCode, override) {
+  const cfg = SAP_CHANNELS[channel];
+  if (cfg?.fixedRequirementsType) return cfg.fixedRequirementsType;
   const fixed = String(override || '').trim().toUpperCase();
   if (fixed === 'VSE' || fixed === 'VSF') return fixed;
-  if (channel !== 'XK' && channel !== 'OEM') return 'VSF';
   return String(skuCode).trim().startsWith('1') ? 'VSE' : 'VSF';
 }
 
@@ -122,23 +154,104 @@ function materialValue(skuCode) {
   return Number.isFinite(n) ? n : String(skuCode).trim();
 }
 
+/** Tổng sản lượng của MỌI kênh cho một SKU trong một tháng. */
+function companyTotal(row, month) {
+  const byBu = row.monthly?.[month];
+  if (!byBu) return 0;
+  return Object.keys(byBu).reduce((s, bu) => s + (Number(byBu[bu]) || 0), 0);
+}
+
+/**
+ * Kênh 0200: W1..W4 lấy từ bảng chia tuần của tháng gốc (đã cộng MB+MN),
+ * tám cột sau chia đều sản lượng hai tháng tiếp theo.
+ *
+ * Phần chia đều dùng TỔNG CẢ CÔNG TY chứ không riêng kênh 0200 — đo trên
+ * 19 SKU mà XK/OEM cũng có số (tức hai cách cho kết quả khác nhau): tổng cả
+ * công ty khớp 19/19, riêng kênh 0200 khớp 0/19.
+ *
+ * Tuần thứ 5: bố cục 4+4+4 chỉ có bốn cột tuần, nên sản lượng tuần 5 (và 6)
+ * được DỒN vào W4 thay vì bỏ đi — bỏ đi là mất sản lượng đã lên kế hoạch mà
+ * không ai thấy. Tháng 7/2026 có tuần thứ 5 thật: 13 SKU, 2.861 cái.
+ */
+function buildPlant0200Rows(cfg, channel, baseMonth, rows, weekly, dateStr, year) {
+  const spreadMonths = cfg.spreadOffsets.map((off) => addMonths(baseMonth, off));
+  const out = [];
+  const folded = [];
+
+  rows.forEach((r) => {
+    const bu = String(r.default_channel || '');
+    if (cfg.excludeBUs.indexOf(bu) >= 0) return;
+
+    const byWeek = (weekly && weekly[r.sku_code]) || {};
+    const weeks = new Array(WEEK_COUNT).fill(0);
+    let over = 0;
+    Object.keys(byWeek).forEach((w) => {
+      const n = Number(w);
+      const qty = Number(byWeek[w]) || 0;
+      if (!qty) return;
+      if (n >= 1 && n <= cfg.weekColumns) weeks[n - 1] += qty;
+      else if (n > cfg.weekColumns) { weeks[cfg.weekColumns - 1] += qty; over += qty; }
+    });
+    if (over) folded.push({ sku_code: r.sku_code, quantity: over });
+
+    // spreadDivisor có thể là một số (mọi tháng chia như nhau) hoặc một mảng
+    // (mỗi tháng một số cột) — file tháng 7 dùng 4 rồi 3.
+    let at = cfg.weekColumns;
+    spreadMonths.forEach((m, i) => {
+      const n = Array.isArray(cfg.spreadDivisor) ? cfg.spreadDivisor[i] : cfg.spreadDivisor;
+      const per = roundHalfEven(companyTotal(r, m) / n);
+      for (let k = 0; k < n; k++) weeks[at + k] = per;
+      at += n;
+    });
+
+    if (!weeks.some((q) => q !== 0)) return;
+
+    out.push([
+      cfg.plan,
+      materialValue(r.sku_code),
+      cfg.plant,
+      cfg.plant,
+      requirementsTypeOf(channel, r.sku_code, r.requirements_type),
+      '00',
+      'X',
+      year,
+      dateStr,
+      ...weeks
+    ]);
+  });
+
+  out.foldedWeeks = folded;
+  return out;
+}
+
 /**
  * Dựng các dòng A..U cho một kênh.
  *
  * @param {object} p
- * @param {'XK'|'OEM'} p.channel
- * @param {string}  p.baseMonth      tháng gốc chu kỳ, dạng YYYY-MM-01
- * @param {Array}   p.rows           [{ sku_code, requirements_type, monthly: { [month]: { [bu]: qty } } }]
- * @param {Date}    p.exportedAt     thời điểm xuất — quyết định cột Năm và ngày của OEM
- * @returns {Array<Array>} mảng dòng, mỗi dòng 21 phần tử đúng thứ tự cột A..U
+ * @param {'XK'|'OEM'|'GT2'} p.channel
+ * @param {string} p.baseMonth  tháng gốc chu kỳ, dạng YYYY-MM-01
+ * @param {Array}  p.rows       [{ sku_code, default_channel, requirements_type,
+ *                                monthly: { [month]: { [bu]: qty } } }]
+ * @param {object} [p.weekly]   chỉ kênh 0200 cần: { [sku]: { [số tuần]: qty đã cộng MB+MN } }
+ * @param {Date}   [p.exportedAt] thời điểm xuất — quyết định cột Năm và ngày của OEM/GT2
+ * @returns {Array<Array>} mỗi dòng 21 phần tử đúng thứ tự cột A..U. Riêng kênh 0200
+ *     còn gắn thêm thuộc tính `foldedWeeks` liệt kê SKU bị dồn tuần 5 vào W4.
  */
-export function buildSapRows({ channel, baseMonth, rows, exportedAt = new Date() }) {
-  const cfg = SAP_CHANNELS[channel];
+export function buildSapRows({ channel, baseMonth, rows, weekly, exportedAt = new Date(), config }) {
+  // `config` cho phép truyền bố cục khác với mặc định. Dùng ở
+  // tools/verify-sap-export.mjs để dựng lại bố cục 5+4+3 của file thật tháng 7
+  // và chứng minh phần tính toán đúng, trong khi app xuất 4+4+4 theo yêu cầu.
+  const cfg = config || SAP_CHANNELS[channel];
   if (!cfg) throw new Error(`Chưa có cấu hình SAP cho kênh ${channel}.`);
 
-  const months = cfg.monthOffsets.map((off) => addMonths(baseMonth, off));
   const dateStr = uploadDateFor(channel, baseMonth, exportedAt);
   const year = exportedAt.getFullYear();
+
+  if (cfg.weekColumns) {
+    return buildPlant0200Rows(cfg, channel, baseMonth, rows, weekly, dateStr, year);
+  }
+
+  const months = cfg.monthOffsets.map((off) => addMonths(baseMonth, off));
 
   const out = [];
   rows.forEach((r) => {

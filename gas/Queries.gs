@@ -602,12 +602,26 @@ function getSapExport_(session, baseMonth) {
     rowsMap[sku].monthly[m][bu] = (rowsMap[sku].monthly[m][bu] || 0) + (Number(l.quantity) || 0);
   });
 
+  // Chia tuần của tháng gốc, đã cộng hai miền — chỉ kênh nhà máy 0200 dùng
+  // (W1..W4). Các kênh 0400 không đọc tới nên không tốn thêm gì cho chúng.
+  var weekly = {};
+  readObjectsWhere_(SHEETS.WEEKLY_SPLITS, 'version_id', function (v) {
+    return buByVersionId[v] !== undefined;
+  }).forEach(function (w) {
+    var sku = w.sku_code;
+    var week = Number(w.week_number) || 0;
+    if (!week) return;
+    if (!weekly[sku]) weekly[sku] = {};
+    weekly[sku][week] = (weekly[sku][week] || 0) + (Number(w.quantity) || 0);
+  });
+
   return {
     baseMonth: month0,
     months: months,
     approvedBUs: readyBUs.sort(),
     missingApproval: missingApproval.sort(),
-    rows: Object.keys(rowsMap).map(function (k) { return rowsMap[k]; })
+    rows: Object.keys(rowsMap).map(function (k) { return rowsMap[k]; }),
+    weekly: weekly
   };
 }
 

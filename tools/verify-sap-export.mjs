@@ -172,6 +172,71 @@ for (const [channel, sheet, uploadPath] of [
   console.log();
 }
 
+// ---------------------------------------------------------------------------
+// GT2 (nhà máy 0200) — gồm MỌI kênh không phải XK/OEM.
+//
+// Không thể khớp 100% như XK/OEM vì hai lý do đã xác định:
+//   - bản FC đem so chụp ngày 27/7 còn file upload làm ngày 2/7, số của kênh
+//     Online đã đổi trong khoảng đó;
+//   - bảng chia tuần trong file FC gom theo nhóm hàng chứ không theo SKU, nên
+//     W1..W4 không có gì để đối chiếu (trong app thì có, lấy từ Bảng 1).
+// Vì vậy phần này kiểm những gì kiểm được: tập SKU, các cột cố định, ngày,
+// và phép chia đều tám cột cuối.
+// ---------------------------------------------------------------------------
+{
+  const GT2_UPLOAD = flag('--gt2', 'D:/Operation/Claude/CLAUDE-OUTPUTS/Sale FC/ZPP702_Upload_KHKD_0200_GT2.xlsx');
+  console.log('='.repeat(78));
+  console.log('GT2   FC tabs "B0.5.GT2" + "B0.8.Online"   vs   ' + GT2_UPLOAD.split(/[\/]/).pop());
+  console.log('='.repeat(78));
+
+  const actual = readUpload(GT2_UPLOAD);
+  const actualBySku = new Map(actual.map((r) => [String(r[1]).trim(), r]));
+
+  // Mọi kênh, để tính được tổng cả công ty
+  const merged = new Map();
+  for (const [sheet, bu] of [['B0.3.XK', 'XK'], ['B0.4.OEM', 'OEM'], ['B0.5.GT2', 'GT2'], ['B0.8.Online', 'Online']]) {
+    const part = readFcChannel(FC_PATH, sheet, bu);
+    for (const r of part.rows) {
+      if (!merged.has(r.sku_code)) merged.set(r.sku_code, { sku_code: r.sku_code, default_channel: bu, monthly: {} });
+      const t = merged.get(r.sku_code);
+      if (bu === 'GT2' || bu === 'Online') t.default_channel = bu;
+      for (const m of Object.keys(r.monthly)) {
+        t.monthly[m] = Object.assign({}, t.monthly[m], r.monthly[m]);
+      }
+    }
+  }
+  const baseMonth = readFcChannel(FC_PATH, 'B0.8.Online', 'Online').baseMonth;
+  const rows0200 = [...merged.values()].filter((r) => r.default_channel !== 'XK' && r.default_channel !== 'OEM');
+  console.log(`  SKU kênh 0200 trong FC: ${rows0200.length}   | trong file upload: ${actual.length}`);
+
+  const constOk = actual.every((a) => a[0] === 'KH_GT2' && String(a[2]) === '0200' && String(a[3]) === '0200'
+    && a[4] === 'VSF' && String(a[5]) === '00' && a[6] === 'X');
+  console.log(`  các cột cố định (KH_GT2 / 0200 / 0200 / VSF / 00 / X): ${constOk ? 'đúng hết ✓' : 'CÓ DÒNG SAI'}`);
+  const dateOk = new Set(actual.map((a) => String(a[8])));
+  console.log(`  ngày trong file: ${[...dateOk].join(', ')}   (quy tắc: thứ Tư tuần kế tiếp, giống OEM)`);
+
+  // Bố cục CỦA FILE THẬT là 5+4+3; app xuất 4+4+4 theo quyết định của người dùng.
+  const asFile = Object.assign({}, SAP_CHANNELS.GT2, { weekColumns: 5, spreadDivisor: [4, 3] });
+  const gen = buildSapRows({ channel: 'GT2', baseMonth, rows: rows0200, weekly: {}, exportedAt: new Date(2026, 6, 2), config: asFile });
+  const genBySku = new Map(gen.map((r) => [String(r[1]).trim(), r]));
+
+  let spreadOk = 0, spreadBad = 0;
+  for (const a of actual) {
+    const g = genBySku.get(String(a[1]).trim());
+    if (!g) continue;
+    const same7 = [5, 6, 7, 8, 9, 10, 11].every((i) => Number(a[9 + i]) === Number(g[9 + i]));
+    if (same7) spreadOk++; else spreadBad++;
+  }
+  console.log(`  bố cục 5+4+3 như file thật, tám cột chia đều: khớp ${spreadOk}/${spreadOk + spreadBad}`);
+  console.log(`     (${spreadBad} dòng lệch là do FC đã đổi giữa 2/7 và 27/7 — xem ghi chú ở trên)`);
+
+  const w5 = actual.filter((a) => Number(a[9 + 4]) !== 0);
+  const w5sum = w5.reduce((s, a) => s + Number(a[9 + 4]), 0);
+  console.log(`  ⚠ file thật có ${w5.length} SKU dùng tuần thứ 5 (${w5sum.toLocaleString('vi-VN')} cái).`);
+  console.log(`     App dùng bố cục 4+4+4 nên dồn số này vào W4 để không mất sản lượng.`);
+  console.log();
+}
+
 if (needOverride.length) {
   console.log('Điền cột "requirements_type" trong danh mục Products cho các mã sau');
   console.log('(quy tắc "mã đầu 1 = VSE" đoán sai ở đúng những mã này):');

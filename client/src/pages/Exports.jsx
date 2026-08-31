@@ -2,9 +2,7 @@ import React, { useState } from 'react';
 import { FileSpreadsheet, Download, Loader2, AlertCircle, AlertTriangle } from 'lucide-react';
 import { api } from '../services/api';
 import { monthLabel, currentMonth, weeksOfMonth } from '../utils/period';
-import {
-  downloadWorkbook, buildB0SumSheet, buildB1SumSheet, buildGt2Sheet
-} from '../utils/excelExport';
+import { downloadWorkbook, buildB0SumSheet, buildB1SumSheet } from '../utils/excelExport';
 import { buildSapRows, SAP_CHANNELS } from '../utils/sapExport';
 import { downloadZpp702 } from '../utils/zpp702Workbook';
 
@@ -72,6 +70,7 @@ export default function Exports({ user }) {
       const exportedAt = new Date();
       const done = [];
       const skipped = [];
+      const folded = [];
 
       Object.keys(SAP_CHANNELS).forEach((channel) => {
         if ((data.missingApproval || []).includes(channel)) {
@@ -82,6 +81,7 @@ export default function Exports({ user }) {
           channel,
           baseMonth: data.baseMonth,
           rows: data.rows,
+          weekly: data.weekly,
           exportedAt
         });
         if (!rows.length) {
@@ -91,6 +91,11 @@ export default function Exports({ user }) {
         const plant = SAP_CHANNELS[channel].plant;
         downloadZpp702(rows, `ZPP702_Upload_KHKD_${plant}_${channel}_${baseMonth}.xlsx`);
         done.push(`${channel}: ${rows.length} dòng, ngày ${rows[0][8]}`);
+        // Dồn tuần 5 vào W4 là thay đổi số thật — phải nói ra, không để im.
+        if (rows.foldedWeeks && rows.foldedWeeks.length) {
+          const total = rows.foldedWeeks.reduce((s, f) => s + f.quantity, 0);
+          folded.push(`${channel}: ${rows.foldedWeeks.length} SKU có tuần 5 (${total.toLocaleString('vi-VN')} cái) được dồn vào W4`);
+        }
       });
 
       if (!done.length) {
@@ -100,30 +105,9 @@ export default function Exports({ user }) {
       setMessage({
         type: skipped.length ? 'error' : 'success',
         text: `Đã xuất ${done.join(' | ')}.` +
-          (skipped.length ? `  CHƯA xuất: ${skipped.join('; ')}.` : '')
+          (skipped.length ? `  CHƯA xuất: ${skipped.join('; ')}.` : '') +
+          (folded.length ? `  LƯU Ý — ${folded.join('; ')}.` : '')
       });
-    } catch (err) {
-      setMessage({ type: 'error', text: err.message });
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  /** GT2 vẫn dùng đường cũ: chưa có form thật để đối chiếu như XK/OEM. */
-  const handleExportGt2 = async () => {
-    setBusy('gt2');
-    setMessage(null);
-    try {
-      const [b0Export, weeklyExport] = await Promise.all([
-        api.getB0SumExport(monthValue),
-        api.getSapGt2Weekly(monthValue)
-      ]);
-      if (!b0Export.rows.length) {
-        setMessage({ type: 'error', text: `Không có dữ liệu forecast cho ${monthLabel(monthValue)}.` });
-        return;
-      }
-      downloadWorkbook([['ZPP702', buildGt2Sheet(b0Export, weeklyExport)]], `ZPP702_Upload_KHKD_0200_GT2_${baseMonth}.xlsx`);
-      setMessage({ type: 'error', text: 'Đã xuất file GT2 — CHƯA được đối chiếu với form thật, phải kiểm tay trước khi upload.' });
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
     } finally {
@@ -189,23 +173,14 @@ export default function Exports({ user }) {
         />
 
         <ExportCard
-          title="SAP ZPP702 — XK & OEM"
-          description="File upload SAP dùng được ngay, lấy số từ bản đã duyệt. Đã đối chiếu khớp từng ô với file thật của kỳ tháng 7 (354 dòng, 21 cột)."
+          title="SAP ZPP702"
+          description="Ba file upload SAP (XK, OEM, GT2) dùng được ngay, lấy số từ bản đã duyệt. Kênh nào chưa duyệt thì không xuất và báo rõ."
           busy={busy === 'sap'}
           onClick={handleExportSap}
         />
 
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <ExportCard
-          title="SAP ZPP702 — GT2"
-          description="Chưa có form thật để đối chiếu như XK/OEM. Cách chia tuần và chia đều tháng sau vẫn là bản suy đoán — phải kiểm tay."
-          busy={busy === 'gt2'}
-          onClick={handleExportGt2}
-          warning
-        />
-      </div>
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-900 space-y-2">
         <div className="flex items-center gap-2 font-bold">

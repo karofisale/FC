@@ -5,10 +5,20 @@
  * hiển thị của người dùng. PIN không bao giờ được lưu lại ở trình duyệt.
  */
 import { callGAS, ApiError } from './gasClient';
+import { sharedSessionForFC, clearSharedSession } from './karofiSession';
 
 const STORAGE_KEY = 'karofi_fc_session';
 
-let session = readStoredSession();
+/**
+ * Phiên dùng chung của cổng VHKD được ưu tiên hơn phiên riêng của FC.
+ *
+ * Lý do chọn thứ tự này: luồng chính là "đăng nhập ở cổng rồi mở app", nên
+ * phiên vừa tạo ở cổng phải thắng phiên FC cũ còn sót trong localStorage.
+ * Đổi lại, nếu hai người khác nhau dùng chung một trình duyệt và một người
+ * đăng nhập trực tiếp ở FC, thì phiên cổng (nếu còn hạn) vẫn được dùng —
+ * chấp nhận được vì mỗi người dùng máy riêng, và đăng xuất xoá cả hai.
+ */
+let session = sharedSessionForFC() || readStoredSession();
 
 function readStoredSession() {
   try {
@@ -63,6 +73,7 @@ export async function login(userId, pin) {
 export async function logout() {
   const token = getToken();
   persist(null);
+  clearSharedSession();   // đăng xuất một lần = ra khỏi cả ba app
   if (token) {
     try {
       await callGAS('logout', { token });
@@ -75,6 +86,7 @@ export async function logout() {
 /** Xoá phiên tại chỗ, dùng khi server báo token hết hạn. */
 export function clearSession() {
   if (session) persist(null);
+  clearSharedSession();   // token dùng chung cũng đã hết hạn/không còn giá trị
 }
 
 export function hasRole(...roles) {
