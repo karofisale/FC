@@ -89,7 +89,12 @@ function karofiMakeToken_(payload, ttlSeconds) {
     ap: payload.ap || {}
   };
   if (!body.sub) throw new Error('karofiMakeToken_: thiếu sub.');
-  var enc = Utilities.base64EncodeWebSafe(JSON.stringify(body));
+  // PHẢI nêu rõ UTF_8. base64EncodeWebSafe(chuỗi) KHÔNG mặc định UTF-8: mọi
+  // ký tự ngoài ASCII bị thay bằng '?' ngay lúc mã hoá, mất luôn, không lỗi.
+  // Bản đầu tiên thiếu tham số này nên 'Cao Tiến Hải' thành 'Cao Ti?n H?i' —
+  // hỏng cả tên hiển thị LẪN tên đăng nhập trong khối quyền ('Thúy' -> 'Th?y'),
+  // mà Export lại gắn mỗi dòng PI với PIC theo đúng tên đó.
+  var enc = Utilities.base64EncodeWebSafe(JSON.stringify(body), Utilities.Charset.UTF_8);
   return KAROFI_TOKEN_VERSION + '.' + enc + '.' + karofiSign_(enc);
 }
 
