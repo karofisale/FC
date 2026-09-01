@@ -109,6 +109,12 @@ function createSession_(user) {
 function requireSession_(token) {
   if (!token) throw new Error('UNAUTHORIZED: Chưa đăng nhập.');
 
+  // Chấp nhận kép (Karofi ID, 2026-08): token dùng chung của cổng VHKD được
+  // kiểm chữ ký tại chỗ. Không phải token Karofi ID thì rơi xuống cơ chế
+  // phiên cũ ngay dưới, nên người đang mở app lúc deploy không bị đăng xuất.
+  var shared = karofiSessionForFC_(token);
+  if (shared) return shared;
+
   var key = 's_' + token;
   var raw = CacheService.getScriptCache().get(key);
   if (!raw) raw = PropertiesService.getScriptProperties().getProperty(key);
@@ -193,6 +199,12 @@ function validatePinFormat_(pin) {
 }
 
 function changeMyPin_(session, currentPin, newPin) {
+  // Phiên đến từ Karofi ID thì PIN không nằm ở bảng Users của FC nữa — đổi ở
+  // đây sẽ ghi vào một bản ghi không còn được dùng để xác thực, tức là "đổi
+  // xong mà không có tác dụng". Chặn thẳng và chỉ đúng nơi cần đổi.
+  if (session && session._kid) {
+    throw new Error('Đổi PIN tại cổng VHKD — một PIN dùng chung cho cả ba app.');
+  }
   validatePinFormat_(newPin);
   var table = readTable_(SHEETS.USERS);
   var rowIndex = findRowIndex_(table, 'id', session.userId);
@@ -210,6 +222,12 @@ function changeMyPin_(session, currentPin, newPin) {
 
 function setUserPin_(session, userId, newPin) {
   assertRole_(session, ['central_admin']);
+  // Cùng lý do như changeMyPin_: khi đã chuyển sang Karofi ID, PIN đặt ở bảng
+  // Users của FC không còn được dùng để xác thực. Đặt lại PIN bằng
+  // setup_setPin(id, pin) trong dự án Karofi-ID.
+  if (session && session._kid) {
+    throw new Error('Đặt lại PIN trong dự án Karofi ID (setup_setPin), không đặt ở đây nữa.');
+  }
   validatePinFormat_(newPin);
 
   var table = readTable_(SHEETS.USERS);

@@ -14,6 +14,18 @@ function createCycle_(session, p) {
   if (!bu) throw new Error('Thiếu đơn vị kinh doanh.');
   assertBU_(session, bu);
 
+  // Đơn vị đã ngừng dùng thì không lập chu kỳ mới. Trước đây cờ is_active chỉ
+  // ẩn đơn vị khỏi ô chọn trên giao diện (getBootstrap lọc activeOnly_), còn
+  // gọi thẳng API vẫn tạo được — nên "tắt một đơn vị" không thật sự tắt.
+  // Chu kỳ CŨ của đơn vị đã tắt vẫn đọc và sửa được bình thường.
+  var buRow = readObjects_(SHEETS.BUSINESS_UNITS).filter(function (b) {
+    return String(b.code) === String(bu);
+  })[0];
+  if (!buRow) throw new Error('Đơn vị "' + bu + '" không có trong danh mục.');
+  if (String(buRow.is_active) !== '1') {
+    throw new Error('Đơn vị "' + bu + '" đã ngừng dùng — không lập chu kỳ mới được.');
+  }
+
   var baseMonth = normalizeMonth_(p.baseMonth);
   if (!baseMonth) throw new Error('Thiếu tháng bắt đầu chu kỳ (baseMonth).');
   var horizon = Number(p.horizonMonths) || 4;

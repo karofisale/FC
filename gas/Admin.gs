@@ -36,7 +36,13 @@ function setupDatabase() {
     { code: 'GT2', name: 'Kênh GT2 (General Trade 2)', is_active: 1 },
     { code: 'XK', name: 'Kênh Xuất khẩu (Export)', is_active: 1 },
     { code: 'OEM', name: 'Kênh OEM', is_active: 1 },
-    { code: 'Online', name: 'Kênh Online (3T + NSKX)', is_active: 1 },
+    // 2026-09: tách 'Online' thành hai đơn vị riêng, mỗi bên có bảng SOP
+    // tháng/tuần và người lập/người duyệt riêng. Dòng 'Online' GIỮ LẠI nhưng
+    // tắt: các chu kỳ đã lập trước đây vẫn tham chiếu mã này, xoá dòng là mất
+    // tên hiển thị của lịch sử. is_active = 0 chỉ ẩn khỏi các ô chọn.
+    { code: '3T', name: 'Kênh 3T', is_active: 1 },
+    { code: 'NSKX', name: 'Nước Sạch Khí Xanh', is_active: 1 },
+    { code: 'Online', name: 'Kênh Online (cũ — đã tách thành 3T và NSKX)', is_active: 0 },
     { code: 'MT', name: 'Kênh Modern Trade', is_active: 1 },
     { code: 'MLT', name: 'Kênh MLT', is_active: 1 },
     { code: 'Retail', name: 'Kênh Bán lẻ', is_active: 1 },
@@ -75,6 +81,106 @@ function setupDatabase() {
 
   Logger.log('Đã khởi tạo xong. Bước tiếp theo: adminSetPin("gt2", "246810") cho từng tài khoản.');
   return 'OK';
+}
+
+/**
+ * Báo cáo hiện trạng đơn vị kinh doanh — CHỈ ĐỌC, chạy bao nhiêu lần cũng được.
+ *
+ * Dùng trước/sau khi tách BU. Câu hỏi quan trọng nhất nó trả lời: có bao nhiêu
+ * SKU đang gắn cứng default_channel = 'Online'. getProducts_ lọc theo
+ * `!default_channel || default_channel === bu`, nên SKU gắn 'Online' sẽ KHÔNG
+ * xuất hiện trong bảng SOP của 3T hay NSKX — bảng mở ra sẽ thiếu hàng mà không
+ * báo lỗi gì. SKU để trống default_channel thì đơn vị nào cũng thấy.
+ */
+function adminReportBUs() {
+  var out = [];
+
+  out.push('=== ĐƠN VỊ KINH DOANH ===');
+  readObjects_(SHEETS.BUSINESS_UNITS).forEach(function (b) {
+    out.push('  ' + (String(b.is_active) === '1' ? '[bật] ' : '[tắt] ')
+      + b.code + '  —  ' + b.name);
+  });
+
+  out.push('');
+  out.push('=== CHU KỲ ĐÃ LẬP, THEO ĐƠN VỊ ===');
+  var cycles = readObjects_(SHEETS.CYCLES);
+  var byBu = {};
+  cycles.forEach(function (c) {
+    var k = String(c.business_unit_code || '(trống)');
+    byBu[k] = (byBu[k] || 0) + 1;
+  });
+  if (!cycles.length) out.push('  (chưa có chu kỳ nào)');
+  Object.keys(byBu).sort().forEach(function (k) {
+    out.push('  ' + k + ': ' + byBu[k] + ' chu kỳ');
+  });
+
+  out.push('');
+  out.push('=== SKU ĐANG DÙNG, THEO default_channel ===');
+  var products = activeOnly_(readObjects_(SHEETS.PRODUCTS));
+  var byCh = {};
+  products.forEach(function (p) {
+    var k = String(p.default_channel || '').trim() || '(trống — mọi đơn vị đều thấy)';
+    byCh[k] = (byCh[k] || 0) + 1;
+  });
+  Object.keys(byCh).sort().forEach(function (k) {
+    out.push('  ' + k + ': ' + byCh[k] + ' SKU');
+  });
+  out.push('  Tổng SKU đang dùng: ' + products.length);
+
+  out.push('');
+  out.push('=== NGƯỜI DÙNG THEO ĐƠN VỊ ===');
+  var users = readObjects_(SHEETS.USERS);
+  users.forEach(function (u) {
+    out.push('  ' + String(u.id) + '  vai=' + String(u.role)
+      + '  đơn vị=' + (String(u.business_unit_code || '') || '(mọi đơn vị)')
+      + (String(u.is_active) === '1' ? '' : '  [đã tắt]'));
+  });
+
+  Logger.log(out.join(String.fromCharCode(10)));
+  return out.join(String.fromCharCode(10));
+}
+
+/**
+ * Chuyển SKU từ đơn vị này sang đơn vị khác (cột default_channel).
+ * Mặc định CHẠY THỬ — in ra sẽ đổi bao nhiêu dòng mà không ghi gì.
+ * Ghi thật thì truyền tham số thứ ba là true:
+ *   adminMoveProductChannel('Online', '3T', true)
+ *
+ * Muốn SKU hiện ở MỌI đơn vị thì chuyển sang chuỗi rỗng:
+ *   adminMoveProductChannel('Online', '', true)
+ */
+function adminMoveProductChannel(fromChannel, toChannel, apply) {
+  var from = String(fromChannel == null ? '' : fromChannel).trim();
+  var to = String(toChannel == null ? '' : toChannel).trim();
+  if (!from) throw new Error('Cần nêu rõ đơn vị nguồn (fromChannel).');
+
+  var table = readTable_(SHEETS.PRODUCTS);
+  var col = table.idx.default_channel;
+  if (col === undefined) throw new Error('Sheet Products không có cột default_channel.');
+
+  var hits = [];
+  for (var i = 0; i < table.rows.length; i++) {
+    if (String(table.rows[i][col] || '').trim() === from) hits.push(i);
+  }
+
+  if (!apply) {
+    Logger.log('CHẠY THỬ — sẽ đổi ' + hits.length + ' SKU từ "' + from + '" sang "'
+      + (to || '(trống)') + '". Chưa ghi gì.');
+    Logger.log('Ghi thật: adminMoveProductChannel("' + from + '", "' + to + '", true)');
+    return hits.length;
+  }
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    for (var j = 0; j < hits.length; j++) {
+      writeRowPatch_(SHEETS.PRODUCTS, table, hits[j], { default_channel: to });
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  Logger.log('Đã đổi ' + hits.length + ' SKU từ "' + from + '" sang "' + (to || '(trống)') + '".');
+  return hits.length;
 }
 
 /**
