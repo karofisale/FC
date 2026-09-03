@@ -120,6 +120,10 @@ const ACTION_TABLES = {
 const WRITE_ACTIONS = [
   'createCycle', 'createVersion', 'saveMonthlyLines', 'saveWeeklySplits',
   'submitCycle', 'reopenCycle', 'decideApproval', 'changeMyPin', 'setUserPin',
-  'importProducts', 'saveActuals', 'addProduct', 'addProducts'
+  'importProducts', 'saveActuals', 'addProduct', 'addProducts',
+  // Nhập SOP tạo chu kỳ + bản mới rồi ghi dòng tháng/tuần, nên phải nằm ở
+  // nhóm GHI để chạy trong runExclusive_. Để nhầm sang nhóm đọc thì nó chạy
+  // ngoài lock và có thể ghi đè lên số người khác vừa lưu.
+  'importSopFromSource'
 ];
 
