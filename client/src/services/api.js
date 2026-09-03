@@ -70,6 +70,11 @@ export const api = {
     callGAS('addProducts', auth({ products })).then((res) => { productsCache.clear(); return res; }),
   readExternalSheet: (spreadsheetId, sheetName) => callGAS('readExternalSheet', auth({ spreadsheetId, sheetName })),
 
+  // Nhập kế hoạch thẳng từ app OEM / app Xuất khẩu. dryRun = chỉ tính và trả
+  // về con số, không ghi gì — dùng cho bước xem trước.
+  importSopFromSource: (businessUnitCode, baseMonth, dryRun) =>
+    callGAS('importSopFromSource', auth({ businessUnitCode, baseMonth, dryRun: !!dryRun })),
+
   // ----- action gộp cho từng màn hình -----
   // Apps Script chạy TUẦN TỰ các request của cùng một chủ script, nên
   // Promise.all ở client không hề song song — các lượt gọi xếp hàng và cộng

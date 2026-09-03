@@ -6,9 +6,13 @@ import AddProductModal from '../components/AddProductModal';
 // Tải lười — kéo theo thư viện xlsx (~290KB) chỉ để đọc file Excel, đa số
 // người dùng không bấm "Nhập từ file" mỗi lần vào trang này.
 const ImportForecastModal = React.lazy(() => import('../components/ImportForecastModal'));
+const ImportFromSourceModal = React.lazy(() => import('../components/ImportFromSourceModal'));
 import { Save, Send, Search, Filter, AlertCircle, CheckCircle2, Loader2, ArrowDownToLine, PackagePlus, FileSpreadsheet } from 'lucide-react';
 import { monthsOfCycle, monthLabel, weeksOfMonth } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
+
+// Hai đơn vị có app nguồn để nhập thẳng. Các đơn vị khác vẫn nhập từ file như cũ.
+const SOURCE_BUS = ['OEM', 'XK'];
 import { useGridEditing, parsePastedNumber } from '../utils/useGridEditing';
 
 // Chỉ dựng DOM cho các dòng đang lọt vào khung nhìn — kênh XK có 756 SKU,
@@ -41,6 +45,7 @@ export default function MonthlyForecast({ currentBU, user }) {
   const [message, setMessage] = useState(null);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showImportSource, setShowImportSource] = useState(false);
 
   // Memo hoá để mảng không đổi định danh mỗi lần render — nếu không thì mọi
   // useMemo phụ thuộc vào `months` đều bị tính lại sau từng phím gõ.
@@ -405,6 +410,15 @@ export default function MonthlyForecast({ currentBU, user }) {
                 <FileSpreadsheet className="w-3.5 h-3.5" />
                 Nhập từ file
               </button>
+              {SOURCE_BUS.includes(currentBU) && (
+                <button
+                  onClick={() => setShowImportSource(true)}
+                  className="flex items-center gap-1.5 border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
+                >
+                  <ArrowDownToLine className="w-3.5 h-3.5" />
+                  Nhập từ app {currentBU === 'OEM' ? 'OEM' : 'Xuất khẩu'}
+                </button>
+              )}
             </>
           )}
         </div>
@@ -422,6 +436,25 @@ export default function MonthlyForecast({ currentBU, user }) {
             setMessage({ type: 'success', text: `Đã thêm SKU ${product.sku_code} vào danh mục.` });
           }}
         />
+      )}
+
+      {showImportSource && (
+        <React.Suspense fallback={null}>
+          <ImportFromSourceModal
+            businessUnitCode={currentBU}
+            defaultBaseMonth={(selectedCycle?.base_month || '').slice(0, 7)}
+            onClose={() => setShowImportSource(false)}
+            onImported={async (res) => {
+              // Nhập tạo chu kỳ/bản mới nên phải nạp lại và nhảy đúng vào bản
+              // vừa tạo, nếu không người dùng vẫn đang nhìn bản cũ.
+              await loadAll(res.cycleId, res.versionId);
+              setMessage({
+                type: 'success',
+                text: `Đã nhập ${res.skuCount} mã từ app ${currentBU === 'OEM' ? 'OEM' : 'Xuất khẩu'} vào một bản cập nhật mới. Xem lại rồi gửi duyệt.`
+              });
+            }}
+          />
+        </React.Suspense>
       )}
 
       {showImport && (

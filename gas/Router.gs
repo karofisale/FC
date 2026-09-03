@@ -155,6 +155,10 @@ function dispatch_(action, p, session) {
     case 'importProducts':   return importProducts_(session, p.products, p.replace);
     case 'addProduct':       return addProduct_(session, p.product);
     case 'addProducts':      return addProducts_(session, p.products);
+    // Nhập SOP từ app OEM / app Xuất khẩu. Cố ý KHÔNG khai trong ACTION_TABLES:
+    // action này chạm gần hết các bảng, mà "không khai" nghĩa là đọc tất cả —
+    // đúng thứ nó cần, và khai thiếu một bảng thì lỗi rất khó truy.
+    case 'importSopFromSource': return importSopFromSource_(session, p);
     case 'saveActuals':      return saveActuals_(session, p.rows);
   }
   throw new Error('Action chưa được cài đặt: ' + action);
