@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Building2, ShieldCheck, LogOut, KeyRound, X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Building2, ShieldCheck, LogOut, KeyRound, X, Loader2, CheckCircle2, AlertCircle, ArrowLeft } from 'lucide-react';
 import { api } from '../services/api';
 import { ROLE_LABELS } from '../services/auth';
 import KarofiMark from './KarofiMark';
@@ -13,6 +13,16 @@ export default function Header({ user, currentBU, setCurrentBU, bus, onLogout })
 
         {/* Logo & Title */}
         <div className="flex items-center space-x-3">
+          {/* Đường về cổng. Cần thiết vì khi chạy như ứng dụng đã cài, cửa sổ
+              không có nút back của trình duyệt. */}
+          <a
+            href="/VHKD/"
+            title="Về Karofi Portal"
+            className="flex items-center gap-1 text-xs text-blue-200 hover:text-white whitespace-nowrap border border-blue-600/40 rounded-lg px-2 py-1.5"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Portal</span>
+          </a>
           <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-inner">
             <KarofiMark className="w-6 h-6 text-blue-300" />
           </div>
