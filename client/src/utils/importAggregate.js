@@ -34,17 +34,21 @@ import { parsePastedNumber } from './useGridEditing.js';
  * @param {number} p.monthCount
  * @param {number} [p.weekStartCol] cột tuần 1; các tuần sau liền kề. Bỏ qua nếu không nhập tuần
  * @param {number} [p.weekCount]
+ * @param {boolean} [p.deriveWeeks] file không có cột tuần — chia từ sản lượng tháng đầu
+ * @param {number}  [p.deriveStep]  bước làm tròn khi chia (mặc định 10)
  */
 export function aggregateRegionBlocks({
   blocks, skuColIdx, nameColIdx = -1,
   monthStartCol, monthCount,
-  weekStartCol, weekCount = 0
+  weekStartCol, weekCount = 0,
+  deriveWeeks = false, deriveStep = 10
 }) {
   const bySku = new Map();
   const totalsByRegion = {};
   const weekTotalByRegion = {};
   const duplicates = [];
   const readWeeks = weekStartCol !== undefined && weekStartCol !== null && weekCount > 0;
+  const makeWeeks = !readWeeks && deriveWeeks && weekCount > 0;
 
   blocks.forEach(({ region, rows }) => {
     totalsByRegion[region] = new Array(monthCount).fill(0);
@@ -63,6 +67,9 @@ export function aggregateRegionBlocks({
           skuCode: sku,
           name: nameColIdx >= 0 ? String(row[nameColIdx] ?? '').trim() : '',
           months: new Array(monthCount).fill(0),
+          // sản lượng tháng đầu tách theo miền — cần cho việc chia tuần, vì
+          // tuần của miền nào phải chia từ số của chính miền đó
+          monthsByRegion: {},
           weeks: {}
         });
       }
@@ -73,6 +80,7 @@ export function aggregateRegionBlocks({
         const qty = parsePastedNumber(row[monthStartCol + i]);
         entry.months[i] += qty;
         totalsByRegion[region][i] += qty;
+        if (i === 0) entry.monthsByRegion[region] = (entry.monthsByRegion[region] || 0) + qty;
       }
 
       if (readWeeks) {
@@ -89,6 +97,22 @@ export function aggregateRegionBlocks({
       if (count > 1) duplicates.push({ skuCode: sku, region, count });
     });
   });
+
+  // Chia tuần từ tháng đầu phải làm SAU khi đã cộng xong mọi dòng của miền đó:
+  // chia từng dòng rồi cộng lại sẽ làm phần lẻ dồn vào tuần 1 nhiều lần.
+  if (makeWeeks) {
+    blocks.forEach(({ region }) => { weekTotalByRegion[region] = 0; });
+    bySku.forEach((entry) => {
+      Object.keys(entry.monthsByRegion).forEach((region) => {
+        const split = splitMonthIntoWeeks(entry.monthsByRegion[region], weekCount, deriveStep);
+        split.forEach((qty, i) => {
+          if (!entry.weeks[i + 1]) entry.weeks[i + 1] = {};
+          entry.weeks[i + 1][region] = qty;
+          weekTotalByRegion[region] += qty;
+        });
+      });
+    });
+  }
 
   return {
     rows: Array.from(bySku.values()),
@@ -134,16 +158,79 @@ export function findTotalsRow(rawRows, dataStartIdx, skuColIdx, monthStartCol, m
  * "MIỀN BẮC" là chưa đủ — phải kèm đúng tháng, nếu không sẽ lấy nhầm kỳ cũ.
  * Chỉ ĐỀ XUẤT, người dùng vẫn nhìn thấy và sửa được.
  */
+/**
+ * Nhận diện miền từ chữ trong file. Dùng chung cho cả việc đoán tên sheet
+ * (3T) lẫn việc tìm dòng phân cách giữa hai bảng (NSKX) — hai file viết khác
+ * nhau ("MIỀN BẮC T9" vs "Miền Bắc") nên phải bỏ dấu và bỏ hoa thường.
+ */
+export const REGION_PATTERNS = {
+  MB: [/mi[eề]n\s*b[aắ]c/i, /\bmb\b/i, /north/i],
+  MN: [/mi[eề]n\s*nam/i, /\bmn\b/i, /south/i]
+};
+
+function testsFor(code) {
+  return REGION_PATTERNS[code] || [new RegExp(`\\b${code}\\b`, 'i')];
+}
+
+/** Chuỗi này là nhãn của miền nào? Trả về mã miền hoặc null. */
+export function matchRegion(text, regionCodes) {
+  const s = String(text ?? '').trim();
+  if (!s) return null;
+  return regionCodes.find((code) => testsFor(code).some((re) => re.test(s))) || null;
+}
+
+/**
+ * Chia sản lượng tháng đầu thành các tuần khi file không có cột tuần.
+ *
+ * Quy tắc: mỗi tuần một số CHẲN CHỤC bằng nhau, phần lẻ cộng hết vào tuần đầu.
+ * Ví dụ 100 → 40/20/20/20; 10 → 10/0/0/0; 200 → 50/50/50/50.
+ * Tổng luôn bằng đúng số tháng, nên Bảng 1 không bao giờ báo lệch vì phép chia này.
+ */
+export function splitMonthIntoWeeks(quantity, weekCount, step = 10) {
+  const total = Number(quantity) || 0;
+  const weeks = new Array(weekCount).fill(0);
+  if (!total || weekCount < 1) return weeks;
+
+  const per = Math.floor(Math.floor(total / weekCount) / step) * step;
+  weeks.fill(per);
+  weeks[0] = per + (total - per * weekCount);
+  return weeks;
+}
+
+/**
+ * Tách các bảng xếp chồng dọc trong cùng một sheet (NSKX).
+ *
+ * Dòng phân cách là dòng có chữ tên miền ở cột được chỉ định (ở NSKX chính
+ * là cột mã hàng: "Miền Nam" ở dòng 2, "Miền Bắc" ở dòng 10). Chính dòng đó
+ * cũng mang luôn TỔNG CỦA MIỀN ở các cột tháng — giữ lại để đối chiếu.
+ *
+ * Dòng "Tổng (I+II)" cuối file không có mã hàng nên tự bị bỏ qua như mọi dòng
+ * không có SKU khác.
+ */
+export function detectStackedBlocks(rawRows, dataStartIdx, markerColIdx, regionCodes) {
+  const blocks = [];
+  let current = null;
+
+  for (let r = dataStartIdx; r < rawRows.length; r++) {
+    const row = rawRows[r];
+    if (!row) continue;
+    const region = matchRegion(row[markerColIdx], regionCodes);
+    if (region) {
+      current = { region, rows: [], markerRowIdx: r, markerRow: row };
+      blocks.push(current);
+      continue;
+    }
+    if (current) current.rows.push(row);
+  }
+  return blocks;
+}
+
 export function guessRegionSheets(sheetNames, regionCodes, baseMonth) {
   const monthNo = baseMonth ? Number(String(baseMonth).split('-')[1]) : null;
-  const patterns = {
-    MB: [/mi[eề]n\s*b[aắ]c/i, /\bmb\b/i, /north/i],
-    MN: [/mi[eề]n\s*nam/i, /\bmn\b/i, /south/i]
-  };
 
   const out = {};
   regionCodes.forEach((code) => {
-    const tests = patterns[code] || [new RegExp(`\\b${code}\\b`, 'i')];
+    const tests = testsFor(code);
     const matches = sheetNames.filter((n) => tests.some((re) => re.test(n)));
     if (!matches.length) return;
     // Ưu tiên sheet có đúng tháng gốc; "T9" phải không dính vào T19/T90

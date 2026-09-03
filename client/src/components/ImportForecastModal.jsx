@@ -7,7 +7,7 @@ import { api } from '../services/api';
 import { parsePastedNumber } from '../utils/useGridEditing';
 import { parseExcelFile, extractSpreadsheetId } from '../utils/importParsing';
 import {
-  aggregateRegionBlocks, findTotalsRow, readTotalsRow, guessRegionSheets
+  aggregateRegionBlocks, detectStackedBlocks, findTotalsRow, readTotalsRow, guessRegionSheets
 } from '../utils/importAggregate';
 
 const NONE = '__none__';
@@ -81,12 +81,16 @@ export default function ImportForecastModal({
   //   'perSheet' mỗi miền một sheet, cột tuần trong sheet chỉ của miền đó
   const [regionLayout, setRegionLayout] = useState('single');
   const [regionSheetMap, setRegionSheetMap] = useState({});
+  // File không có cột tuần (NSKX) — chia từ sản lượng tháng đầu
+  const [deriveWeeks, setDeriveWeeks] = useState(false);
 
   const canImportWeekly = weekColumns?.length > 0 && regionCodes.length > 0;
   const hasMonthMapping = monthStartCol !== NONE;
   const perSheet = regionLayout === 'perSheet';
-  const hasWeekMapping = perSheet
-    ? weekStartCol !== NONE
+  const stacked = regionLayout === 'stacked';
+  const regionMode = perSheet || stacked;
+  const hasWeekMapping = regionMode
+    ? (weekStartCol !== NONE || (deriveWeeks && canImportWeekly))
     : canImportWeekly && (weekStartCol !== NONE || Object.keys(weekCellMap).length > 0);
 
   const [parsedRows, setParsedRows] = useState([]); // [{ skuCode, name, values: {col: qty}, weekValues?: {week: {region: qty}} }]
@@ -202,7 +206,7 @@ export default function ImportForecastModal({
    */
   const switchRegionLayout = (mode) => {
     setRegionLayout(mode);
-    if (mode !== 'perSheet' || !sheets) return;
+    if (mode !== 'perSheet' || !sheets) return;   // chồng dọc chỉ dùng một sheet, không cần đoán
     setRegionSheetMap((prev) => {
       if (Object.keys(prev).length) return prev;
       const guess = guessRegionSheets(sheetNames, regionCodes, monthColumns[0]);
@@ -221,11 +225,12 @@ export default function ImportForecastModal({
 
   /** Mỗi miền một khối dòng, đã cắt đúng vùng dữ liệu. */
   const regionBlocks = useMemo(() => {
+    if (stacked) return detectStackedBlocks(rawRows, dataStartRowNum - 1, skuColIdx === NONE ? -1 : skuColIdx, regionCodes);
     if (!perSheet || !sheets) return [];
     return regionCodes
       .filter((code) => regionSheetMap[code] && sheets[regionSheetMap[code]])
       .map((code) => ({ region: code, rows: sheets[regionSheetMap[code]].slice(dataStartRowNum - 1) }));
-  }, [perSheet, sheets, regionCodes, regionSheetMap, dataStartRowNum]);
+  }, [stacked, rawRows, skuColIdx, perSheet, sheets, regionCodes, regionSheetMap, dataStartRowNum]);
 
   /**
    * Đối chiếu tổng app cộng được với DÒNG TỔNG có sẵn trong file.
@@ -235,7 +240,7 @@ export default function ImportForecastModal({
    * thấy được trước khi ghi thay vì sau khi đã vào kế hoạch.
    */
   const regionCheck = useMemo(() => {
-    if (!perSheet || !hasMonthMapping || !regionBlocks.length) return null;
+    if (!regionMode || !hasMonthMapping || !regionBlocks.length) return null;
     const agg = aggregateRegionBlocks({
       blocks: regionBlocks,
       skuColIdx: skuColIdx === NONE ? -1 : skuColIdx,
@@ -243,27 +248,43 @@ export default function ImportForecastModal({
       monthStartCol,
       monthCount: monthColumns.length,
       weekStartCol: weekStartCol === NONE ? undefined : weekStartCol,
-      weekCount: canImportWeekly ? weekColumns.length : 0
+      weekCount: canImportWeekly ? weekColumns.length : 0,
+      deriveWeeks, deriveStep: 10
     });
-    const perRegion = regionBlocks.map(({ region }) => {
-      const raw = sheets[regionSheetMap[region]] || [];
-      const idx = findTotalsRow(raw, dataStartRowNum - 1, skuColIdx, monthStartCol, monthColumns.length);
+    const perRegion = regionBlocks.map((block) => {
+      const { region } = block;
+      // Bố cục chồng dọc: tổng của miền nằm ngay trên DÒNG PHÂN CÁCH.
+      // Bố cục mỗi miền một sheet: dòng tổng nằm trên vùng dữ liệu của sheet đó.
+      let fromFile = null;
+      let totalsRowNum = null;
+      if (stacked) {
+        fromFile = readTotalsRow(block.markerRow, monthStartCol, monthColumns.length);
+        totalsRowNum = block.markerRowIdx + 1;
+      } else {
+        const raw = sheets[regionSheetMap[region]] || [];
+        const idx = findTotalsRow(raw, dataStartRowNum - 1, skuColIdx, monthStartCol, monthColumns.length);
+        if (idx >= 0) {
+          fromFile = readTotalsRow(raw[idx], monthStartCol, monthColumns.length);
+          totalsRowNum = idx + 1;
+        }
+      }
       return {
         region,
-        sheet: regionSheetMap[region],
+        sheet: stacked ? `dòng ${block.markerRowIdx + 2}–${block.markerRowIdx + 1 + block.rows.length}` : regionSheetMap[region],
         computed: agg.totalsByRegion[region],
-        fromFile: idx >= 0 ? readTotalsRow(raw[idx], monthStartCol, monthColumns.length) : null,
-        totalsRowNum: idx >= 0 ? idx + 1 : null,
+        fromFile,
+        totalsRowNum,
         weekTotal: agg.weekTotalByRegion[region]
       };
     });
     return { agg, perRegion };
-  }, [perSheet, hasMonthMapping, regionBlocks, skuColIdx, nameColIdx, monthStartCol,
-      monthColumns, weekStartCol, weekColumns, canImportWeekly, sheets, regionSheetMap, dataStartRowNum]);
+  }, [regionMode, stacked, hasMonthMapping, regionBlocks, skuColIdx, nameColIdx, monthStartCol,
+      monthColumns, weekStartCol, weekColumns, canImportWeekly, deriveWeeks,
+      sheets, regionSheetMap, dataStartRowNum]);
 
   const canProceedMapping = skuColIdx !== NONE
     && (hasMonthMapping || hasWeekMapping)
-    && (!perSheet || regionBlocks.length === regionCodes.length);
+    && (!regionMode || regionBlocks.length === regionCodes.length);
 
   const handleParseMapping = async () => {
     setError(null);
@@ -271,14 +292,15 @@ export default function ImportForecastModal({
 
     // Đường mỗi miền một sheet: cộng tháng của các miền, tuần về đúng miền của
     // sheet, và cộng luôn các dòng trùng mã trong cùng một sheet.
-    if (perSheet) {
+    if (regionMode) {
       const agg = aggregateRegionBlocks({
         blocks: regionBlocks,
         skuColIdx, nameColIdx: nameColIdx === NONE ? -1 : nameColIdx,
         monthStartCol: hasMonthMapping ? monthStartCol : -1,
         monthCount: hasMonthMapping ? monthColumns.length : 0,
-        weekStartCol: hasWeekMapping ? weekStartCol : undefined,
-        weekCount: hasWeekMapping ? weekColumns.length : 0
+        weekStartCol: weekStartCol === NONE ? undefined : weekStartCol,
+        weekCount: hasWeekMapping ? weekColumns.length : 0,
+        deriveWeeks, deriveStep: 10
       });
       agg.rows.forEach((r) => {
         const values = {};
@@ -553,13 +575,14 @@ export default function ImportForecastModal({
                 <NumberField label="Bắt đầu lấy dữ liệu từ dòng số" value={dataStartRowNum} onChange={setDataStartRowNum} />
               </div>
 
-              {canImportWeekly && sheetNames.length > 1 && (
+              {canImportWeekly && (
                 <div className="border border-slate-200 rounded-lg p-3 space-y-2">
                   <p className="text-xs font-semibold text-slate-700">File tách miền thế nào?</p>
                   <div className="flex flex-wrap gap-2">
                     {[
                       ['single', 'Một bảng, cột tuần xen kẽ miền'],
-                      ['perSheet', `Mỗi miền một sheet (${regionCodes.join(' / ')})`]
+                      ['perSheet', `Mỗi miền một sheet (${regionCodes.join(' / ')})`],
+                      ['stacked', 'Hai bảng xếp chồng trong một sheet']
                     ].map(([mode, label]) => (
                       <button
                         key={mode}
@@ -573,6 +596,29 @@ export default function ImportForecastModal({
                       </button>
                     ))}
                   </div>
+
+                  {stacked && (
+                    <div className="space-y-2 pt-1">
+                      <p className="text-[11px] text-slate-500">
+                        Tự tìm dòng phân cách mang tên miền ở cột mã SKU (ví dụ “Miền Nam”, “Miền Bắc”);
+                        các dòng bên dưới thuộc về miền đó cho tới dòng phân cách tiếp theo.
+                      </p>
+                      {regionBlocks.length ? (
+                        <div className="space-y-1">
+                          {regionBlocks.map((b) => (
+                            <div key={b.region} className="text-[11px] text-slate-700">
+                              <span className="font-semibold">{b.region}</span> — dòng phân cách {b.markerRowIdx + 1},{' '}
+                              {b.rows.filter((r) => String(r?.[skuColIdx] ?? '').trim()).length} mã
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-rose-600">
+                          Chưa tìm thấy dòng phân cách nào — kiểm lại cột mã SKU và dòng bắt đầu dữ liệu.
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {perSheet && (
                     <div className="space-y-2 pt-1">
@@ -616,8 +662,23 @@ export default function ImportForecastModal({
                 )}
               </div>
 
-              {canImportWeekly && perSheet && (
+              {canImportWeekly && regionMode && (
                 <div className="border-t border-slate-100 pt-3">
+                  <label className="flex items-start gap-2 text-xs text-slate-700 mb-2">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={deriveWeeks}
+                      onChange={(e) => { setDeriveWeeks(e.target.checked); if (e.target.checked) setWeekStartCol(NONE); }}
+                    />
+                    <span>
+                      File không có cột tuần — chia từ sản lượng {weekBaseMonthLabel}
+                      <span className="block text-[11px] text-slate-500">
+                        Mỗi tuần một số chẵn chục bằng nhau, phần lẻ cộng vào tuần đầu
+                        (100 → 40/20/20/20, 10 → 10/0/0/0). Chia riêng cho từng miền nên tổng luôn khớp.
+                      </span>
+                    </span>
+                  </label>
                   <p className="text-xs font-semibold text-slate-700 mb-1">
                     Cột bắt đầu cho dữ liệu tuần (áp cho {weekBaseMonthLabel}):
                   </p>
@@ -625,9 +686,13 @@ export default function ImportForecastModal({
                     Trong bố cục này mỗi sheet chỉ chứa tuần của miền nó, nên {weekColumns.length} cột
                     được lấy liên tiếp: Tuần 1, Tuần 2, ... Miền lấy theo sheet, không theo cột.
                   </p>
-                  <ColumnSelect label="Cột Tuần 1" value={weekStartCol} onChange={setWeekStartCol} options={colOptions} allowNone />
-                  {weekStartCol !== NONE && (
-                    <p className="text-[11px] text-slate-500 mt-1">→ {sequentialColsPreview(weekStartCol, weekColumns.length)}</p>
+                  {!deriveWeeks && (
+                    <>
+                      <ColumnSelect label="Cột Tuần 1" value={weekStartCol} onChange={setWeekStartCol} options={colOptions} allowNone />
+                      {weekStartCol !== NONE && (
+                        <p className="text-[11px] text-slate-500 mt-1">→ {sequentialColsPreview(weekStartCol, weekColumns.length)}</p>
+                      )}
+                    </>
                   )}
                 </div>
               )}
