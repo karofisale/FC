@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   X, Upload, Sheet, Loader2, AlertCircle, ArrowLeft, ArrowRight,
   CheckCircle2, FileSpreadsheet, PackagePlus
@@ -6,6 +6,9 @@ import {
 import { api } from '../services/api';
 import { parsePastedNumber } from '../utils/useGridEditing';
 import { parseExcelFile, extractSpreadsheetId } from '../utils/importParsing';
+import {
+  aggregateRegionBlocks, findTotalsRow, readTotalsRow, guessRegionSheets
+} from '../utils/importAggregate';
 
 const NONE = '__none__';
 
@@ -73,9 +76,18 @@ export default function ImportForecastModal({
   const [weekCellPickKey, setWeekCellPickKey] = useState(weekColumns?.[0] !== undefined ? `${weekColumns[0]}_${regionCodes[0]}` : '');
   const [weekCellPickCol, setWeekCellPickCol] = useState(NONE);
 
+  // Bố cục miền của file nguồn:
+  //   'single'   một bảng, các cột tuần xen kẽ theo miền (như cũ)
+  //   'perSheet' mỗi miền một sheet, cột tuần trong sheet chỉ của miền đó
+  const [regionLayout, setRegionLayout] = useState('single');
+  const [regionSheetMap, setRegionSheetMap] = useState({});
+
   const canImportWeekly = weekColumns?.length > 0 && regionCodes.length > 0;
   const hasMonthMapping = monthStartCol !== NONE;
-  const hasWeekMapping = canImportWeekly && (weekStartCol !== NONE || Object.keys(weekCellMap).length > 0);
+  const perSheet = regionLayout === 'perSheet';
+  const hasWeekMapping = perSheet
+    ? weekStartCol !== NONE
+    : canImportWeekly && (weekStartCol !== NONE || Object.keys(weekCellMap).length > 0);
 
   const [parsedRows, setParsedRows] = useState([]); // [{ skuCode, name, values: {col: qty}, weekValues?: {week: {region: qty}} }]
   const [missingSkus, setMissingSkus] = useState([]); // [{ skuCode, name, productGroupCode, defaultChannel, avgPrice }]
@@ -183,14 +195,115 @@ export default function ImportForecastModal({
     }
   };
 
+  /**
+   * Đổi sang bố cục "mỗi miền một sheet": đoán sẵn sheet cho từng miền và chuyển
+   * bản xem trước sang sheet của miền đầu, vì các ô chọn cột lấy theo sheet đang xem.
+   * Chỉ đoán khi chưa chọn gì, không đè lên lựa chọn của người dùng.
+   */
+  const switchRegionLayout = (mode) => {
+    setRegionLayout(mode);
+    if (mode !== 'perSheet' || !sheets) return;
+    setRegionSheetMap((prev) => {
+      if (Object.keys(prev).length) return prev;
+      const guess = guessRegionSheets(sheetNames, regionCodes, monthColumns[0]);
+      const first = regionCodes.find((c) => guess[c]);
+      if (first) setActiveSheet(guess[first]);
+      return guess;
+    });
+  };
+
+  const pickRegionSheet = (region, name) => {
+    setRegionSheetMap((prev) => ({ ...prev, [region]: name }));
+    if (regionCodes[0] === region) setActiveSheet(name);
+  };
+
   // ---- Bước 2: gán cột ----
 
-  const canProceedMapping = skuColIdx !== NONE && (hasMonthMapping || hasWeekMapping);
+  /** Mỗi miền một khối dòng, đã cắt đúng vùng dữ liệu. */
+  const regionBlocks = useMemo(() => {
+    if (!perSheet || !sheets) return [];
+    return regionCodes
+      .filter((code) => regionSheetMap[code] && sheets[regionSheetMap[code]])
+      .map((code) => ({ region: code, rows: sheets[regionSheetMap[code]].slice(dataStartRowNum - 1) }));
+  }, [perSheet, sheets, regionCodes, regionSheetMap, dataStartRowNum]);
+
+  /**
+   * Đối chiếu tổng app cộng được với DÒNG TỔNG có sẵn trong file.
+   *
+   * File 3T để dòng tổng ngay trên vùng dữ liệu và nó khớp tuyệt đối, nên đây
+   * là chốt chặn rẻ nhất cho việc gán nhầm cột: gán lệch một cột là số lệch ngay,
+   * thấy được trước khi ghi thay vì sau khi đã vào kế hoạch.
+   */
+  const regionCheck = useMemo(() => {
+    if (!perSheet || !hasMonthMapping || !regionBlocks.length) return null;
+    const agg = aggregateRegionBlocks({
+      blocks: regionBlocks,
+      skuColIdx: skuColIdx === NONE ? -1 : skuColIdx,
+      nameColIdx: nameColIdx === NONE ? -1 : nameColIdx,
+      monthStartCol,
+      monthCount: monthColumns.length,
+      weekStartCol: weekStartCol === NONE ? undefined : weekStartCol,
+      weekCount: canImportWeekly ? weekColumns.length : 0
+    });
+    const perRegion = regionBlocks.map(({ region }) => {
+      const raw = sheets[regionSheetMap[region]] || [];
+      const idx = findTotalsRow(raw, dataStartRowNum - 1, skuColIdx, monthStartCol, monthColumns.length);
+      return {
+        region,
+        sheet: regionSheetMap[region],
+        computed: agg.totalsByRegion[region],
+        fromFile: idx >= 0 ? readTotalsRow(raw[idx], monthStartCol, monthColumns.length) : null,
+        totalsRowNum: idx >= 0 ? idx + 1 : null,
+        weekTotal: agg.weekTotalByRegion[region]
+      };
+    });
+    return { agg, perRegion };
+  }, [perSheet, hasMonthMapping, regionBlocks, skuColIdx, nameColIdx, monthStartCol,
+      monthColumns, weekStartCol, weekColumns, canImportWeekly, sheets, regionSheetMap, dataStartRowNum]);
+
+  const canProceedMapping = skuColIdx !== NONE
+    && (hasMonthMapping || hasWeekMapping)
+    && (!perSheet || regionBlocks.length === regionCodes.length);
 
   const handleParseMapping = async () => {
     setError(null);
-    const rows = rawRows.slice(dataStartRowNum - 1);
     const parsed = [];
+
+    // Đường mỗi miền một sheet: cộng tháng của các miền, tuần về đúng miền của
+    // sheet, và cộng luôn các dòng trùng mã trong cùng một sheet.
+    if (perSheet) {
+      const agg = aggregateRegionBlocks({
+        blocks: regionBlocks,
+        skuColIdx, nameColIdx: nameColIdx === NONE ? -1 : nameColIdx,
+        monthStartCol: hasMonthMapping ? monthStartCol : -1,
+        monthCount: hasMonthMapping ? monthColumns.length : 0,
+        weekStartCol: hasWeekMapping ? weekStartCol : undefined,
+        weekCount: hasWeekMapping ? weekColumns.length : 0
+      });
+      agg.rows.forEach((r) => {
+        const values = {};
+        if (hasMonthMapping) {
+          monthColumns.forEach((col, i) => { values[colKey(col)] = r.months[i]; });
+        }
+        let weekValues;
+        if (hasWeekMapping) {
+          weekValues = {};
+          weekColumns.forEach((w) => {
+            weekValues[w] = {};
+            // Miền không có số phải ghi 0 chứ không bỏ trống, để dòng cũ của miền
+            // đó không còn sót lại sau khi nhập — giống quy tắc của bố cục một bảng.
+            regionCodes.forEach((region) => {
+              weekValues[w][region] = (r.weeks[w] && r.weeks[w][region]) || 0;
+            });
+          });
+        }
+        parsed.push({ skuCode: r.skuCode, name: r.name, values, weekValues });
+      });
+      await finishParse(parsed);
+      return;
+    }
+
+    const rows = rawRows.slice(dataStartRowNum - 1);
     rows.forEach((row) => {
       const sku = String(row[skuColIdx] ?? '').trim();
       if (!sku) return;
@@ -231,6 +344,11 @@ export default function ImportForecastModal({
       });
     });
 
+    await finishParse(parsed);
+  };
+
+  /** Phần chung sau khi đã dựng được danh sách dòng, dùng cho cả hai bố cục. */
+  async function finishParse(parsed) {
     if (!parsed.length) {
       setError('Không tìm thấy dòng dữ liệu hợp lệ nào (thiếu mã SKU hoặc số lượng).');
       return;
@@ -260,7 +378,7 @@ export default function ImportForecastModal({
     } finally {
       setBusy(false);
     }
-  };
+  }
 
   // ---- Bước 3 (nếu có): thêm SKU thiếu hàng loạt ----
 
@@ -435,6 +553,54 @@ export default function ImportForecastModal({
                 <NumberField label="Bắt đầu lấy dữ liệu từ dòng số" value={dataStartRowNum} onChange={setDataStartRowNum} />
               </div>
 
+              {canImportWeekly && sheetNames.length > 1 && (
+                <div className="border border-slate-200 rounded-lg p-3 space-y-2">
+                  <p className="text-xs font-semibold text-slate-700">File tách miền thế nào?</p>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      ['single', 'Một bảng, cột tuần xen kẽ miền'],
+                      ['perSheet', `Mỗi miền một sheet (${regionCodes.join(' / ')})`]
+                    ].map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => switchRegionLayout(mode)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+                          regionLayout === mode ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {perSheet && (
+                    <div className="space-y-2 pt-1">
+                      <p className="text-[11px] text-slate-500">
+                        Sản lượng tháng của các miền sẽ được CỘNG lại (Bảng 0 không tách miền);
+                        cột tuần của mỗi sheet vào đúng miền của sheet đó. Giữ nguyên một lần nhập
+                        cho cả hai miền — nhập làm hai lượt thì lượt sau đè lượt trước.
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {regionCodes.map((code) => (
+                          <label key={code} className="block">
+                            <span className="text-[11px] font-semibold text-slate-600">Sheet của miền {code} *</span>
+                            <select
+                              value={regionSheetMap[code] || ''}
+                              onChange={(e) => pickRegionSheet(code, e.target.value)}
+                              className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-xs"
+                            >
+                              <option value="">— chọn sheet —</option>
+                              {sheetNames.map((n) => <option key={n} value={n}>{n}</option>)}
+                            </select>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <ColumnSelect label="Cột mã SKU *" value={skuColIdx} onChange={setSkuColIdx} options={colOptions} />
                 <ColumnSelect label="Cột tên sản phẩm (nếu có)" value={nameColIdx} onChange={setNameColIdx} options={colOptions} allowNone />
@@ -450,7 +616,58 @@ export default function ImportForecastModal({
                 )}
               </div>
 
-              {canImportWeekly && (
+              {canImportWeekly && perSheet && (
+                <div className="border-t border-slate-100 pt-3">
+                  <p className="text-xs font-semibold text-slate-700 mb-1">
+                    Cột bắt đầu cho dữ liệu tuần (áp cho {weekBaseMonthLabel}):
+                  </p>
+                  <p className="text-[11px] text-slate-500 mb-2">
+                    Trong bố cục này mỗi sheet chỉ chứa tuần của miền nó, nên {weekColumns.length} cột
+                    được lấy liên tiếp: Tuần 1, Tuần 2, ... Miền lấy theo sheet, không theo cột.
+                  </p>
+                  <ColumnSelect label="Cột Tuần 1" value={weekStartCol} onChange={setWeekStartCol} options={colOptions} allowNone />
+                  {weekStartCol !== NONE && (
+                    <p className="text-[11px] text-slate-500 mt-1">→ {sequentialColsPreview(weekStartCol, weekColumns.length)}</p>
+                  )}
+                </div>
+              )}
+
+              {regionCheck && (
+                <div className="border border-emerald-200 bg-emerald-50/60 rounded-lg p-3 space-y-2">
+                  <p className="text-xs font-semibold text-emerald-900">Đối chiếu trước khi ghi</p>
+                  {regionCheck.perRegion.map((r) => {
+                    const match = r.fromFile && JSON.stringify(r.computed) === JSON.stringify(r.fromFile);
+                    return (
+                      <div key={r.region} className="text-[11px] space-y-0.5">
+                        <div className="font-semibold text-slate-700">{r.region} — {r.sheet}</div>
+                        <div className="font-mono text-slate-600">app cộng: {r.computed.join(' · ')}</div>
+                        {r.fromFile ? (
+                          <div className={`font-mono ${match ? 'text-emerald-700' : 'text-rose-700 font-bold'}`}>
+                            dòng {r.totalsRowNum} của file: {r.fromFile.join(' · ')} {match ? '— khớp' : '— LỆCH, kiểm lại cột đã gán'}
+                          </div>
+                        ) : (
+                          <div className="text-slate-500">file không có dòng tổng để đối chiếu</div>
+                        )}
+                        {hasWeekMapping && (
+                          <div className={r.weekTotal === r.computed[0] ? 'text-slate-600' : 'text-amber-700 font-semibold'}>
+                            tổng tuần {r.weekTotal.toLocaleString('vi-VN')} / tháng gốc {r.computed[0].toLocaleString('vi-VN')}
+                            {r.weekTotal === r.computed[0] ? ' — khớp' : ' — lệch, Bảng 1 sẽ báo chưa khớp'}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {regionCheck.agg.duplicates.length > 0 && (
+                    <p className="text-[11px] text-slate-600">
+                      {regionCheck.agg.duplicates.length} mã nằm trên nhiều dòng trong cùng sheet — đã cộng lại:{' '}
+                      {regionCheck.agg.duplicates.slice(0, 6).map((d) => d.skuCode).join(', ')}
+                      {regionCheck.agg.duplicates.length > 6 ? '…' : ''}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {canImportWeekly && !perSheet && (
                 <div className="border-t border-slate-100 pt-3">
                   <p className="text-xs font-semibold text-slate-700 mb-1">
                     Cột bắt đầu cho dữ liệu tuần (áp cho {weekBaseMonthLabel}):
