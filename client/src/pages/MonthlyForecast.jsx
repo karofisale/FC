@@ -13,6 +13,14 @@ import { setDirty } from '../services/dirtyState';
 
 // Hai đơn vị có app nguồn để nhập thẳng. Các đơn vị khác vẫn nhập từ file như cũ.
 const SOURCE_BUS = ['OEM', 'XK'];
+
+// Phân loại cho các dòng tổng ở chân bảng. Lấy theo NHÓM SẢN PHẨM của chính
+// FC (danh mục ProductGroups), không suy từ tiền tố mã: nhóm là bảng phân loại
+// người dùng sửa được, còn tiền tố mã là quy ước ngầm dễ sai khi có mã mới.
+// SKU chưa gắn nhóm rơi vào "chưa phân loại" và ĐƯỢC HIỆN RIÊNG — nếu giấu đi
+// thì hai dòng máy/lõi cộng lại không bằng tổng mà không ai biết vì sao.
+const NHOM_MAY = ['NHOM_1', 'NHOM_2'];   // Máy TCM sx, Máy nhập khẩu
+const NHOM_LOI = ['NHOM_4'];             // Lõi
 import { useGridEditing, parsePastedNumber } from '../utils/useGridEditing';
 
 // Chỉ dựng DOM cho các dòng đang lọt vào khung nhìn — kênh XK có 756 SKU,
@@ -266,14 +274,49 @@ export default function MonthlyForecast({ currentBU, user }) {
   // Gộp tổng theo tháng và tổng chu kỳ vào một lượt duyệt. Bản cũ tính
   // getMonthTotal hai lần cho mỗi tháng (một lần cho grandTotal, một lần khi
   // vẽ hàng tổng), tức quét filteredProducts gấp đôi số cần thiết.
-  const { monthTotals, grandTotal } = useMemo(() => {
-    const per = {};
-    months.forEach((m) => { per[m] = 0; });
-    filteredProducts.forEach((p) => {
-      months.forEach((m) => { per[m] += forecastMap[`${p.sku_code}_${m}`] || 0; });
-    });
-    return { monthTotals: per, grandTotal: months.reduce((sum, m) => sum + per[m], 0) };
-  }, [filteredProducts, forecastMap, months]);
+  const { monthTotals, grandTotal, mayTotals, loiTotals, khacTotals, doanhThu, soSkuThieuGia, slThieuGia } =
+    useMemo(() => {
+      const per = {}, may = {}, loi = {}, khac = {}, dt = {};
+      months.forEach((m) => { per[m] = 0; may[m] = 0; loi[m] = 0; khac[m] = 0; dt[m] = 0; });
+
+      const thieuGia = new Set();
+      let slThieu = 0;
+
+      filteredProducts.forEach((p) => {
+        const nhom = String(p.product_group_code || '').trim();
+        const bucket = NHOM_MAY.includes(nhom) ? may : NHOM_LOI.includes(nhom) ? loi : khac;
+        // Mã chưa có giá thì doanh thu tính bằng 0 — cố ý, theo đúng yêu cầu.
+        // Nhưng đếm lại sản lượng của chúng để hiện chú thích, kẻo doanh thu
+        // hụt mà người đọc tưởng đó là con số đủ.
+        const gia = Number(p.avg_price) || 0;
+        months.forEach((m) => {
+          const q = forecastMap[`${p.sku_code}_${m}`] || 0;
+          if (!q) return;
+          per[m] += q;
+          bucket[m] += q;
+          if (gia > 0) dt[m] += q * gia;
+          else { thieuGia.add(p.sku_code); slThieu += q; }
+        });
+      });
+
+      return {
+        monthTotals: per,
+        grandTotal: months.reduce((sum, m) => sum + per[m], 0),
+        mayTotals: may,
+        loiTotals: loi,
+        khacTotals: khac,
+        doanhThu: dt,
+        soSkuThieuGia: thieuGia.size,
+        slThieuGia: slThieu
+      };
+    }, [filteredProducts, forecastMap, months]);
+
+  const coHangChuaPhanLoai = months.some((m) => (khacTotals[m] || 0) > 0);
+  const tongMay = months.reduce((s, m) => s + (mayTotals[m] || 0), 0);
+  const tongLoi = months.reduce((s, m) => s + (loiTotals[m] || 0), 0);
+  const tongKhac = months.reduce((s, m) => s + (khacTotals[m] || 0), 0);
+  const tongDoanhThu = months.reduce((s, m) => s + (doanhThu[m] || 0), 0);
+  const tyVnd = (v) => (v / 1e9).toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const scrollParentRef = useRef(null);
   const rowVirtualizer = useVirtualizer({
@@ -604,6 +647,65 @@ export default function MonthlyForecast({ currentBU, user }) {
                 ))}
                 <td className="py-3 px-3 text-right font-mono text-cyan-900 font-black text-sm bg-cyan-100/50">
                   {grandTotal.toLocaleString('vi-VN')}
+                </td>
+              </tr>
+
+              <tr className="text-xs font-semibold text-slate-600 border-t border-slate-300">
+                <td colSpan="3" className="py-1.5 px-3 text-right">SL máy (chiếc):</td>
+                {months.map((m) => (
+                  <td key={m} className="py-1.5 px-3 text-right font-mono">
+                    {(mayTotals[m] || 0).toLocaleString('vi-VN')}
+                  </td>
+                ))}
+                <td className="py-1.5 px-3 text-right font-mono bg-cyan-100/40">
+                  {tongMay.toLocaleString('vi-VN')}
+                </td>
+              </tr>
+
+              <tr className="text-xs font-semibold text-slate-600">
+                <td colSpan="3" className="py-1.5 px-3 text-right">SL lõi (chiếc):</td>
+                {months.map((m) => (
+                  <td key={m} className="py-1.5 px-3 text-right font-mono">
+                    {(loiTotals[m] || 0).toLocaleString('vi-VN')}
+                  </td>
+                ))}
+                <td className="py-1.5 px-3 text-right font-mono bg-cyan-100/40">
+                  {tongLoi.toLocaleString('vi-VN')}
+                </td>
+              </tr>
+
+              {coHangChuaPhanLoai && (
+                <tr className="text-xs font-semibold text-amber-700 bg-amber-50/70">
+                  <td colSpan="3" className="py-1.5 px-3 text-right">
+                    Chưa phân loại nhóm:
+                  </td>
+                  {months.map((m) => (
+                    <td key={m} className="py-1.5 px-3 text-right font-mono">
+                      {(khacTotals[m] || 0).toLocaleString('vi-VN')}
+                    </td>
+                  ))}
+                  <td className="py-1.5 px-3 text-right font-mono bg-amber-100/60">
+                    {tongKhac.toLocaleString('vi-VN')}
+                  </td>
+                </tr>
+              )}
+
+              <tr className="text-xs font-bold text-emerald-800 border-t border-slate-300 bg-emerald-50/60">
+                <td colSpan="3" className="py-2 px-3 text-right">
+                  Doanh thu (tỷ VNĐ):
+                  {soSkuThieuGia > 0 && (
+                    <span className="ml-2 font-normal text-[11px] text-amber-700">
+                      {soSkuThieuGia} mã chưa có giá — {slThieuGia.toLocaleString('vi-VN')} chiếc tính 0
+                    </span>
+                  )}
+                </td>
+                {months.map((m) => (
+                  <td key={m} className="py-2 px-3 text-right font-mono">
+                    {tyVnd(doanhThu[m] || 0)}
+                  </td>
+                ))}
+                <td className="py-2 px-3 text-right font-mono bg-emerald-100/70">
+                  {tyVnd(tongDoanhThu)}
                 </td>
               </tr>
             </tfoot>
