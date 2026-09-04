@@ -82,8 +82,57 @@ export function sharedSessionForFC() {
   };
 }
 
-/** Đưa người dùng về cổng VHKD để đăng nhập, ghi nhớ trang đang mở. */
-export function goToPortal() {
+const BOUNCE_KEY = 'karofi.bounced';
+const PORTAL_HOST = 'karofisale.github.io';
+
+/**
+ * Chưa đăng nhập thì đưa thẳng về cổng VHKD thay vì hiện form riêng của FC,
+ * nhớ trang đang mở để đăng nhập xong quay lại đúng chỗ.
+ * Trả về true khi đã bắt đầu chuyển trang — người gọi đừng dựng giao diện nữa.
+ *
+ * Hai lối thoát, cả hai đều cần vì cổng chung là điểm chết duy nhất: Karofi ID
+ * hỏng là cả ba app cùng khoá.
+ *   ?direct=1   người dùng cố ý xin form đăng nhập riêng của FC. Link này nằm
+ *               ở cổng và chỉ hiện cho người vừa bị đá về, nên không ai vô
+ *               tình đi đường vòng.
+ *   cờ bounced  lượt trước đã đá về cổng mà vẫn quay lại tay không (bấm nút
+ *               back, hoặc cổng không cấp được phiên) -> hiện form riêng thay
+ *               vì đá tiếp. Không có cờ này thì hai trang đá qua đá lại.
+ */
+export function bounceToPortal() {
+  // Chỉ đá về cổng khi đang ở đúng origin của cổng. Phiên dùng chung nằm trong
+  // localStorage của origin đó, nên ở nơi khác — máy chủ phát triển localhost,
+  // hay bản chạy thẳng từ URL /exec của Apps Script — đăng nhập một lần vốn
+  // không hoạt động, mà '/VHKD/' lại là một đường dẫn không tồn tại.
+  if (location.hostname !== PORTAL_HOST) return false;
+
+  if (new URLSearchParams(location.search).get('direct') === '1') return false;
+
+  try {
+    if (sessionStorage.getItem(BOUNCE_KEY) === '1') {
+      sessionStorage.removeItem(BOUNCE_KEY);
+      return false;
+    }
+    sessionStorage.setItem(BOUNCE_KEY, '1');
+  } catch {
+    // sessionStorage bị chặn: mất cờ chống lặp, nhưng ?direct=1 vẫn là lối ra
+  }
+
   const next = encodeURIComponent(location.pathname + location.search);
-  location.href = `/VHKD/?next=${next}`;
+  // replace chứ không phải href: trang này chưa hiện gì, để lại trong lịch sử
+  // thì bấm back từ cổng sẽ rơi vào đúng nó rồi bị đá về cổng lần nữa.
+  location.replace(`/VHKD/?next=${next}`);
+  return true;
+}
+
+/**
+ * Vào được rồi thì xoá cờ. Không xoá thì lần sau hết hạn phiên ngay trong tab
+ * này, app sẽ hiện form riêng thay vì đá về cổng như thiết kế.
+ */
+export function clearBounceFlag() {
+  try {
+    sessionStorage.removeItem(BOUNCE_KEY);
+  } catch {
+    // không có gì phải xoá
+  }
 }
