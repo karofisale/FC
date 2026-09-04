@@ -3,9 +3,12 @@ import { Building2, ShieldCheck, LogOut, KeyRound, X, Loader2, CheckCircle2, Ale
 import { api } from '../services/api';
 import { ROLE_LABELS } from '../services/auth';
 import KarofiMark from './KarofiMark';
+import { appKhacDungDuoc } from '../services/karofiSession';
 
 export default function Header({ user, currentBU, setCurrentBU, bus, onLogout }) {
   const [showPinDialog, setShowPinDialog] = useState(false);
+  // Đọc một lần khi dựng: khối quyền nằm trong token, không đổi giữa các lần vẽ.
+  const [appKhac] = useState(() => appKhacDungDuoc('FC'));
 
   return (
     <header className="bg-gradient-to-r from-blue-900 via-blue-800 to-blue-950 text-white shadow-md border-b border-blue-700 sticky top-0 z-30">
@@ -23,6 +26,19 @@ export default function Header({ user, currentBU, setCurrentBU, bus, onLogout })
             <ArrowLeft className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Portal</span>
           </a>
+          {/* Chuyển sang app khác mà người này được vào, không phải đi vòng qua
+              cổng. Chỉ hiện khi đang dùng phiên chung — đăng nhập riêng bằng
+              ?direct=1 thì không có khối quyền nên mảng rỗng và không hiện gì. */}
+          {appKhac.map(a => (
+            <a
+              key={a.key}
+              href={a.href}
+              title={'Sang ' + a.ten}
+              className="text-xs text-blue-200 hover:text-white whitespace-nowrap border border-blue-600/40 rounded-lg px-2 py-1.5 hidden md:inline-block"
+            >
+              {a.nhan}
+            </a>
+          ))}
           <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-inner">
             <KarofiMark className="w-6 h-6 text-blue-300" />
           </div>

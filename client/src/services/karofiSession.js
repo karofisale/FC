@@ -136,3 +136,34 @@ export function clearBounceFlag() {
     // không có gì phải xoá
   }
 }
+
+/**
+ * Các app khác mà người này ĐƯỢC VÀO — để dựng đường chuyển app ngay trong app.
+ *
+ * Vì sao cần: đã đăng nhập chung rồi mà muốn từ app này sang app khác vẫn phải
+ * về cổng, tìm thẻ, bấm. Mà token đã ghi sẵn người này được vào app nào (khối
+ * `ap`), nên thông tin để dựng đường tắt vốn đã có trong trình duyệt.
+ *
+ * Trả về mảng RỖNG khi đang dùng phiên riêng của app (đăng nhập qua ?direct=1):
+ * lúc đó không có token dùng chung nên KHÔNG BIẾT người này có quyền vào đâu, và
+ * đoán bừa là dẫn người ta tới một app rồi bị đá về cổng. Không có gì để hiện
+ * thì chỉ còn link "Portal" như trước.
+ *
+ * Danh sách này trùng với APPS trong cổng VHKD (index.html). Thêm app mới thì
+ * phải sửa cả hai chỗ — chưa gom được vì mỗi app giữ một bản sao lớp phiên
+ * riêng, xem ghi chú đầu file.
+ */
+const CAC_APP_ = [
+  { key: 'FC', ten: 'Sale Forecast', nhan: 'Forecast', href: '/FC/' },
+  { key: 'OEM', ten: 'OEM Portal', nhan: 'OEM', href: '/OEM/' },
+  { key: 'EXPORT', ten: 'Export Hub', nhan: 'Xuất khẩu', href: '/export/pi-app.html' }
+];
+
+export function appKhacDungDuoc(appHienTai) {
+  const s = readSharedSession();
+  if (!s) return [];
+  const payload = decodeToken(s.token);
+  const ap = payload && payload.ap;
+  if (!ap) return [];
+  return CAC_APP_.filter(a => a.key !== appHienTai && ap[a.key]);
+}
