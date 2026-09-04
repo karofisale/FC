@@ -1,24 +1,47 @@
 @import "tailwindcss";
 
-/* Ghi đè thang màu "blue" mặc định của Tailwind bằng màu xanh thương hiệu
- * Karofi chính xác #41B6E6 (đặt ở bậc 500, đúng mã) — vì "blue-*" đang
- * được dùng làm màu hành động chính xuyên suốt toàn app (nút, link, viền
- * focus, thanh header, mục menu đang chọn...), ghi đè ở đây là đủ để
- * đồng bộ nhận diện thương hiệu khắp app mà không phải sửa từng file.
- * Các bậc còn lại nội suy cùng tông (H197° S77%) để bậc 600 (dùng cho nút
- * có chữ trắng) đủ đậm hơn, dễ đọc hơn màu logo gốc vốn khá sáng. */
+/* Thang màu "blue" của Tailwind = màu thương hiệu Karofi.
+ *
+ * "blue-*" đang được dùng làm màu hành động chính khắp app (nút, link, viền
+ * focus, thanh header, mục menu đang chọn), nên ghi đè ở đây là đủ để đồng bộ
+ * nhận diện mà không phải sửa từng file.
+ *
+ * 2026-09-04 — đổi từ #41B6E6 sang #00A0E9 vì hai lý do:
+ *
+ * 1. THỐNG NHẤT. Cổng VHKD và app OEM dùng #00A0E9 + navy #004E89; FC dùng
+ *    #41B6E6; Export dùng #18AEDE. Ba màu xanh "thương hiệu" khác nhau trên
+ *    bốn bề mặt cùng một hệ. Chốt theo cặp của cổng vì nó có sẵn navy đi kèm
+ *    cho chữ trên nền trắng.
+ *
+ * 2. ĐỘ TƯƠNG PHẢN. Bậc 600 cũ (#1CA0D4) dùng làm nền nút chữ trắng chỉ đạt
+ *    2,99:1 — dưới cả ngưỡng 3,0 dành cho chữ to, chứ chưa nói 4,5 của chữ
+ *    thường. Bậc 600 mới #007CB8 đạt 4,59:1, qua AA cho chữ thường. Bậc 500
+ *    giữ đúng mã logo #00A0E9 và chỉ dùng cho mảng màu/viền, không đặt chữ
+ *    trắng lên nó (2,91:1).
+ *
+ * Bậc 900 giữ đúng navy thương hiệu #004E89 (8,57:1 trên nền trắng), các bậc
+ * còn lại nội suy giữa hai mốc đó. */
 @theme {
-  --color-blue-50: #edf8fd;
-  --color-blue-100: #d6f0fa;
-  --color-blue-200: #b2e2f5;
-  --color-blue-300: #81cfef;
-  --color-blue-400: #61c4ea;
-  --color-blue-500: #41b6e6;
-  --color-blue-600: #1ca0d4;
-  --color-blue-700: #1681ac;
-  --color-blue-800: #126687;
-  --color-blue-900: #125068;
-  --color-blue-950: #0d313f;
+  --color-blue-50: #e8f6fe;
+  --color-blue-100: #ccebfc;
+  --color-blue-200: #9bd8f8;
+  --color-blue-300: #62c2f3;
+  --color-blue-400: #26aeee;
+  --color-blue-500: #00a0e9;
+  --color-blue-600: #007cb8;
+  --color-blue-700: #00679e;
+  --color-blue-800: #005a93;
+  --color-blue-900: #004e89;
+  --color-blue-950: #003558;
+
+  /* Cùng bộ chữ với cổng VHKD và OEM. Trước đây FC không nạp webfont nào nên
+     mỗi máy hiện một phông hệ thống khác nhau — đi từ cổng sang FC là đổi cả
+     màu lẫn dáng chữ. Vẫn khai đủ dãy dự phòng: font chưa tải xong hoặc mạng
+     chặn fonts.googleapis.com thì rơi về phông hệ thống, không rơi về serif. */
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
+    "Liberation Mono", monospace;
 }
 
 @layer base {
