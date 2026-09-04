@@ -1,10 +1,10 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { api } from '../services/api';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell 
 } from 'recharts';
 import { Package, TrendingUp, Layers, AlertCircle } from 'lucide-react';
-import { monthsOfCycle, monthLabel } from '../utils/period';
+import { monthsOfCycle, monthLabel, normalizeMonth } from '../utils/period';
 
 const COLORS = ['#0284c7', '#0d9488', '#f59e0b', '#8b5cf6', '#ec4899', '#64748b'];
 
@@ -38,7 +38,58 @@ export default function Dashboard({ currentBU }) {
     if (currentBU) loadData();
   }, [currentBU, loadData]);
 
-  const cycleMonths = monthsOfCycle(cycle);
+  // Memo hoá: monthsOfCycle trả mảng mới mỗi lần render, mà bảng pivot bên dưới
+  // phụ thuộc vào nó — không memo thì pivot tính lại sau mọi lần render.
+  const cycleMonths = useMemo(() => monthsOfCycle(cycle), [cycle]);
+
+  /**
+   * B0.SUM dạng pivot: mỗi dòng là một (đơn vị × nhóm hàng), mỗi tháng một cột.
+   *
+   * Cột tháng lấy theo khung chu kỳ, nhưng tháng nào CÓ SỐ mà nằm ngoài khung
+   * vẫn được thêm vào cuối — bảng cũ liệt kê mọi dòng nên bản pivot cũng không
+   * được làm biến mất sản lượng nào mà không ai thấy.
+   */
+  const { monthCols, pivotRows, monthTotals, grandQty } = useMemo(() => {
+    const cols = [...cycleMonths];
+    b0Summary.forEach((it) => {
+      const m = normalizeMonth(it.forecast_month);
+      if (m && !cols.includes(m)) cols.push(m);
+    });
+    cols.sort();
+
+    const map = new Map();
+    const totals = {};
+    let grand = 0;
+
+    b0Summary.forEach((it) => {
+      const m = normalizeMonth(it.forecast_month);
+      const key = `${it.business_unit_code}|${it.product_group_code}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          bu: it.business_unit_code,
+          buName: it.business_unit_name,
+          group: it.product_group_name || it.product_group_code,
+          qty: {},
+          total: 0
+        });
+      }
+      const row = map.get(key);
+      const q = Number(it.total_quantity) || 0;
+      row.qty[m] = (row.qty[m] || 0) + q;
+      row.total += q;
+
+      if (!totals[m]) totals[m] = { qty: 0, revenue: 0 };
+      totals[m].qty += q;
+      totals[m].revenue += Number(it.total_revenue) || 0;
+      grand += q;
+    });
+
+    const rows = [...map.values()].sort(
+      (a, b) => String(a.bu).localeCompare(String(b.bu)) || String(a.group).localeCompare(String(b.group))
+    );
+    return { monthCols: cols, pivotRows: rows, monthTotals: totals, grandQty: grand };
+  }, [b0Summary, cycleMonths]);
 
   // Group by BU for chart
   const buTotals = b0Summary.reduce((acc, item) => {
@@ -142,7 +193,11 @@ export default function Dashboard({ currentBU }) {
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
           <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center justify-between">
             <span>SẢN LƯỢNG KẾ HOẠCH THEO ĐƠN VỊ KINH DOANH</span>
-            <span className="text-xs text-slate-400 font-normal">Bảng 0.SUM (T7-T10/2026)</span>
+            <span className="text-xs text-slate-400 font-normal">
+              {cycleMonths.length
+                ? `Bảng 0.SUM (${monthLabel(cycleMonths[0])} → ${monthLabel(cycleMonths[cycleMonths.length - 1])})`
+                : 'Bảng 0.SUM'}
+            </span>
           </h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -192,39 +247,82 @@ export default function Dashboard({ currentBU }) {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <h3 className="text-sm font-bold text-slate-900">BẢNG TỔNG HỢP FORECAST (B0.SUM - SẢN LƯỢNG THEO ĐƠN VỊ & NHÓM HÀNG)</h3>
-          <span className="text-xs font-medium text-slate-500">Chu kỳ Tháng 07/2026</span>
+          <span className="text-xs font-medium text-slate-500">
+            {cycle
+              ? `Chu kỳ ${monthLabel(cycle.base_month)}${cycleMonths.length > 1 ? ` — ${cycleMonths.length} tháng` : ''}`
+              : `Chưa có chu kỳ cho ${currentBU}`}
+          </span>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-100 text-slate-700 font-bold uppercase tracking-wider border-b border-slate-200">
+            <thead className="bg-slate-100 text-slate-700 border-b border-slate-200">
               <tr>
-                <th className="py-3 px-4">Đơn vị kinh doanh</th>
-                <th className="py-3 px-4">Nhóm sản phẩm</th>
-                <th className="py-3 px-4 text-right">Tháng dự báo</th>
-                <th className="py-3 px-4 text-right">Sản lượng (Chiếc)</th>
-                <th className="py-3 px-4 text-right">Doanh thu dự kiến (VNĐ)</th>
+                <th rowSpan={2} className="py-2 px-4 font-bold uppercase tracking-wider align-bottom">Đơn vị kinh doanh</th>
+                <th rowSpan={2} className="py-2 px-4 font-bold uppercase tracking-wider align-bottom">Nhóm sản phẩm</th>
+                {monthCols.map((m) => (
+                  <th key={m} className="py-2 px-4 text-right font-bold uppercase tracking-wider">{monthLabel(m)}</th>
+                ))}
+                <th rowSpan={2} className="py-2 px-4 text-right font-bold uppercase tracking-wider align-bottom">Tổng</th>
+              </tr>
+              {/* Doanh thu chỉ hiện MỘT số tổng cho mỗi tháng ở đầu cột, không tách theo nhóm */}
+              <tr className="border-b border-slate-200">
+                {monthCols.map((m) => (
+                  <th key={m} className="pb-2 px-4 text-right font-normal text-[11px] text-slate-500 font-mono">
+                    {(monthTotals[m]?.revenue || 0).toLocaleString('vi-VN')} đ
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {b0Summary.length === 0 ? (
+              {pivotRows.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="py-6 text-center text-slate-400">Chưa có dữ liệu tổng hợp forecast cho chu kỳ này</td>
+                  <td colSpan={monthCols.length + 3} className="py-6 text-center text-slate-400">
+                    Chưa có dữ liệu tổng hợp forecast cho chu kỳ này
+                  </td>
                 </tr>
               ) : (
-                b0Summary.map((item, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50 font-mono">
-                    <td className="py-2.5 px-4 font-sans font-semibold text-blue-900">{item.business_unit_code} - {item.business_unit_name}</td>
-                    <td className="py-2.5 px-4 font-sans text-slate-800">{item.product_group_name}</td>
-                    <td className="py-2.5 px-4 text-right text-slate-600">{item.forecast_month}</td>
-                    <td className="py-2.5 px-4 text-right font-bold text-slate-900">{item.total_quantity.toLocaleString('vi-VN')}</td>
-                    <td className="py-2.5 px-4 text-right text-slate-600">{(item.total_revenue || 0).toLocaleString('vi-VN')}</td>
+                pivotRows.map((row) => (
+                  <tr key={row.key} className="hover:bg-slate-50 font-mono">
+                    <td className="py-2.5 px-4 font-sans font-semibold text-blue-900">
+                      {row.bu}{row.buName && row.buName !== row.bu ? ` - ${row.buName}` : ''}
+                    </td>
+                    <td className="py-2.5 px-4 font-sans text-slate-800">{row.group}</td>
+                    {monthCols.map((m) => (
+                      <td key={m} className="py-2.5 px-4 text-right text-slate-700">
+                        {(row.qty[m] || 0).toLocaleString('vi-VN')}
+                      </td>
+                    ))}
+                    <td className="py-2.5 px-4 text-right font-bold text-slate-900">
+                      {row.total.toLocaleString('vi-VN')}
+                    </td>
                   </tr>
                 ))
               )}
             </tbody>
+            {pivotRows.length > 0 && (
+              <tfoot className="bg-slate-50 border-t-2 border-slate-300 font-mono">
+                <tr>
+                  <td colSpan={2} className="py-2.5 px-4 font-sans font-bold text-slate-800 uppercase text-[11px] tracking-wider">
+                    Tổng cộng
+                  </td>
+                  {monthCols.map((m) => (
+                    <td key={m} className="py-2.5 px-4 text-right font-bold text-slate-900">
+                      {(monthTotals[m]?.qty || 0).toLocaleString('vi-VN')}
+                    </td>
+                  ))}
+                  <td className="py-2.5 px-4 text-right font-bold text-blue-800">
+                    {grandQty.toLocaleString('vi-VN')}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
+
+        <p className="px-6 py-2 text-[11px] text-slate-400 border-t border-slate-100">
+          Số trong ô là sản lượng (chiếc). Dòng nhạt dưới tên tháng là doanh thu dự kiến của cả tháng (VNĐ).
+        </p>
       </div>
 
     </div>
