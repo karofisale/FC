@@ -71,29 +71,44 @@ function adminReportUserIds() {
   out.push('Tab Users: ' + users.rows.length + ' mã.');
   out.push('');
 
-  var laVanDe = [];
+  // Tách hai loại rất khác nhau. AuthLog ghi CẢ những lượt đăng nhập hỏng,
+  // nên mã chỉ xuất hiện ở đó phần lớn là tên gõ sai hoặc tên thử nghiệm —
+  // không phải danh tính đang giữ dữ liệu. Gộp chung hai loại là đẩy người
+  // đọc đi sửa nhầm chỗ.
+  var lacCoDuLieu = [];
+  var chiTrongNhatKy = [];
 
   ma.forEach(function (m) {
     var co = !!biet[m.toLowerCase()];
     var tong = tongDem_(dem[m]);
-    var chiTiet = Object.keys(dem[m]).map(function (k) {
-      return k + '=' + dem[m][k];
-    }).join(', ');
-    out.push((co ? '  ' : '! ') + m + '  (' + tong + ' dòng)  ' + chiTiet);
-    if (!co) laVanDe.push(m);
+    var cot = Object.keys(dem[m]);
+    var chiTiet = cot.map(function (k) { return k + '=' + dem[m][k]; }).join(', ');
+    var chiNhatKy = cot.length === 1 && cot[0] === SHEETS.AUDIT + '.user_id';
+
+    out.push((co ? '  ' : (chiNhatKy ? '~ ' : '! ')) + m +
+             '  (' + tong + ' dòng)  ' + chiTiet);
+    if (!co) (chiNhatKy ? chiTrongNhatKy : lacCoDuLieu).push(m);
   });
 
   if (!ma.length) out.push('  (chưa có dòng nào ghi mã người dùng)');
 
   out.push('');
-  if (laVanDe.length) {
-    out.push('DẤU ! — ' + laVanDe.length + ' mã có trong dữ liệu nhưng KHÔNG có trong tab Users:');
-    out.push('  ' + laVanDe.join(', '));
-    out.push('Đây thường là mã do cổng VHKD cấp (cột fc_name bên Karofi ID).');
+  if (lacCoDuLieu.length) {
+    out.push('DẤU ! — ' + lacCoDuLieu.length + ' mã ĐANG GIỮ DỮ LIỆU nhưng không có trong tab Users:');
+    out.push('  ' + lacCoDuLieu.join(', '));
+    out.push('Thường là mã do cổng VHKD cấp (cột fc_name bên Karofi ID) lệch với tab Users.');
     out.push('Sửa cho hai bên trùng nhau, và giữ ĐÚNG mã đã có lịch sử ở trên —');
     out.push('đổi mã đã có lịch sử là bỏ rơi số dòng ghi cạnh nó.');
   } else {
-    out.push('Mọi mã trong dữ liệu đều có trong tab Users. Không có danh tính lạc.');
+    out.push('Không mã lạ nào đang giữ dữ liệu nghiệp vụ.');
+  }
+
+  if (chiTrongNhatKy.length) {
+    out.push('');
+    out.push('DẤU ~ — ' + chiTrongNhatKy.length + ' mã CHỈ có trong AuthLog, không giữ dòng dữ liệu nào:');
+    out.push('  ' + chiTrongNhatKy.join(', '));
+    out.push('AuthLog ghi cả lượt đăng nhập hỏng, nên đây thường là tên gõ sai hoặc');
+    out.push('tên thử nghiệm. Không phải danh tính cần sửa.');
   }
 
   if (loi.length) {
