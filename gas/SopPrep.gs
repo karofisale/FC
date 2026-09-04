@@ -16,6 +16,12 @@ var PREP_OEM_SHEET_ID = '1lSeQyfHmd-H0s7Qu7n9b8LAJ3Deap9hHFLEKf6F0Cnk';
 var PREP_OPS2026_ID   = '1fDUB6oqyMisV4NxId4JyGhmizgucit8zOdI38fBRZHA';
 var PREP_HUB_ID       = '16kDRbTffeSFSxwAZPCCpXGODUByEquCchnkqs1kyFrc';
 
+/** Mã hàng LUÔN ép chuỗi: getValues() trả mã toàn chữ số (1001050029) dạng
+ *  number, so number với chuỗi thì không mã nào khớp và báo cáo sẽ nói dối. */
+function sopMa_(v) {
+  return String(v === null || v === undefined ? '' : v).trim();
+}
+
 /**
  * Mã hàng chuẩn của Karofi là chuỗi TOÀN CHỮ SỐ (1001050029, 2005010286).
  * Ô mã trong nguồn thỉnh thoảng bị ghi chú lọt vào: "NewRO1", "Spare1",
