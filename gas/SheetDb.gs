@@ -141,7 +141,29 @@ function prefetchSheets_(names) {
   names.forEach(function (name) { getOrCreateSheet_(name); }); // đảm bảo tồn tại, tra cứu local sau openById
 
   try {
-    var response = Sheets.Spreadsheets.Values.batchGet(SPREADSHEET_ID, { ranges: names });
+    // valueRenderOption BẮT BUỘC phải là UNFORMATTED_VALUE.
+    //
+    // Mặc định của Sheets API là FORMATTED_VALUE — trả về CHUỖI ĐÃ ĐỊNH DẠNG
+    // THEO LOCALE của bảng tính. File này đặt ngôn ngữ Tiếng Việt, nên giá
+    // 3156787 về thành "3.156.787", và Number("3.156.787") là NaN. Mọi chỗ
+    // viết `Number(x) || 0` biến nó thành 0 — âm thầm, không lỗi nào.
+    //
+    // Hậu quả đã đo: doanh thu dự báo của OEM hiện 0,3 tỷ/tháng thay vì 8,9 tỷ,
+    // và 193/198 mã bị coi là "chưa có giá". Đúng 5 mã còn giá là 5 mã dưới
+    // 1.000 đồng — số không có dấu phân cách nên Number() vẫn đọc được.
+    //
+    // Lỗi này CHỈ xuất hiện trên đường /exec. Hàm chạy tay trong trình soạn
+    // thảo đi qua readTable_ -> getDataRange().getValues(), vốn trả số thật,
+    // nên mọi báo cáo chẩn đoán đều thấy dữ liệu đúng và không lộ ra gì.
+    //
+    // dateTimeRenderOption SERIAL_NUMBER là hệ quả bắt buộc: với
+    // UNFORMATTED_VALUE thì ngày về dạng số serial của Sheets. normalizeMonth_
+    // đã được dạy cách đọc số đó — đừng đổi cái này mà không sửa hàm kia.
+    var response = Sheets.Spreadsheets.Values.batchGet(SPREADSHEET_ID, {
+      ranges: names,
+      valueRenderOption: 'UNFORMATTED_VALUE',
+      dateTimeRenderOption: 'SERIAL_NUMBER'
+    });
     var valueRanges = response.valueRanges || [];
 
     names.forEach(function (name, i) {

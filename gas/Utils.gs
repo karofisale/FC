@@ -31,6 +31,26 @@ function normalizeMonth_(value) {
   if (value instanceof Date) {
     return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM') + '-01';
   }
+
+  if (typeof value === 'number') {
+    // SỐ SERIAL của Sheets. prefetchSheets_ đọc bằng Sheets API với
+    // dateTimeRenderOption SERIAL_NUMBER (xem chú thích ở đó), nên một ô ngày
+    // thật về đây dưới dạng số ngày kể từ 1899-12-30 — không phải Date, không
+    // phải chuỗi. Không xử lý là mọi phép so tháng đều trượt.
+    //
+    // Khoảng 20000-80000 xấp xỉ 1954-2119.
+    if (isFinite(value) && value > 20000 && value < 80000) {
+      // 25569 = số serial của 1970-01-01, mốc của Date trong JS.
+      var ds = new Date(Math.round((value - 25569) * 86400000));
+      return Utilities.formatDate(ds, Session.getScriptTimeZone(), 'yyyy-MM') + '-01';
+    }
+    // Số nằm ngoài khoảng đó thì TRẢ VỀ NGUYÊN DẠNG CHUỖI, không đoán tiếp.
+    // Nếu để rơi xuống nhánh new Date() bên dưới thì `4` thành '2001-04-01' và
+    // `2026` thành '2026-01-01' — JS đọc chuỗi số theo luật riêng của nó. Đây
+    // là hành vi cũ, chưa ai chạm phải vì không nơi nào truyền số thường vào
+    // đây, nhưng đúng loại bẫy im lặng mà cả đợt sửa này sinh ra để dẹp.
+    return String(value);
+  }
   var s = String(value).trim();
   var m = s.match(/^(\d{4})-(\d{1,2})/);
   if (m) return m[1] + '-' + ('0' + m[2]).slice(-2) + '-01';
