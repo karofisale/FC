@@ -28,6 +28,25 @@ cd "D:/Antigravity/FC App/gas" && clasp push -f && clasp redeploy AKfycbyyzw_uTd
 
 Số `@n` tăng lên là bằng chứng bản mới đã tới người dùng.
 
+## Chạy tay: chỉ mở Run.gs
+
+**Mọi thao tác chạy tay nằm ở `gas/Run.gs`, tất cả đều KHÔNG THAM SỐ.** Mở file
+đó, chọn tên hàm trong danh sách trên thanh công cụ, bấm Run. Không phải đi tìm
+hàm ở file nào, không phải gõ tham số.
+
+Lý do: nút Run của Apps Script **không truyền được tham số**. Hàm cần tham số
+thì bấm Run là báo lỗi — và mỗi lần dùng lại phải tra xem gõ gì vào đâu.
+
+Hai khuôn, dùng đúng một cách:
+
+- **Việc có ghi dữ liệu** -> hai hàm riêng `run_<việc>_xemTruoc()` và
+  `run_<việc>_ghiThat()`, **không phải một cờ `true`/`false`**. Tách đôi vì một
+  cờ để quên ở trạng thái bật là ghi đè dữ liệu ngoài ý muốn.
+- **Việc cần giá trị** -> hằng số VIẾT HOA ngay dòng đầu thân hàm.
+
+**Thêm việc mới:** viết hàm nghiệp vụ ở file của nó như bình thường, rồi thêm
+một vỏ bọc `run_*` không tham số vào `Run.gs`. Đừng bắt người dùng gõ tham số.
+
 ## Những chỗ đã trả giá để biết
 
 **Nút Run trong trình soạn thảo Apps Script không truyền tham số.** Hàm cần

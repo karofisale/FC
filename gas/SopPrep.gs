@@ -297,34 +297,6 @@ function adminAddMissingSkus(tuThang, apply) {
   return them.length;
 }
 
-/**
- * Bấm Run hàm này để GHI THẬT cả hai bước dọn danh mục.
- *
- * Nút Run trong editor không truyền được tham số, nên đây là chỗ đặt tham số.
- * Sửa THANG_BAT_DAU nếu muốn phạm vi khác rồi bấm Run.
- *
- * Thứ tự cố ý: thêm SKU thiếu TRƯỚC, để trống kênh SAU — vì mã vừa thêm cũng
- * có thể thuộc nhóm dùng chung, chạy ngược thứ tự là bỏ sót chúng.
- *
- * Muốn xem trước mà không ghi: bấm Run adminReportSharedSkus() hoặc
- * adminAddMissingSkus() — cả hai đều chỉ đọc.
- */
-function run_donDanhMuc() {
-  var THANG_BAT_DAU = '2026-09';
-
-  Logger.log('=== GHI THẬT — không phải chạy thử ===');
-  Logger.log('Phạm vi thêm SKU: dữ liệu từ ' + THANG_BAT_DAU + ' trở đi');
-  Logger.log('');
-
-  Logger.log('--- Bước 1: thêm SKU FC chưa có ---');
-  var them = adminAddMissingSkus(THANG_BAT_DAU, true);
-
-  Logger.log('');
-  Logger.log('--- Bước 2: để trống kênh cho SKU dùng chung ---');
-  var xoa = adminClearChannelForShared(true);
-
-  Logger.log('');
-  Logger.log('=== XONG: thêm ' + them + ' SKU · để trống kênh ' + xoa + ' mã ===');
-  Logger.log('Việc còn lại của người: điền nhóm sản phẩm và giá bình quân cho SKU mới.');
-  return { themSku: them, xoaKenh: xoa };
-}
+/* run_donDanhMuc() đã chuyển sang Run.gs thành run_danhMuc_ghiThat().
+ * Mọi thao tác chạy tay của FC nằm ở Run.gs — một chỗ, không tham số, để không
+ * phải đi tìm xem hàm nào cần gõ gì. */

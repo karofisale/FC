@@ -1,0 +1,148 @@
+/**
+ * Run.gs — BẢNG ĐIỀU KHIỂN. Mọi thao tác chạy tay của FC nằm ở đây.
+ *
+ * VÌ SAO CÓ FILE NÀY: nút Run trong trình soạn thảo Apps Script **không truyền
+ * được tham số**. Hàm nào cần tham số thì bấm Run sẽ báo lỗi, và mỗi lần dùng
+ * lại phải đi tra xem gõ gì vào đâu. Nên mọi việc ở đây đều là hàm KHÔNG THAM
+ * SỐ: mở file này, chọn tên hàm trong danh sách trên thanh công cụ, bấm Run.
+ *
+ * HAI KHUÔN, dùng đúng một cách:
+ *
+ *   Việc có ghi dữ liệu  ->  hai hàm riêng, KHÔNG phải một cờ true/false:
+ *                            run_<việc>_xemTruoc()   chỉ đọc
+ *                            run_<việc>_ghiThat()    ghi thật
+ *      Tách đôi vì một cờ để quên ở trạng thái bật là ghi đè dữ liệu ngoài ý
+ *      muốn — mà đó đúng là thứ không được phép xảy ra ở đây.
+ *
+ *   Việc cần giá trị     ->  hằng số VIẾT HOA ngay dòng đầu thân hàm, sửa rồi
+ *                            bấm Run. Không phải đi tìm ở file khác.
+ *
+ * Quy ước đặt tên: mọi hàm bắt đầu bằng `run_` để chúng nằm liền nhau trong
+ * danh sách chọn hàm của trình soạn thảo.
+ *
+ * THÊM VIỆC MỚI: viết hàm nghiệp vụ ở file của nó như bình thường, rồi thêm
+ * MỘT vỏ bọc `run_*` không tham số vào đây. Đừng bắt người dùng gõ tham số.
+ *
+ * Kết quả in ra Nhật ký thực thi (Ctrl+Enter / View > Logs).
+ */
+
+
+/* ==================================================================
+ * GIÁ BÁN TRUNG BÌNH — đồng bộ từ số bán thật của OEM và Xuất khẩu
+ * Chi tiết cách tính: xem đầu file PriceSync.gs
+ * ================================================================== */
+
+/** Xem trước: tỷ giá đang dùng, mã nào đổi giá, mã nào hai nguồn lệch nhau. */
+function run_giaBan_xemTruoc() {
+  return adminReportPrices();
+}
+
+/** Ghi thật vào cột avg_price. Chạy run_giaBan_xemTruoc() trước. */
+function run_giaBan_ghiThat() {
+  return adminSyncPrices(true);
+}
+
+
+/* ==================================================================
+ * DANH MỤC SKU — dọn trước mỗi đợt nhập SOP
+ * ================================================================== */
+
+/**
+ * Xem trước: SKU nào dùng chung nhiều kênh, SKU nào FC chưa có.
+ * Không đổi gì.
+ */
+function run_danhMuc_xemTruoc() {
+  var THANG_BAT_DAU = '2026-09';   // <-- sửa nếu muốn phạm vi khác
+
+  Logger.log(adminReportSharedSkus());
+  Logger.log('');
+  return adminAddMissingSkus(THANG_BAT_DAU, false);
+}
+
+/**
+ * Ghi thật: thêm SKU FC còn thiếu, rồi để trống kênh cho SKU dùng chung.
+ *
+ * Thứ tự cố ý — thêm SKU TRƯỚC, để trống kênh SAU: mã vừa thêm cũng có thể
+ * thuộc nhóm dùng chung, chạy ngược thứ tự là bỏ sót chúng.
+ */
+function run_danhMuc_ghiThat() {
+  var THANG_BAT_DAU = '2026-09';   // <-- sửa nếu muốn phạm vi khác
+
+  Logger.log('=== GHI THẬT — không phải chạy thử ===');
+  Logger.log('Phạm vi thêm SKU: dữ liệu từ ' + THANG_BAT_DAU + ' trở đi');
+  Logger.log('');
+
+  Logger.log('--- Bước 1: thêm SKU FC chưa có ---');
+  var them = adminAddMissingSkus(THANG_BAT_DAU, true);
+
+  Logger.log('');
+  Logger.log('--- Bước 2: để trống kênh cho SKU dùng chung ---');
+  var xoa = adminClearChannelForShared(true);
+
+  Logger.log('');
+  Logger.log('=== XONG: thêm ' + them + ' SKU · để trống kênh ' + xoa + ' mã ===');
+  Logger.log('Việc còn lại của người: điền nhóm sản phẩm và giá bình quân cho SKU mới.');
+  return { themSku: them, xoaKenh: xoa };
+}
+
+
+/* ==================================================================
+ * CHUYỂN SKU SANG ĐƠN VỊ KHÁC
+ * ================================================================== */
+
+/** Xem trước việc chuyển kênh. Sửa hai hằng số rồi bấm Run. */
+function run_doiKenh_xemTruoc() {
+  var TU_KENH = 'Online';   // <-- đơn vị nguồn
+  var SANG_KENH = '3T';     // <-- đơn vị đích; để '' nghĩa là hiện ở MỌI đơn vị
+
+  return adminMoveProductChannel(TU_KENH, SANG_KENH, false);
+}
+
+/** Ghi thật. Chạy run_doiKenh_xemTruoc() trước và sửa hằng số cho khớp. */
+function run_doiKenh_ghiThat() {
+  var TU_KENH = 'Online';
+  var SANG_KENH = '3T';
+
+  return adminMoveProductChannel(TU_KENH, SANG_KENH, true);
+}
+
+
+/* ==================================================================
+ * TÀI KHOẢN
+ * ================================================================== */
+
+/**
+ * Đặt / đổi PIN cho một người. PIN không được lưu dạng thô ở bất kỳ đâu.
+ *
+ * Sửa hai hằng số, bấm Run, RỒI XOÁ PIN khỏi file này và push lại — đừng để
+ * một PIN thật nằm trong mã nguồn, vì kho FC là kho công khai.
+ */
+function run_datPin() {
+  var MA_NGUOI_DUNG = '';   // <-- ví dụ 'gt2'
+  var PIN_MOI = '';         // <-- ít nhất 6 ký tự, không phải dãy trùng/liên tiếp
+
+  if (!MA_NGUOI_DUNG || !PIN_MOI) {
+    throw new Error('Sửa MA_NGUOI_DUNG và PIN_MOI ở đầu hàm run_datPin() rồi bấm Run lại.');
+  }
+  return adminSetPin(MA_NGUOI_DUNG, PIN_MOI);
+}
+
+/** Mở khoá tài khoản bị khoá do nhập sai PIN nhiều lần. */
+function run_moKhoaTaiKhoan() {
+  var MA_NGUOI_DUNG = '';   // <-- ví dụ 'gt2'
+
+  if (!MA_NGUOI_DUNG) {
+    throw new Error('Sửa MA_NGUOI_DUNG ở đầu hàm run_moKhoaTaiKhoan() rồi bấm Run lại.');
+  }
+  return adminUnlockUser(MA_NGUOI_DUNG);
+}
+
+
+/* ==================================================================
+ * BÁO CÁO — chỉ đọc, chạy bao nhiêu lần cũng được
+ * ================================================================== */
+
+/** Mã người dùng nào đang thật sự giữ dữ liệu trong FC. */
+function run_baoCao_maNguoiDung() {
+  return adminReportUserIds();
+}
