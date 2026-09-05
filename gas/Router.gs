@@ -155,6 +155,8 @@ function dispatch_(action, p, session) {
     case 'importProducts':   return importProducts_(session, p.products, p.replace);
     case 'addProduct':       return addProduct_(session, p.product);
     case 'addProducts':      return addProducts_(session, p.products);
+    case 'updateProduct':    return updateProduct_(session, p.product);
+    case 'upsertProducts':   return upsertProducts_(session, p.products);
     // Nhập SOP từ app OEM / app Xuất khẩu. Cố ý KHÔNG khai trong ACTION_TABLES:
     // action này chạm gần hết các bảng, mà "không khai" nghĩa là đọc tất cả —
     // đúng thứ nó cần, và khai thiếu một bảng thì lỗi rất khó truy.

@@ -1,12 +1,23 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { api } from '../services/api';
-import { Package, Search, Filter, AlertCircle } from 'lucide-react';
+import { Package, Search, Filter, AlertCircle, PackagePlus, ClipboardPaste, PencilLine, CheckCircle2 } from 'lucide-react';
+import AddProductModal from '../components/AddProductModal';
+import BulkProductsModal from '../components/BulkProductsModal';
 
 const ROW_HEIGHT_PX = 39;
 
-export default function Products() {
+export default function Products({ currentBU, user }) {
+  // Ai duoc sua danh muc: cung bo vai tro voi cua ghi o server
+  // (addProduct_/updateProduct_ deu assertRole_ ['bu_editor','central_admin']).
+  // Nut an di voi vai tro khac chi la phep lich su — server van la cho chan that.
+  const isEditor = user?.role === 'bu_editor' || user?.role === 'central_admin';
+
   const [products, setProducts] = useState([]);
+  const [dangSua, setDangSua] = useState(null);   // san pham dang mo trong modal sua
+  const [themMoi, setThemMoi] = useState(false);
+  const [danHangLoat, setDanHangLoat] = useState(false);
+  const [thongBao, setThongBao] = useState(null);
   const [groups, setGroups] = useState([]);
   const [bus, setBus] = useState([]);
   const [search, setSearch] = useState('');
@@ -75,7 +86,30 @@ export default function Products() {
             {loading ? ' — đang tải...' : ` (${products.length} SKU)`}.
           </p>
         </div>
+
+        {isEditor && (
+          <div className="flex items-center gap-2">
+            <button onClick={() => setDanHangLoat(true)}
+              className="flex items-center gap-1.5 border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-slate-50">
+              <ClipboardPaste className="w-3.5 h-3.5" />
+              Dán từ Excel
+            </button>
+            <button onClick={() => setThemMoi(true)}
+              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold">
+              <PackagePlus className="w-3.5 h-3.5" />
+              Thêm SKU
+            </button>
+          </div>
+        )}
       </div>
+
+      {thongBao && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-lg p-3 flex items-start gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+          <span className="flex-1">{thongBao}</span>
+          <button onClick={() => setThongBao(null)} className="underline font-semibold">Đóng</button>
+        </div>
+      )}
 
       {error && (
         <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg p-3 flex items-start gap-2">
@@ -139,11 +173,12 @@ export default function Products() {
                 <th className="py-2.5 px-4">Công nghệ</th>
                 <th className="py-2.5 px-4">Kênh mặc định</th>
                 <th className="py-2.5 px-4 text-right">Giá ghi nhận DT (VNĐ)</th>
+                {isEditor && <th className="py-2.5 px-4 w-10"></th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 font-mono">
               {filteredProducts.length === 0 ? (
-                <tr><td colSpan={7} className="py-8 text-center text-slate-400 font-sans">Không tìm thấy SKU phù hợp</td></tr>
+                <tr><td colSpan={isEditor ? 8 : 7} className="py-8 text-center text-slate-400 font-sans">Không tìm thấy SKU phù hợp</td></tr>
               ) : (
                 <>
                   {topPad > 0 && <tr style={{ height: topPad }} aria-hidden="true" />}
@@ -160,6 +195,14 @@ export default function Products() {
                         <td className="py-2.5 px-4 text-right font-bold text-slate-900">
                           {p.avg_price ? p.avg_price.toLocaleString('vi-VN') : '-'}
                         </td>
+                        {isEditor && (
+                          <td className="py-2.5 px-4">
+                            <button onClick={() => setDangSua(p)} title={'Sửa ' + p.sku_code}
+                              className="p-1 rounded hover:bg-blue-50 text-slate-400 hover:text-blue-600">
+                              <PencilLine className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -170,6 +213,38 @@ export default function Products() {
           </table>
         </div>
       </div>
+
+      {(themMoi || dangSua) && (
+        <AddProductModal
+          groups={groups}
+          bus={bus}
+          defaultChannel={currentBU}
+          product={dangSua}
+          onClose={() => { setThemMoi(false); setDangSua(null); }}
+          onAdded={(sp, message) => {
+            setThemMoi(false);
+            setDangSua(null);
+            setThongBao(message || ('Đã lưu SKU ' + (sp?.sku_code || '') + '.'));
+            // Doc lai tu server thay vi va vao mang trong bo nho: danh muc la
+            // du lieu dung chung, giua luc mo trang co the co nguoi khac vua ghi.
+            loadData();
+          }}
+        />
+      )}
+
+      {danHangLoat && (
+        <BulkProductsModal
+          groups={groups}
+          bus={bus}
+          existingProducts={products}
+          onClose={() => setDanHangLoat(false)}
+          onDone={(message) => {
+            setDanHangLoat(false);
+            setThongBao(message);
+            loadData();
+          }}
+        />
+      )}
 
     </div>
   );

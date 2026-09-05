@@ -240,7 +240,7 @@ export default function App() {
                   <Exports user={user} />
                 </React.Suspense>
               )}
-              {activeTab === 'products' && <Products currentBU={currentBU} />}
+              {activeTab === 'products' && <Products currentBU={currentBU} user={user} />}
               {activeTab === 'guide' && <WorkflowGuide />}
             </ErrorBoundary>
           )}

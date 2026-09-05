@@ -113,6 +113,8 @@ const ACTION_TABLES = {
   setUserPin:         [SHEETS.USERS, SHEETS.AUDIT],
   addProduct:         [SHEETS.PRODUCTS],
   addProducts:        [SHEETS.PRODUCTS],
+  updateProduct:      [SHEETS.PRODUCTS, SHEETS.AUDIT],
+  upsertProducts:     [SHEETS.PRODUCTS, SHEETS.AUDIT],
   importProducts:     [SHEETS.PRODUCTS],
   saveActuals:        [SHEETS.ACTUALS, SHEETS.BUSINESS_UNITS, SHEETS.PRODUCTS]
 };
@@ -121,6 +123,7 @@ const WRITE_ACTIONS = [
   'createCycle', 'createVersion', 'saveMonthlyLines', 'saveWeeklySplits',
   'submitCycle', 'reopenCycle', 'decideApproval', 'changeMyPin', 'setUserPin',
   'importProducts', 'saveActuals', 'addProduct', 'addProducts',
+  'updateProduct', 'upsertProducts',
   // Nhập SOP tạo chu kỳ + bản mới rồi ghi dòng tháng/tuần, nên phải nằm ở
   // nhóm GHI để chạy trong runExclusive_. Để nhầm sang nhóm đọc thì nó chạy
   // ngoài lock và có thể ghi đè lên số người khác vừa lưu.

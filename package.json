@@ -14,7 +14,8 @@
     "gas:deployments": "cd gas && clasp deployments",
     "gas:open": "cd gas && clasp open",
     "gas:logs": "cd gas && clasp logs --watch",
-    "seed:products": "node tools/seed-products.mjs"
+    "seed:products": "node tools/seed-products.mjs",
+    "test": "node test/productpaste.test.js && node test/normalizemonth.test.js gas/Utils.gs && node test/pricesync.test.js gas/PriceSync.gs"
   },
   "devDependencies": {
     "@google/clasp": "^3.4.1"

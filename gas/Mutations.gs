@@ -562,3 +562,224 @@ function addProducts_(session, products) {
     skippedExisting: skippedExisting
   };
 }
+
+
+/**
+ * Ai được sửa một dòng của danh mục dùng chung.
+ *
+ *   central_admin -> mọi dòng.
+ *   bu_editor     -> chỉ dòng có default_channel đúng bằng đơn vị của mình.
+ *
+ * Kênh ĐỂ TRỐNG nghĩa là linh kiện dùng chung: getProducts_ cho dòng đó hiện
+ * trên màn hình của MỌI đơn vị, nên một người sửa giá là cả bốn đơn vị đổi
+ * doanh thu theo. Nhóm đó để central_admin giữ.
+ *
+ * Khác assertBU_ ở đúng một điểm, và đó là điểm quan trọng: assertBU_ cho qua
+ * khi buCode rỗng — hợp lý với dữ liệu gắn vào một đơn vị cụ thể, nhưng ở đây
+ * rỗng lại là phạm vi RỘNG NHẤT chứ không phải hẹp nhất.
+ */
+function assertProductEditable_(session, channel) {
+  if (session.role === 'central_admin') return;
+  var kenh = String(channel === null || channel === undefined ? '' : channel).trim();
+  if (!kenh) {
+    throw new Error('FORBIDDEN: SKU dùng chung (kênh để trống) chỉ quản trị viên trung tâm mới sửa được.');
+  }
+  if (String(session.bu) !== kenh) {
+    throw new Error('FORBIDDEN: SKU này thuộc kênh ' + kenh + ', bạn chỉ sửa được SKU của '
+      + (session.bu || '(chưa gán)') + '.');
+  }
+}
+
+/**
+ * Đọc một giá tiền do người dùng nhập, và THÀ BÁO LỖI CÒN HƠN trả về 0.
+ *
+ * Đây là chỗ đã trả giá: màn Kế hoạch tháng tính `Number(p.avg_price) || 0`,
+ * nên mọi giá không đọc được đều lặng lẽ thành 0 và kéo doanh thu xuống mà
+ * không có gì báo. Dán từ Excel tiếng Việt cho ra "1.234.567", Number() ra
+ * NaN, rồi `|| 0` nuốt luôn. Ở cửa GHI thì phải chặn, không được nuốt.
+ *
+ * Client đã đổi chuỗi thành số trước khi gửi (utils/number.js). Hàm này là
+ * lưới chắn thứ hai cho trường hợp có ai gọi API thẳng.
+ */
+function parseGia_(value, moTa) {
+  if (value === null || value === undefined || value === '') return 0;
+  if (typeof value === 'number') {
+    if (!isFinite(value) || value < 0) {
+      throw new Error('Giá không hợp lệ' + (moTa ? ' tại ' + moTa : '') + ': ' + value);
+    }
+    return value;
+  }
+  var so = Number(String(value).trim());
+  if (!isFinite(so) || so < 0) {
+    throw new Error('Giá không đọc được' + (moTa ? ' tại ' + moTa : '') + ': ' + JSON.stringify(value)
+      + ' — client phải gửi số, không gửi chuỗi đã định dạng.');
+  }
+  return so;
+}
+
+/** Chuẩn hoá cột is_active về 1/0 — activeOnly_ so bằng chuỗi. */
+function parseActive_(value) {
+  if (value === null || value === undefined || value === '') return 1;
+  var s = String(value).trim().toLowerCase();
+  return (s === '0' || s === 'false' || s === 'no' || s === 'khong') ? 0 : 1;
+}
+
+/** hasOwnProperty gọn, để phần dưới đọc được thành câu. */
+function has_(o, k) {
+  return Object.prototype.hasOwnProperty.call(o, k) && o[k] !== undefined;
+}
+
+/**
+ * Sửa MỘT SKU đã có trong danh mục.
+ *
+ * Đối xứng với addProduct_ (chỉ chèn, chặn ghi đè): sửa tách hẳn thành action
+ * riêng để không ai vô tình ghi đè khi định thêm mới, và để chỗ này kiểm
+ * quyền theo kênh — thứ addProduct_ không cần.
+ *
+ * sku_code KHÔNG sửa được. Nó là khoá mà MonthlyForecastLines,
+ * WeeklyRegionSplits và Actuals đều trỏ vào; đổi mã ở đây là bỏ rơi toàn bộ
+ * số đã nhập cho mã cũ, lặng lẽ. Cần đổi mã thì thêm mã mới rồi tắt mã cũ
+ * (is_active = 0).
+ *
+ * Chỉ trường CÓ MẶT trong payload mới được ghi — gửi thiếu một trường nghĩa
+ * là "không đụng tới", không phải "xoá trắng".
+ */
+function updateProduct_(session, p) {
+  assertRole_(session, ['bu_editor', 'central_admin']);
+  if (!p) throw new Error('Thiếu dữ liệu sản phẩm.');
+
+  var skuCode = normalizeSku_(p.skuCode);
+  if (!skuCode) throw new Error('Thiếu mã SKU.');
+
+  var t = readTable_(SHEETS.PRODUCTS);
+  var i = findRowIndex_(t, 'sku_code', skuCode);
+  if (i < 0) throw new Error('Không có SKU ' + skuCode + ' trong danh mục — dùng chức năng Thêm mới.');
+
+  var truoc = rowToObject_(t.headers, t.rows[i]);
+  assertProductEditable_(session, truoc.default_channel);
+
+  var patch = {};
+  var doi = [];
+  function dat(cot, giaTri) {
+    var cu = truoc[cot];
+    if (String(cu === null || cu === undefined ? '' : cu) === String(giaTri)) return;
+    patch[cot] = giaTri;
+    doi.push(cot);
+  }
+
+  if (has_(p, 'name')) {
+    if (!String(p.name).trim()) throw new Error('Tên sản phẩm không được để trống.');
+    dat('name', String(p.name).trim());
+  }
+  if (has_(p, 'shortName'))        dat('short_name', String(p.shortName || '').trim());
+  if (has_(p, 'technology'))       dat('technology', String(p.technology || '').trim());
+  if (has_(p, 'productGroupCode')) dat('product_group_code', String(p.productGroupCode || '').trim());
+  if (has_(p, 'productGroupName')) dat('product_group_name', String(p.productGroupName || '').trim());
+  if (has_(p, 'avgPrice'))         dat('avg_price', parseGia_(p.avgPrice, 'SKU ' + skuCode));
+  if (has_(p, 'isActive'))         dat('is_active', parseActive_(p.isActive));
+
+  if (has_(p, 'defaultChannel')) {
+    var kenhMoi = String(p.defaultChannel || '').trim();
+    // Không cho người của một đơn vị đẩy SKU sang kênh khác, cũng không cho
+    // biến nó thành SKU dùng chung (kênh trống): cả hai đều là mở rộng phạm
+    // vi ra ngoài đơn vị của họ.
+    if (session.role !== 'central_admin' && kenhMoi !== String(session.bu)) {
+      throw new Error('FORBIDDEN: bạn chỉ được để kênh mặc định là ' + (session.bu || '(chưa gán)') + '.');
+    }
+    dat('default_channel', kenhMoi);
+  }
+
+  if (!doi.length) {
+    return { message: 'Không có gì thay đổi cho SKU ' + skuCode + '.', changed: [], product: truoc };
+  }
+
+  writeRowPatch_(SHEETS.PRODUCTS, t, i, patch);
+  logAuth_(session.userId, 'product_updated', skuCode + ' — sửa: ' + doi.join(', '));
+
+  var sau = {};
+  Object.keys(truoc).forEach(function (k) { sau[k] = truoc[k]; });
+  Object.keys(patch).forEach(function (k) { sau[k] = patch[k]; });
+
+  return { message: 'Đã cập nhật SKU ' + skuCode + ' (' + doi.join(', ') + ').', changed: doi, product: sau };
+}
+
+/**
+ * Dán hàng loạt từ Excel: thêm mã mới VÀ cập nhật mã đã có trong một lượt.
+ *
+ * Khác addProducts_ (bỏ qua mã đã tồn tại) đúng ở chỗ đó, nên là hai action
+ * riêng chứ không phải một cờ trong cùng một hàm: giao diện mặc định gọi
+ * addProducts_, người dùng phải chủ động chọn chế độ ghi đè mới chạm tới đây.
+ *
+ * Ghi CẢ BẢNG một lần bằng upsertRows_ thay vì vá từng dòng — dán 300 dòng mà
+ * gọi writeRowPatch_ 300 lần là 300 lượt ghi Sheets, chắc chắn quá 6 phút.
+ * objectToRow_ giữ nguyên những cột không gửi lên, nên gửi thiếu cột không
+ * xoá trắng dữ liệu đang có.
+ */
+function upsertProducts_(session, products) {
+  assertRole_(session, ['bu_editor', 'central_admin']);
+  if (!Array.isArray(products) || !products.length) throw new Error('Danh sách sản phẩm rỗng.');
+
+  var dangCo = {};
+  readObjects_(SHEETS.PRODUCTS).forEach(function (x) {
+    dangCo[normalizeSku_(x.sku_code)] = x;
+  });
+
+  var records = [];
+  var themMoi = [], capNhat = [], boQua = [];
+  var daThay = {};
+
+  products.forEach(function (p) {
+    var skuCode = normalizeSku_(p.skuCode);
+    if (!skuCode) return;
+    if (daThay[skuCode]) { boQua.push(skuCode + ' (trùng trong danh sách dán)'); return; }
+    daThay[skuCode] = true;
+
+    var cu = dangCo[skuCode];
+
+    // Kiểm quyền TRƯỚC khi dựng bản ghi, và cho cả dòng thêm mới: nếu không,
+    // một bu_editor dán 300 dòng có thể sửa giá SKU của đơn vị khác.
+    if (cu) assertProductEditable_(session, cu.default_channel);
+
+    var kenh = has_(p, 'defaultChannel')
+      ? String(p.defaultChannel || '').trim()
+      : (cu ? String(cu.default_channel || '').trim() : '');
+    if (session.role !== 'central_admin' && kenh !== String(session.bu)) {
+      throw new Error('FORBIDDEN: dòng ' + skuCode + ' có kênh "' + (kenh || 'trống')
+        + '", bạn chỉ được ghi SKU của ' + (session.bu || '(chưa gán)') + '.');
+    }
+
+    var rec = { sku_code: skuCode, default_channel: kenh };
+    if (has_(p, 'name'))             rec.name = String(p.name).trim();
+    if (has_(p, 'shortName'))        rec.short_name = String(p.shortName || '').trim();
+    if (has_(p, 'technology'))       rec.technology = String(p.technology || '').trim();
+    if (has_(p, 'productGroupCode')) rec.product_group_code = String(p.productGroupCode || '').trim();
+    if (has_(p, 'productGroupName')) rec.product_group_name = String(p.productGroupName || '').trim();
+    if (has_(p, 'avgPrice'))         rec.avg_price = parseGia_(p.avgPrice, 'SKU ' + skuCode);
+    rec.is_active = has_(p, 'isActive') ? parseActive_(p.isActive) : (cu ? parseActive_(cu.is_active) : 1);
+
+    if (!cu) {
+      if (!rec.name) rec.name = skuCode;
+      themMoi.push(skuCode);
+    } else {
+      capNhat.push(skuCode);
+    }
+    records.push(rec);
+  });
+
+  if (!records.length) {
+    return { message: 'Không có dòng nào hợp lệ để ghi.', inserted: 0, updated: 0, skipped: boQua };
+  }
+
+  upsertRows_(SHEETS.PRODUCTS, ['sku_code'], records);
+  logAuth_(session.userId, 'products_upserted', themMoi.length + ' thêm / ' + capNhat.length + ' sửa');
+
+  return {
+    message: 'Đã thêm ' + themMoi.length + ' SKU mới và cập nhật ' + capNhat.length + ' SKU đã có.'
+      + (boQua.length ? ' Bỏ qua ' + boQua.length + ' dòng.' : ''),
+    inserted: themMoi.length,
+    updated: capNhat.length,
+    insertedSkus: themMoi,
+    updatedSkus: capNhat,
+    skipped: boQua
+  };
+}

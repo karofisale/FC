@@ -68,6 +68,14 @@ export const api = {
     callGAS('addProduct', auth({ product })).then((res) => { productsCache.clear(); return res; }),
   addProducts: (products) =>
     callGAS('addProducts', auth({ products })).then((res) => { productsCache.clear(); return res; }),
+  // Sửa một SKU đã có. Gửi trường nào thì server ghi trường đó — trường vắng
+  // mặt nghĩa là "không đụng tới", nên đừng gửi kèm null cho các ô để trống.
+  updateProduct: (product) =>
+    callGAS('updateProduct', auth({ product })).then((res) => { productsCache.clear(); return res; }),
+  // Dán hàng loạt CÓ ghi đè mã đã tồn tại. Khác addProducts (bỏ qua mã đã có)
+  // nên là hai lối riêng: giao diện phải bắt người dùng chọn có ý thức.
+  upsertProducts: (products) =>
+    callGAS('upsertProducts', auth({ products })).then((res) => { productsCache.clear(); return res; }),
   readExternalSheet: (spreadsheetId, sheetName) => callGAS('readExternalSheet', auth({ spreadsheetId, sheetName })),
 
   // Nhập kế hoạch thẳng từ app OEM / app Xuất khẩu. dryRun = chỉ tính và trả
