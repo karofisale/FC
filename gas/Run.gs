@@ -208,3 +208,18 @@ function run_baoCao_manKeHoach() {
 
   return adminDiagMonthlyScreen(DON_VI, CHU_KY, PHIEN_BAN);
 }
+
+/**
+ * Vì sao MỘT mã cụ thể không hiện trên màn hình, dù bảng tính rõ ràng có nó.
+ *
+ * Chạy khi adminDiagMonthlyScreen báo "mã không nằm trong danh mục màn hình
+ * nhìn thấy" mà mở Sheet ra thì mã đó có thật. In giá trị thô + kiểu dữ liệu
+ * của từng ô, chạy lại từng bộ lọc của getProducts_, và cho biết dòng dự báo
+ * của mã đó thuộc chu kỳ của đơn vị nào.
+ */
+function run_baoCao_soiMa() {
+  var MA = '2013050022';   // <-- mã cần soi
+  var DON_VI = 'OEM';      // <-- đơn vị đang mở trên màn hình
+
+  return adminInspectSku(MA, DON_VI);
+}
