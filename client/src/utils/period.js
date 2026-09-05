@@ -6,6 +6,17 @@
 /** '2026-7-1' | Date | '2026-07-01T00:00:00Z' -> '2026-07-01' */
 export function normalizeMonth(value) {
   if (!value) return '';
+
+  // SỐ SERIAL của Google Sheets (số ngày kể từ 1899-12-30). Backend đã chuẩn
+  // hoá base_month trước khi gửi, nên bình thường không gặp ở đây — nhưng nếu
+  // một trường ngày khác lọt ra dạng số thì `new Date(46265)` là 46 GIÂY sau
+  // mốc 1970, cho ra tháng 1970-01 và mọi khoá sku_tháng trượt sạch. Bảng rỗng
+  // mà không có lỗi nào. Đọc đúng số đó ở đây rẻ hơn nhiều so với đi tìm lại.
+  if (typeof value === 'number' && Number.isFinite(value) && value > 20000 && value < 80000) {
+    const d0 = new Date(Math.round((value - 25569) * 86400000));
+    return `${d0.getUTCFullYear()}-${String(d0.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  }
+
   const s = typeof value === 'string' ? value : new Date(value).toISOString();
   const m = s.match(/^(\d{4})-(\d{1,2})/);
   if (m) return `${m[1]}-${String(m[2]).padStart(2, '0')}-01`;

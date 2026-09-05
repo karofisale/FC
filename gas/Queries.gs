@@ -87,7 +87,22 @@ function getCycles_(session, bu, status) {
   if (bu) list = list.filter(function (c) { return String(c.business_unit_code) === String(bu); });
   if (status) list = list.filter(function (c) { return String(c.status) === String(status); });
 
-  return list.sort(function (a, b) {
+  // Chuẩn hoá base_month TRƯỚC KHI ra khỏi backend.
+  //
+  // Cột này là ô NGÀY THẬT trong Sheet, và prefetchSheets_ đọc bằng Sheets API
+  // với dateTimeRenderOption SERIAL_NUMBER — nên tới đây nó là một con số
+  // (46265), không phải Date, không phải chuỗi. Để nguyên mà gửi cho client là
+  // hỏng cả hai đầu: monthsOfCycle() bên đó làm new Date(46265), tức 46 giây
+  // sau mốc 1970, cho ra tháng 1970-01 nên không khoá nào khớp; và
+  // MonthlyForecast gọi .slice() lên chính trường này, mà .slice() trên một số
+  // là ném lỗi — sập cả component, bảng biến mất chứ không chỉ trống.
+  //
+  // Chuẩn hoá ở đây vì getCycles_ là cửa DUY NHẤT chu kỳ đi ra ngoài; sửa ở
+  // từng nơi tiêu thụ thì sẽ sót.
+  return list.map(function (c) {
+    c.base_month = normalizeMonth_(c.base_month);
+    return c;
+  }).sort(function (a, b) {
     return String(b.base_month).localeCompare(String(a.base_month));
   });
 }

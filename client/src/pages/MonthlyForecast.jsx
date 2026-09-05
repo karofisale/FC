@@ -501,7 +501,7 @@ export default function MonthlyForecast({ currentBU, user }) {
         <React.Suspense fallback={null}>
           <ImportFromSourceModal
             businessUnitCode={currentBU}
-            defaultBaseMonth={(selectedCycle?.base_month || '').slice(0, 7)}
+            defaultBaseMonth={String(selectedCycle?.base_month || '').slice(0, 7)}
             onClose={() => setShowImportSource(false)}
             onImported={async (res) => {
               // Nhập tạo chu kỳ/bản mới nên phải nạp lại và nhảy đúng vào bản
