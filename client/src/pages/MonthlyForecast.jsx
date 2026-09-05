@@ -254,7 +254,11 @@ export default function MonthlyForecast({ currentBU, user }) {
         || String(p.sku_code).toLowerCase().includes(s)
         || String(p.name).toLowerCase().includes(s);
       const matchGroup = selectedGroup === 'ALL' || p.product_group_code === selectedGroup;
-      const matchNonZero = !onlyNonZero || nonZeroSkus.has(p.sku_code);
+      // String() hai ben: nonZeroSkus dung tu khoa cua forecastMap nen luon la
+      // CHUOI, con p.sku_code co the la SO — Sheets bien "2013050022" thanh so
+      // ngay khi mot lenh setValues ghi lai o do. Set.has so theo kieu, nen
+      // thieu String() la KHONG mot ma nao khop va bo loc quet sach bang.
+      const matchNonZero = !onlyNonZero || nonZeroSkus.has(String(p.sku_code));
       return matchSearch && matchGroup && matchNonZero;
     });
   }, [products, search, selectedGroup, onlyNonZero, nonZeroSkus]);

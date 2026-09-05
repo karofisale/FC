@@ -225,3 +225,112 @@ function adminReportReadPath() {
 
   return psInLog_(out);
 }
+
+
+/**
+ * Giữ cột sku_code ở định dạng VĂN BẢN trước khi ghi bất cứ thứ gì vào
+ * Products.
+ *
+ * VÌ SAO CẦN: setValues ghi chuỗi "2013050022" vào một ô định dạng Tự động thì
+ * Google Sheets tự đổi nó thành SỐ. writeRowPatch_ ghi lại CẢ DÒNG và
+ * upsertRows_ ghi lại CẢ BẢNG, nên chỉ cần một lần sửa sản phẩm là kiểu dữ
+ * liệu của mã đổi — và mã có số 0 đứng đầu ("0123") thì mất luôn số 0, không
+ * khôi phục được từ chính bảng đó.
+ *
+ * Đặt định dạng '@' TRƯỚC khi ghi thì chuỗi ở lại là chuỗi.
+ */
+function giuCotMaDangChu_() {
+  var t = readTable_(SHEETS.PRODUCTS);
+  var cot = t.idx.sku_code;
+  if (cot === undefined) return;
+  var sheet = t.sheet || getOrCreateSheet_(SHEETS.PRODUCTS);
+  var soDong = Math.max(sheet.getMaxRows() - 1, 1);
+  sheet.getRange(2, cot + 1, soDong, 1).setNumberFormat('@');
+}
+
+/**
+ * Mã sản phẩm đang lưu dạng gì, và có dòng dữ liệu nào bị mồ côi vì lệch mã.
+ *
+ * CHỈ ĐỌC. Chạy từ Run.gs (run_baoCao_kieuMa).
+ *
+ * Hai câu hỏi hàm này trả lời:
+ *   1. Bao nhiêu ô sku_code đang là số thay vì chữ. Số thì không sai ngay,
+ *      nhưng là dấu hiệu bảng đã bị một lệnh ghi đổi kiểu.
+ *   2. QUAN TRỌNG HƠN: có mã nào trong MonthlyForecastLines / WeeklyRegionSplits
+ *      / Actuals mà KHÔNG khớp với mã nào trong Products không. Đây là cách
+ *      duy nhất phát hiện mã bị mất số 0 đứng đầu: dòng dự báo còn giữ "0123"
+ *      còn danh mục đã thành 123, và hai bên không còn nhận ra nhau.
+ */
+function adminReportSkuTypes() {
+  var out = [];
+  var t = readTable_(SHEETS.PRODUCTS);
+  var iSku = t.idx.sku_code;
+
+  var soSo = 0, soChuoi = 0, soKhac = 0;
+  var maCo = {};
+  var soDauKhong = [];
+  for (var i = 0; i < t.rows.length; i++) {
+    var v = t.rows[i][iSku];
+    var ma = String(v === null || v === undefined ? '' : v).trim();
+    if (!ma) continue;
+    maCo[ma] = true;
+    if (typeof v === 'number') soSo++;
+    else if (typeof v === 'string') { soChuoi++; if (/^0\d/.test(ma)) soDauKhong.push(ma); }
+    else soKhac++;
+  }
+
+  out.push('=== KIỂU DỮ LIỆU CỦA MÃ SẢN PHẨM ===');
+  out.push('Ô là SỐ  : ' + soSo);
+  out.push('Ô là CHỮ : ' + soChuoi);
+  if (soKhac) out.push('Kiểu khác: ' + soKhac);
+  out.push('');
+  if (soSo) {
+    out.push('Mã lưu dạng SỐ không sai ngay — client đã chuẩn hoá cả hai phía.');
+    out.push('Nhưng mã có số 0 đứng đầu thì dạng số là MẤT số 0 đó vĩnh viễn.');
+    out.push('Phần dưới cho biết có mã nào đã hỏng thật hay không.');
+  } else {
+    out.push('Toàn bộ mã đang ở dạng chữ — đúng như mong muốn.');
+  }
+  if (soDauKhong.length) {
+    out.push('');
+    out.push('Mã còn giữ số 0 đứng đầu (' + soDauKhong.length + '): ' + soDauKhong.slice(0, 20).join(', '));
+    out.push('Những mã này PHẢI ở dạng chữ. Đừng ghi đè cột mã bằng tay.');
+  }
+
+  // Mã mồ côi: có ở bảng dữ liệu mà không có ở danh mục.
+  var nguon = [
+    { ten: 'MonthlyForecastLines', sheet: SHEETS.MONTHLY_LINES },
+    { ten: 'WeeklyRegionSplits', sheet: SHEETS.WEEKLY_SPLITS },
+    { ten: 'Actuals', sheet: SHEETS.ACTUALS }
+  ];
+
+  out.push('');
+  out.push('=== MÃ CÓ TRONG DỮ LIỆU NHƯNG KHÔNG CÓ TRONG DANH MỤC ===');
+  var tongMoCoi = 0;
+  nguon.forEach(function (n) {
+    var b;
+    try { b = readTable_(n.sheet); } catch (e) { out.push(n.ten + ': không đọc được (' + e.message + ')'); return; }
+    var c = b.idx.sku_code;
+    if (c === undefined) { out.push(n.ten + ': không có cột sku_code'); return; }
+    var moCoi = {};
+    for (var j = 0; j < b.rows.length; j++) {
+      var m = String(b.rows[j][c] === null || b.rows[j][c] === undefined ? '' : b.rows[j][c]).trim();
+      if (!m || maCo[m]) continue;
+      moCoi[m] = (moCoi[m] || 0) + 1;
+    }
+    var ds = Object.keys(moCoi);
+    tongMoCoi += ds.length;
+    out.push(n.ten + ': ' + ds.length + ' mã mồ côi' + (ds.length ? ' — ' + ds.slice(0, 25).join(', ') : ''));
+  });
+
+  out.push('');
+  if (!tongMoCoi) {
+    out.push('KHÔNG có mã mồ côi. Không mã nào bị mất khi đổi kiểu dữ liệu.');
+  } else {
+    out.push('CÓ mã mồ côi. Với mỗi mã ở trên, so với danh mục xem có mã nào GIỐNG HỆT');
+    out.push('nhưng thiếu số 0 đứng đầu không — nếu có thì đó chính là mã đã bị đổi kiểu,');
+    out.push('và cách sửa là gõ lại mã đúng vào ô đó sau khi đặt định dạng cột là Văn bản.');
+  }
+
+  return psInLog_(out);
+}

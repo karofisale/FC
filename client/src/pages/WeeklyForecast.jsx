@@ -309,7 +309,11 @@ export default function WeeklyForecast({ currentBU, user }) {
       const matchSearch = !s
         || String(p.sku_code).toLowerCase().includes(s)
         || String(p.name).toLowerCase().includes(s);
-      const matchNonZero = !onlyNonZero || nonZeroSkus.has(p.sku_code);
+      // String() hai ben: nonZeroSkus dung tu khoa cua forecastMap nen luon la
+      // CHUOI, con p.sku_code co the la SO — Sheets bien "2013050022" thanh so
+      // ngay khi mot lenh setValues ghi lai o do. Set.has so theo kieu, nen
+      // thieu String() la KHONG mot ma nao khop va bo loc quet sach bang.
+      const matchNonZero = !onlyNonZero || nonZeroSkus.has(String(p.sku_code));
       return matchSearch && matchNonZero;
     });
   }, [products, search, onlyNonZero, nonZeroSkus]);

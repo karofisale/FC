@@ -223,3 +223,14 @@ function run_baoCao_soiMa() {
 
   return adminInspectSku(MA, DON_VI);
 }
+
+/**
+ * Mã sản phẩm đang lưu dạng chữ hay dạng số, và có mã nào bị mồ côi không.
+ *
+ * Chạy sau bất kỳ lần sửa danh mục hàng loạt nào. Mã dạng số không sai ngay
+ * (client đã chuẩn hoá hai phía), nhưng mã có số 0 đứng đầu mà thành số là
+ * mất số 0 đó — phần "mã mồ côi" ở cuối báo cáo cho biết có mất thật hay không.
+ */
+function run_baoCao_kieuMa() {
+  return adminReportSkuTypes();
+}

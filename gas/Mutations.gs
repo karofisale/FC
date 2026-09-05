@@ -658,6 +658,13 @@ function updateProduct_(session, p) {
   var truoc = rowToObject_(t.headers, t.rows[i]);
   assertProductEditable_(session, truoc.default_channel);
 
+  // writeRowPatch_ ghi lại CẢ DÒNG, nên ô mã cũng đi qua setValues. Không ép
+  // định dạng văn bản trước thì Sheets đổi "2013050022" thành số, và mã có
+  // số 0 đứng đầu mất số 0 đó không lấy lại được.
+  giuCotMaDangChu_();
+  t = readTable_(SHEETS.PRODUCTS);
+  i = findRowIndex_(t, 'sku_code', skuCode);
+
   var patch = {};
   var doi = [];
   function dat(cot, giaTri) {
@@ -693,6 +700,10 @@ function updateProduct_(session, p) {
     return { message: 'Không có gì thay đổi cho SKU ' + skuCode + '.', changed: [], product: truoc };
   }
 
+  // Ghi lại mã dưới dạng chuỗi kể cả khi không có gì đổi ở ô đó: dòng đang
+  // nằm trong bộ nhớ có thể đã là số (do một lần ghi trước), và writeRowPatch_
+  // sẽ ghi nguyên con số đó trở lại.
+  patch.sku_code = skuCode;
   writeRowPatch_(SHEETS.PRODUCTS, t, i, patch);
   logAuth_(session.userId, 'product_updated', skuCode + ' — sửa: ' + doi.join(', '));
 
@@ -770,6 +781,9 @@ function upsertProducts_(session, products) {
     return { message: 'Không có dòng nào hợp lệ để ghi.', inserted: 0, updated: 0, skipped: boQua };
   }
 
+  // upsertRows_ ghi lại CẢ BẢNG, nên một lượt dán đổi kiểu dữ liệu của mọi mã
+  // chứ không riêng mã được dán. Ép định dạng văn bản trước.
+  giuCotMaDangChu_();
   upsertRows_(SHEETS.PRODUCTS, ['sku_code'], records);
   logAuth_(session.userId, 'products_upserted', themMoi.length + ' thêm / ' + capNhat.length + ' sửa');
 
