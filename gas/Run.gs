@@ -171,3 +171,23 @@ function run_baoCao_thieuGia() {
 function run_baoCao_thieuGia_moiDonVi() {
   return adminReportMissingPriceByBU();
 }
+
+/**
+ * Dựng lại ĐÚNG phép tính của màn Kế hoạch tháng, ở phía server.
+ *
+ * Dùng khi con số trên màn hình không khớp với bảng tính. Nó in sản lượng và
+ * doanh thu từng tháng, rồi liệt kê những mã đang kéo doanh thu xuống: mã có
+ * sản lượng lớn mà giá bằng 0, và mã có dòng dự báo nhưng KHÔNG nằm trong danh
+ * mục màn hình nhìn thấy (nhóm này biến mất khỏi cả sản lượng lẫn doanh thu mà
+ * không có gì báo).
+ *
+ * Để trống CHU_KY / PHIEN_BAN thì lấy chu kỳ mới nhất và phiên bản mà màn hình
+ * cũng sẽ chọn.
+ */
+function run_baoCao_manKeHoach() {
+  var DON_VI = 'OEM';     // <-- đơn vị đang mở trên màn hình
+  var CHU_KY = '';        // <-- để trống = chu kỳ mới nhất
+  var PHIEN_BAN = '';     // <-- để trống = phiên bản màn hình đang chọn
+
+  return adminDiagMonthlyScreen(DON_VI, CHU_KY, PHIEN_BAN);
+}
