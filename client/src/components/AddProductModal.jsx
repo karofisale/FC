@@ -22,18 +22,28 @@ import { parseGiaNhap } from '../utils/productPaste';
 export default function AddProductModal({ groups, bus, defaultChannel, product, onClose, onAdded }) {
   const suaDoi = !!product;
 
+  /**
+   * MỌI ô nhập phải là chuỗi.
+   *
+   * getValues() trả mã toàn chữ số về dạng NUMBER — "2013050022" đọc lên là
+   * số 2013050022 — nên gán thẳng vào state rồi gọi .trim() là nổ
+   * "skuCode.trim is not a function", và nổ lúc render nên mất cả trang chứ
+   * không phải một ô. Ép ngay tại cửa vào, một chỗ, thay vì rải String() ra
+   * bảy chỗ gọi .trim() phía dưới.
+   */
+  const chuoi = (v) => (v === null || v === undefined ? '' : String(v));
+
   const [form, setForm] = useState({
-    skuCode: product?.sku_code ?? '',
-    name: product?.name ?? '',
-    shortName: product?.short_name ?? '',
-    productGroupCode: product?.product_group_code ?? (groups[0]?.code || ''),
-    technology: product?.technology ?? '',
-    defaultChannel: product?.default_channel ?? (defaultChannel || bus[0]?.code || ''),
+    skuCode: chuoi(product?.sku_code),
+    name: chuoi(product?.name),
+    shortName: chuoi(product?.short_name),
+    productGroupCode: chuoi(product?.product_group_code) || (groups[0]?.code || ''),
+    technology: chuoi(product?.technology),
+    defaultChannel: chuoi(product?.default_channel) || (defaultChannel || bus[0]?.code || ''),
     // Hiện lại giá dạng số trần để sửa. Không định dạng nghìn ở đây: ô nhập có
     // dấu phân cách rồi lại phải đoán ngược khi đọc ra, mà đoán sai giá là sai
     // doanh thu.
-    avgPrice: product?.avg_price === undefined || product?.avg_price === null || product?.avg_price === ''
-      ? '' : String(product.avg_price),
+    avgPrice: chuoi(product?.avg_price),
     isActive: product ? (String(product.is_active) === '0' ? '0' : '1') : '1'
   });
   const [saving, setSaving] = useState(false);

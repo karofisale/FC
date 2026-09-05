@@ -323,6 +323,64 @@ export default function MonthlyForecast({ currentBU, user }) {
       };
     }, [products, forecastMap, months]);
 
+  /**
+   * Dòng dự báo có số nhưng KHÔNG thuộc danh mục màn hình này nhìn thấy.
+   *
+   * getProducts_ lọc danh mục theo kênh, còn getMonthlyLines_ trả về MỌI dòng
+   * của phiên bản. Nên một mã có default_channel = XK mà lại có dòng nằm trong
+   * chu kỳ OEM sẽ biến mất khỏi CẢ sản lượng lẫn doanh thu ở màn OEM: vòng
+   * cộng bên trên duyệt theo `products`, mã không có trong đó thì không bao giờ
+   * được cộng.
+   *
+   * Trước đây chuyện này im lặng hoàn toàn. Nó đã ăn mất 1.200 chiếc của hai
+   * mã mà không ai biết cho tới khi phải dựng lại phép tính ở phía server để
+   * đối chiếu. Bảng tổng sai mà trông vẫn bình thường là kiểu sai đắt nhất.
+   */
+  const dongLechDanhMuc = useMemo(() => {
+    const coTrongDanhMuc = new Set(products.map((p) => String(p.sku_code).trim()));
+    const theoMa = {};
+    let tongSl = 0;
+    Object.keys(forecastMap).forEach((key) => {
+      const q = forecastMap[key] || 0;
+      if (!q) return;
+      const ma = key.slice(0, key.lastIndexOf('_'));
+      const thang = key.slice(key.lastIndexOf('_') + 1);
+      // Chỉ tính những tháng đang hiện trên bảng, để con số cảnh báo khớp với
+      // con số hàng tổng ngay cạnh nó.
+      if (months.indexOf(thang) < 0) return;
+      if (coTrongDanhMuc.has(ma)) return;
+      theoMa[ma] = (theoMa[ma] || 0) + q;
+      tongSl += q;
+    });
+    return { maSo: Object.keys(theoMa), theoMa, tongSl };
+  }, [products, forecastMap, months]);
+
+  /**
+   * Tra kênh thật của những mã bị loại, để nói được NGUYÊN NHÂN chứ không chỉ
+   * nói là có chuyện. api.getProducts({}) không lọc theo kênh (cố ý, xem chú
+   * thích ở Router.gs) và có cache riêng ở tầng api, nên chỉ tốn đúng một lượt
+   * gọi cho cả phiên — và chỉ gọi khi thật sự có mã bị loại.
+   */
+  const [kenhCuaMaLech, setKenhCuaMaLech] = useState({});
+  useEffect(() => {
+    if (!dongLechDanhMuc.maSo.length) return;
+    let huy = false;
+    api.getProducts({})
+      .then((tatCa) => {
+        if (huy) return;
+        const map = {};
+        tatCa.forEach((p) => {
+          const ma = String(p.sku_code).trim();
+          if (dongLechDanhMuc.maSo.indexOf(ma) >= 0) {
+            map[ma] = { ten: String(p.name || ''), kenh: String(p.default_channel || '').trim() };
+          }
+        });
+        setKenhCuaMaLech(map);
+      })
+      .catch(() => { /* tra khong duoc thi van canh bao, chi la khong noi duoc kenh */ });
+    return () => { huy = true; };
+  }, [dongLechDanhMuc.maSo]);
+
   const coHangChuaPhanLoai = months.some((m) => (khacTotals[m] || 0) > 0);
   const tongMay = months.reduce((s, m) => s + (mayTotals[m] || 0), 0);
   const tongLoi = months.reduce((s, m) => s + (loiTotals[m] || 0), 0);
@@ -415,6 +473,42 @@ export default function MonthlyForecast({ currentBU, user }) {
             ? <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
             : <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />}
           <span>{message.text}</span>
+        </div>
+      )}
+
+      {dongLechDanhMuc.maSo.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 text-amber-900 text-xs rounded-lg p-3 flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="font-semibold">
+              {dongLechDanhMuc.maSo.length} mã có số dự báo nhưng không nằm trong danh mục của {currentBU} —{' '}
+              {dongLechDanhMuc.tongSl.toLocaleString('vi-VN')} chiếc KHÔNG được tính vào bảng dưới.
+            </div>
+            <ul className="space-y-0.5">
+              {dongLechDanhMuc.maSo.slice(0, 8).map((ma) => {
+                const tt = kenhCuaMaLech[ma];
+                return (
+                  <li key={ma} className="font-mono">
+                    {ma} — {dongLechDanhMuc.theoMa[ma].toLocaleString('vi-VN')} chiếc
+                    <span className="font-sans">
+                      {tt
+                        ? (tt.kenh
+                            ? ' · thuộc kênh ' + tt.kenh + (tt.ten ? ' (' + tt.ten + ')' : '')
+                            : ' · có trong danh mục nhưng đang ngừng dùng')
+                        : ' · chưa có trong danh mục sản phẩm'}
+                    </span>
+                  </li>
+                );
+              })}
+              {dongLechDanhMuc.maSo.length > 8 && (
+                <li className="font-sans">... và {dongLechDanhMuc.maSo.length - 8} mã nữa</li>
+              )}
+            </ul>
+            <div className="font-sans text-[11px] text-amber-800">
+              Cách xử lý: nếu đúng là hàng của {currentBU} thì sửa Kênh mặc định của mã ở trang
+              Danh mục sản phẩm; nếu không thì xoá số ở đây và nhập vào chu kỳ của đúng đơn vị.
+            </div>
+          </div>
         </div>
       )}
 
