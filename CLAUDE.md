@@ -63,6 +63,20 @@ nổ *lúc render*, làm mất CẢ TRANG chứ không phải một ô. Quy tắ
 từ sheet vào state của form phải qua một hàm ép chuỗi **tại cửa vào**, đừng chữa
 ở từng chỗ gọi `.trim()`. Xem `AddProductModal.jsx`.
 
+**`setValues` ghi chuỗi số vào ô định dạng Tự động thì Sheets đổi nó thành
+SỐ.** Đây là cách mã sản phẩm chuyển từ chữ sang số mà không ai đụng vào bảng
+tính: `writeRowPatch_` ghi lại CẢ DÒNG, `upsertRows_` ghi lại CẢ BẢNG — nên
+sửa một sản phẩm là đổi kiểu dòng đó, dán hàng loạt một lần là đổi kiểu cả
+danh mục. Mã có số 0 đứng đầu thì mất số 0 vĩnh viễn. Mọi đường ghi vào
+Products phải gọi `giuCotMaDangChu_()` trước. Kiểm bằng `run_baoCao_kieuMa()`.
+
+**`obj[key]` tự ép chuỗi, `Set.has` và `Map.has` thì KHÔNG.** Hệ quả trực tiếp
+của điều trên, và là lý do lỗi kiểu mã chỉ hiện ở vài chỗ chứ không phải khắp
+nơi. `forecastMap[`${sku}_${m}`]` và `known[sku]` vẫn đúng khi mã là số;
+`nonZeroSkus.has(p.sku_code)` thì trượt sạch và quét trắng bảng, không báo gì.
+Dựng Set/Map từ mã SKU thì **cả hai phía** phải `String(x).trim()`. Đã vấp ở
+`MonthlyForecast`, `WeeklyForecast` và `ImportForecastModal` cùng một ngày.
+
 **`sourcemap: true` trong `vite.config.js` là cố ý**, không phải bỏ quên — để
 đọc được stack trace thật khi người dùng gửi lỗi từ Console.
 
