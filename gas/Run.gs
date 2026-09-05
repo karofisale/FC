@@ -146,3 +146,16 @@ function run_moKhoaTaiKhoan() {
 function run_baoCao_maNguoiDung() {
   return adminReportUserIds();
 }
+
+/**
+ * Vì sao màn hình báo "N mã chưa có giá" trong khi bảng tính nhìn thì có giá.
+ *
+ * Tách ba nhóm: ô là CHUỖI chứ không phải số (nhìn giống hệt một con số nhưng
+ * màn hình tính bằng 0), mã có kênh để trống (hiện ở mọi đơn vị nên hay bị bỏ
+ * sót khi soi), và ô trống/bằng 0 thật.
+ */
+function run_baoCao_thieuGia() {
+  var DON_VI = 'OEM';   // <-- đổi sang đơn vị đang mở trên màn hình
+
+  return adminReportMissingPrice(DON_VI);
+}

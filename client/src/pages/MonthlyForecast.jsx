@@ -274,6 +274,18 @@ export default function MonthlyForecast({ currentBU, user }) {
   // Gộp tổng theo tháng và tổng chu kỳ vào một lượt duyệt. Bản cũ tính
   // getMonthTotal hai lần cho mỗi tháng (một lần cho grandTotal, một lần khi
   // vẽ hàng tổng), tức quét filteredProducts gấp đôi số cần thiết.
+  /**
+   * Hàng tổng ở chân bảng tính trên TOÀN BỘ `products`, không phải
+   * `filteredProducts`.
+   *
+   * Bản cũ cộng trên danh sách đã lọc, nghĩa là bật bộ lọc nhóm, gõ tìm kiếm
+   * hay tick "chỉ hiện dòng khác 0" là con số tụt xuống — trong khi nhãn vẫn
+   * ghi "Doanh thu", không nói gì về việc nó chỉ là tổng của mấy dòng đang
+   * hiện. Người đọc không có cách nào biết mình đang nhìn một tổng cục bộ.
+   *
+   * Bộ lọc giờ chỉ còn quyết định HIỆN dòng nào; hàng tổng luôn là tổng của
+   * cả tháng.
+   */
   const { monthTotals, grandTotal, mayTotals, loiTotals, khacTotals, doanhThu, soSkuThieuGia, slThieuGia } =
     useMemo(() => {
       const per = {}, may = {}, loi = {}, khac = {}, dt = {};
@@ -282,7 +294,7 @@ export default function MonthlyForecast({ currentBU, user }) {
       const thieuGia = new Set();
       let slThieu = 0;
 
-      filteredProducts.forEach((p) => {
+      products.forEach((p) => {
         const nhom = String(p.product_group_code || '').trim();
         const bucket = NHOM_MAY.includes(nhom) ? may : NHOM_LOI.includes(nhom) ? loi : khac;
         // Mã chưa có giá thì doanh thu tính bằng 0 — cố ý, theo đúng yêu cầu.
@@ -309,13 +321,17 @@ export default function MonthlyForecast({ currentBU, user }) {
         soSkuThieuGia: thieuGia.size,
         slThieuGia: slThieu
       };
-    }, [filteredProducts, forecastMap, months]);
+    }, [products, forecastMap, months]);
 
   const coHangChuaPhanLoai = months.some((m) => (khacTotals[m] || 0) > 0);
   const tongMay = months.reduce((s, m) => s + (mayTotals[m] || 0), 0);
   const tongLoi = months.reduce((s, m) => s + (loiTotals[m] || 0), 0);
   const tongKhac = months.reduce((s, m) => s + (khacTotals[m] || 0), 0);
   const tongDoanhThu = months.reduce((s, m) => s + (doanhThu[m] || 0), 0);
+  // Hàng tổng luôn là tổng CẢ THÁNG. Khi có bộ lọc bật thì số dòng đang hiện ít
+  // hơn số dòng được cộng, nên phải nói ra — nếu không người đọc sẽ tự cộng
+  // nhẩm mấy dòng trên màn hình rồi tưởng hàng tổng sai.
+  const dangLoc = search.trim() !== '' || selectedGroup !== 'ALL' || onlyNonZero;
   const tyVnd = (v) => (v / 1e9).toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const scrollParentRef = useRef(null);
@@ -639,6 +655,11 @@ export default function MonthlyForecast({ currentBU, user }) {
               <tr>
                 <td colSpan="3" className="py-3 px-3 uppercase text-slate-700 text-right">
                   Tổng cộng sản lượng (chiếc):
+                  {dangLoc && (
+                    <span className="ml-2 normal-case font-normal text-[11px] text-slate-500">
+                      cả tháng — không theo bộ lọc đang bật
+                    </span>
+                  )}
                 </td>
                 {months.map((m) => (
                   <td key={m} className="py-3 px-3 text-right font-mono text-blue-900 font-black">
