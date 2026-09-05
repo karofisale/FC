@@ -379,10 +379,15 @@ export default function ImportForecastModal({
     setBusy(true);
     try {
       const allProducts = await api.getProducts({});
-      const known = new Set(allProducts.map((p) => p.sku_code));
+      // String() bat buoc: p.sku_code co the la SO (Sheets doi kieu ngay khi mot
+      // lenh setValues ghi lai o do), con r.skuCode luon la CHUOI vi den tu van
+      // ban dan vao. Set.has so ca kieu, nen thieu String() la MOI ma deu bi coi
+      // la "chua co trong danh muc" — va man hinh se moi nguoi dung them lai ca
+      // tram ma da ton tai.
+      const known = new Set(allProducts.map((p) => String(p.sku_code).trim()));
       const missingMap = new Map();
       parsed.forEach((r) => {
-        if (!known.has(r.skuCode) && !missingMap.has(r.skuCode)) {
+        if (!known.has(String(r.skuCode).trim()) && !missingMap.has(r.skuCode)) {
           missingMap.set(r.skuCode, { skuCode: r.skuCode, name: r.name || '', productGroupCode: bulkGroup, defaultChannel: bulkChannel, avgPrice: '' });
         }
       });
