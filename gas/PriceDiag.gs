@@ -166,3 +166,62 @@ function adminReportMissingPrice(bu) {
   Logger.log(out.join('\n'));
   return out.join('\n');
 }
+
+/**
+ * Đọc dữ liệu ĐÚNG THEO ĐƯỜNG CỦA /exec rồi báo kiểu dữ liệu thật.
+ *
+ * VÌ SAO CẦN: đây là điểm mù đã làm một lỗi nghiêm trọng ẩn qua ba vòng chẩn
+ * đoán. Hàm chạy tay trong trình soạn thảo đọc bằng getDataRange().getValues()
+ * và luôn thấy SỐ; còn /exec đi qua prefetchSheets_ dùng Sheets API, vốn có
+ * lúc trả về CHUỖI đã định dạng theo locale. Hai đường, hai kết quả, trên cùng
+ * một ô.
+ *
+ * Hàm này ép đọc theo đường thứ hai để so. Chạy nó mỗi khi một con số trên màn
+ * hình không khớp với bảng tính.
+ */
+function adminReportReadPath() {
+  resetTableCache_();
+  prefetchForAction_('getMonthlyWorkspace');
+
+  var out = [];
+  out.push('=== KIỂU DỮ LIỆU KHI ĐỌC THEO ĐƯỜNG /exec ===');
+  out.push('(prefetchSheets_ + Sheets API — KHÔNG phải getValues())');
+  out.push('');
+
+  var t = readTable_(SHEETS.PRODUCTS);
+  var iGia = t.idx.avg_price, iSku = t.idx.sku_code;
+  var soSo = 0, soChuoi = 0, mau = [];
+  for (var i = 0; i < t.rows.length; i++) {
+    var v = t.rows[i][iGia];
+    if (typeof v === 'number') soSo++;
+    else if (typeof v === 'string' && v.trim() !== '') {
+      soChuoi++;
+      if (mau.length < 5) mau.push('  ' + t.rows[i][iSku] + '  ' + JSON.stringify(v));
+    }
+  }
+
+  out.push('Cột avg_price: ' + soSo + ' ô là SỐ · ' + soChuoi + ' ô là CHUỖI');
+  if (soChuoi > 0) {
+    out.push('');
+    out.push('HỎNG. Chuỗi ở đây nghĩa là Sheets API đang trả FORMATTED_VALUE.');
+    out.push('Number("1.234.567") ra NaN, và mọi `Number(x) || 0` biến nó thành 0.');
+    out.push('Sửa: đặt valueRenderOption UNFORMATTED_VALUE trong prefetchSheets_.');
+    out.push('Ví dụ:');
+    mau.forEach(function (x) { out.push(x); });
+  } else {
+    out.push('ĐẠT — mọi giá trị về dạng số, đúng như đường getValues().');
+  }
+
+  var c = readTable_(SHEETS.CYCLES);
+  var iBm = c.idx.base_month;
+  if (c.rows.length && iBm != null) {
+    var bm = c.rows[0][iBm];
+    out.push('');
+    out.push('base_month đọc được: ' + JSON.stringify(bm) + ' (' + typeof bm + ')' +
+             ' -> normalizeMonth_ cho "' + normalizeMonth_(bm) + '"');
+    out.push('Chuỗi kết quả phải có dạng yyyy-MM-01. Nếu ra số hoặc rỗng thì');
+    out.push('normalizeMonth_ chưa đọc được dạng ngày mà đường này trả về.');
+  }
+
+  return psInLog_(out);
+}

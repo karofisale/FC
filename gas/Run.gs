@@ -184,6 +184,23 @@ function run_baoCao_thieuGia_moiDonVi() {
  * Để trống CHU_KY / PHIEN_BAN thì lấy chu kỳ mới nhất và phiên bản mà màn hình
  * cũng sẽ chọn.
  */
+/**
+ * Kiểm dữ liệu đọc theo ĐƯỜNG CỦA /exec có đúng kiểu không.
+ *
+ * Chạy mỗi khi một con số trên màn hình không khớp với bảng tính. Hàm chạy tay
+ * đọc bằng getValues() và luôn thấy số; /exec đi qua Sheets API và từng trả về
+ * chuỗi đã định dạng theo locale — điểm mù đã làm một lỗi nghiêm trọng ẩn qua
+ * ba vòng chẩn đoán.
+ */
+function run_baoCao_docQuaApi() {
+  return adminReportReadPath();
+}
+
+/**
+ * Dựng lại ĐÚNG phép tính của màn Kế hoạch tháng, ở phía server.
+ *
+ * (chú thích đầy đủ ở khối dưới)
+ */
 function run_baoCao_manKeHoach() {
   var DON_VI = 'OEM';     // <-- đơn vị đang mở trên màn hình
   var CHU_KY = '';        // <-- để trống = chu kỳ mới nhất
