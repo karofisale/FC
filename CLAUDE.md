@@ -56,6 +56,13 @@ tham số phải có một hàm `run_*` bọc ngoài để bấm Run được. �
 **`getValues()` trả về SỐ với mã toàn chữ số.** Mã người dùng như `3t` thì
 không sao, nhưng mã kiểu `0123` về thành số 123. Luôn `String(x).trim()`.
 
+Chỗ này đã vấp bốn lần, và lần gần nhất (05/09/2026) là trong **React**, nơi
+nó nguy hiểm hơn: `useState({ skuCode: product?.sku_code ?? '' })` trông đã an
+toàn — `??` chỉ chặn null/undefined, không chặn number — rồi `form.skuCode.trim()`
+nổ *lúc render*, làm mất CẢ TRANG chứ không phải một ô. Quy tắc: mọi giá trị đi
+từ sheet vào state của form phải qua một hàm ép chuỗi **tại cửa vào**, đừng chữa
+ở từng chỗ gọi `.trim()`. Xem `AddProductModal.jsx`.
+
 **`sourcemap: true` trong `vite.config.js` là cố ý**, không phải bỏ quên — để
 đọc được stack trace thật khi người dùng gửi lỗi từ Console.
 
