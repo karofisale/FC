@@ -95,6 +95,7 @@ check('dong sl=0 va tien=0 bi loai', g['2003030989'] === 50000, 'duoc ' + g['200
 
 console.log('4. XK: gia quyen + loc theo Shipdate that');
 const hX = ['Code', 'Ship Qty', 'Value', 'Shipdate'];
+const hP = ['Item_code', 'Qty', 'Amount', 'PI_Date'];
 const trongCuaSo = new Date(); trongCuaSo.setMonth(trongCuaSo.getMonth() - 2);
 const ngoaiCuaSo = new Date(); ngoaiCuaSo.setFullYear(ngoaiCuaSo.getFullYear() - 3);
 s = ctx({ 'OPS/Details': sheet([hX,
@@ -103,10 +104,32 @@ s = ctx({ 'OPS/Details': sheet([hX,
   ['2013010023', 0, 500, trongCuaSo],      // sl=0
   ['xxx', 10, 100, trongCuaSo],            // ma phi chuan
 ]) });
-const gx = s.psGiaXK_(s.psTuThang_(12));
-check('XK gia quyen dung, loai dong ngoai cua so', Math.abs(gx['2013010023'] - 10) < 1e-9,
-      'duoc ' + gx['2013010023']);
+let gx = s.psGiaXK_(s.psTuThang_(12));
+check('XK gia quyen dung, loai dong ngoai cua so',
+      gx['2013010023'] && Math.abs(gx['2013010023'].gia - 10) < 1e-9,
+      'duoc ' + JSON.stringify(gx['2013010023']));
 check('XK loai ma phi chuan', gx['xxx'] === undefined);
+check('khong co PIDetails van chay duoc', gx['2013010023'].nguon === 'daGiao');
+
+console.log('4b. Uu tien Details, thieu thi lay PI');
+s = ctx({
+  'OPS/Details': sheet([hX,
+    ['1111110001', 10, 100, trongCuaSo],       // co ca hai -> 10 USD (da giao)
+  ]),
+  'HUB/PIDetails': sheet([hP,
+    ['1111110001', 10, 990, trongCuaSo],       // PI bao 99 USD — PHAI BI BO QUA
+    ['2222220002', 5, 250, trongCuaSo],        // chi co PI -> 50 USD
+    ['3333330003', 5, 250, ngoaiCuaSo],        // PI ngoai cua so -> loai
+  ])
+});
+gx = s.psGiaXK_(s.psTuThang_(12));
+check('ma co ca hai -> lay Details, khong lay PI',
+      Math.abs(gx['1111110001'].gia - 10) < 1e-9 && gx['1111110001'].nguon === 'daGiao',
+      JSON.stringify(gx['1111110001']));
+check('ma chi co PI -> lay PI, danh dau nguon',
+      Math.abs(gx['2222220002'].gia - 50) < 1e-9 && gx['2222220002'].nguon === 'baoGia',
+      JSON.stringify(gx['2222220002']));
+check('PI ngoai cua so bi loai', gx['3333330003'] === undefined);
 
 console.log('5. Ty gia');
 s = ctx({ 'HUB/Dashboard': sheet([['Index', 'Value'], ['Min_Margin', 0.12], ['Exchange_Rate', 26150]]) });

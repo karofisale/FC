@@ -42,6 +42,11 @@
  *    không mô tả được kỳ kế hoạch sắp tới.
  * ---------------------------------------------------------------------------
  *
+ * Giá Xuất khẩu lấy theo thứ tự ưu tiên: tab Details của Operations2026 (đơn ĐÃ
+ * GIAO) trước, thiếu mã nào mới lấy PIDetails của hub (BÁO GIÁ PI, gồm cả đơn
+ * chưa giao). Số đã giao chắc chắn hơn; nhưng một mã mới chỉ có báo giá mà chưa
+ * giao lô nào thì thà lấy giá PI còn hơn để 0 rồi tính doanh thu bằng không.
+ *
  * Mã dùng chung (có ở cả hai nguồn — 39 mã tính đến 09/2026, đều là linh
  * kiện): lấy giá của OEM, vì OEM có giá từ giao dịch nội địa thật. Nhưng vẫn
  * báo ra mã nào hai nguồn lệch quá NGUONG_LECH: hoặc dữ liệu sai, hoặc giá
@@ -130,57 +135,95 @@ function psGiaOEM_(tuThang) {
 }
 
 /**
- * Giá bình quân gia quyền theo SKU từ tab Details của Operations2026, đơn vị
- * USD (chưa quy đổi). Đọc theo TÊN CỘT vì tab này do người dùng duy trì và
- * thứ tự cột đã đổi trong quá khứ.
+ * Gom tổng tiền / tổng lượng theo mã từ MỘT tab bất kỳ, đọc theo TÊN CỘT.
+ *
+ * Dùng chung cho cả hai nguồn của Xuất khẩu vì phép tính giống hệt nhau — chỉ
+ * khác tên cột và tab. Đọc theo tên chứ không theo vị trí vì hai tab này do
+ * người dùng duy trì và thứ tự cột đã đổi trong quá khứ.
+ *
+ * @return {Object} { ma: {sl, tien} } — CHƯA chia, để nơi gọi tự quyết.
  */
-function psGiaXK_(tuThang) {
-  var sh = SpreadsheetApp.openById(PREP_OPS2026_ID).getSheetByName('Details');
-  if (!sh) throw new Error('File Operations2026 không có tab Details.');
-  var v = sh.getDataRange().getValues();
+function psGomTheoMa_(sheet, ten, tuThang) {
+  var v = sheet.getDataRange().getValues();
+  if (v.length < 2) return {};
   var h = v[0].map(function (x) { return String(x).trim(); });
-  function cot(ten) {
-    for (var i = 0; i < ten.length; i++) {
-      var j = h.indexOf(ten[i]);
+  function cot(ds) {
+    for (var i = 0; i < ds.length; i++) {
+      var j = h.indexOf(ds[i]);
       if (j >= 0) return j;
     }
     return -1;
   }
-  var iMa = cot(['Code']);
-  var iSl = cot(['Ship Qty']);
-  var iTien = cot(['Value']);
-  var iNgay = cot(['Shipdate']);
+  var iMa = cot(ten.ma), iSl = cot(ten.sl), iTien = cot(ten.tien);
+  var iNgay = ten.ngay ? cot(ten.ngay) : -1;
   if (iMa < 0 || iSl < 0 || iTien < 0) {
-    throw new Error('Tab Details thiếu cột Code/Ship Qty/Value.');
+    throw new Error('Tab ' + sheet.getName() + ' thiếu cột ' +
+                    ten.ma[0] + '/' + ten.sl[0] + '/' + ten.tien[0] + '.');
   }
 
   var gom = {};
-  for (var i = 1; i < v.length; i++) {
-    var r = v[i];
-    var ma = sopMa_(r[iMa]);
+  for (var r = 1; r < v.length; r++) {
+    var row = v[r];
+    var ma = sopMa_(row[iMa]);
     if (!ma || !prepChuan_(ma)) continue;
 
     if (iNgay >= 0) {
-      var d = r[iNgay];
+      var d = row[iNgay];
       // Ngày ở đây là Date thật (Export ghi bằng new Date(...)). Ô trống hoặc
-      // text không đọc được thì bỏ qua dòng, cùng lý do như bên OEM.
-      if (!(Object.prototype.toString.call(d) === '[object Date]') || isNaN(d.getTime())) continue;
-      var thang = Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM');
-      if (thang < tuThang) continue;
+      // text không đọc được thì bỏ dòng — thà thiếu một dòng còn hơn kéo giá
+      // của mấy năm trước vào bình quân.
+      if (Object.prototype.toString.call(d) !== '[object Date]' || isNaN(d.getTime())) continue;
+      if (Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM') < tuThang) continue;
     }
 
-    var sl = psSo_(r[iSl]);
-    var tien = psSo_(r[iTien]);
+    var sl = psSo_(row[iSl]);
+    var tien = psSo_(row[iTien]);
     if (sl <= 0 || tien <= 0) continue;
 
     if (!gom[ma]) gom[ma] = { sl: 0, tien: 0 };
     gom[ma].sl += sl;
     gom[ma].tien += tien;
   }
+  return gom;
+}
+
+/** Chia tổng tiền cho tổng lượng. */
+function psBinhQuan_(gom) {
   var out = {};
-  Object.keys(gom).forEach(function (ma) {
-    out[ma] = gom[ma].tien / gom[ma].sl;   // USD, chưa làm tròn
-  });
+  Object.keys(gom).forEach(function (ma) { out[ma] = gom[ma].tien / gom[ma].sl; });
+  return out;
+}
+
+/**
+ * Giá USD của Xuất khẩu, hai nguồn theo thứ tự ưu tiên:
+ *
+ *   1. Details (Operations2026) — đơn ĐÃ GIAO. Số chắc chắn nhất.
+ *   2. PIDetails (hub)          — BÁO GIÁ PI, gồm cả đơn chưa giao.
+ *
+ * Details thắng ở mọi mã nó có. PI chỉ lấp chỗ trống: một mã mới chỉ có báo
+ * giá mà chưa giao lô nào trong cửa sổ thì thà lấy giá PI còn hơn để 0 rồi
+ * tính doanh thu bằng không.
+ *
+ * @return {Object} { ma: {gia, nguon} } — nguon là 'daGiao' hoặc 'baoGia'.
+ */
+function psGiaXK_(tuThang) {
+  var det = SpreadsheetApp.openById(PREP_OPS2026_ID).getSheetByName('Details');
+  if (!det) throw new Error('File Operations2026 không có tab Details.');
+  var daGiao = psBinhQuan_(psGomTheoMa_(det, {
+    ma: ['Code'], sl: ['Ship Qty'], tien: ['Value'], ngay: ['Shipdate']
+  }, tuThang));
+
+  var baoGia = {};
+  var pid = SpreadsheetApp.openById(PREP_HUB_ID).getSheetByName('PIDetails');
+  if (pid) {
+    baoGia = psBinhQuan_(psGomTheoMa_(pid, {
+      ma: ['Item_code'], sl: ['Qty'], tien: ['Amount'], ngay: ['PI_Date']
+    }, tuThang));
+  }
+
+  var out = {};
+  Object.keys(baoGia).forEach(function (ma) { out[ma] = { gia: baoGia[ma], nguon: 'baoGia' }; });
+  Object.keys(daGiao).forEach(function (ma) { out[ma] = { gia: daGiao[ma], nguon: 'daGiao' }; });
   return out;
 }
 
@@ -198,7 +241,7 @@ function psChay_(ghiThat) {
   var tuThang = psTuThang_(PS_SO_THANG);
   var tyGia = psTyGia_();
   var oem = psGiaOEM_(tuThang);
-  var xkUsd = psGiaXK_(tuThang);
+  var xk = psGiaXK_(tuThang);   // { ma: {gia, nguon} }
 
   var table = readTable_(SHEETS.PRODUCTS);
   var iSku = table.idx.sku_code;
@@ -219,7 +262,7 @@ function psChay_(ghiThat) {
     if (!ma) continue;
 
     var gOem = oem[ma];
-    var gXk = xkUsd[ma] ? Math.round(xkUsd[ma] * tyGia) : undefined;
+    var gXk = xk[ma] ? Math.round(xk[ma].gia * tyGia) : undefined;
 
     // Mã dùng chung -> lấy OEM (giá từ giao dịch nội địa thật), nhưng nêu tên
     // nếu hai nguồn lệch nhiều.
@@ -253,7 +296,10 @@ function psChay_(ghiThat) {
   out.push(ghiThat ? 'CHẾ ĐỘ: GHI THẬT' : 'CHẾ ĐỘ: chạy thử — không đổi gì');
   out.push('Cửa sổ: từ ' + tuThang + ' (' + PS_SO_THANG + ' tháng)');
   out.push('Tỷ giá USD→VND: ' + tyGia.toLocaleString('en-US') + '  (Exchange_Rate, hub ExportSystem)');
-  out.push('Nguồn: OEM ' + Object.keys(oem).length + ' mã · XK ' + Object.keys(xkUsd).length + ' mã');
+  var soDaGiao = 0, soBaoGia = 0;
+  Object.keys(xk).forEach(function (m) { xk[m].nguon === 'daGiao' ? soDaGiao++ : soBaoGia++; });
+  out.push('Nguồn: OEM ' + Object.keys(oem).length + ' mã · XK ' + Object.keys(xk).length +
+           ' mã (' + soDaGiao + ' từ đơn đã giao, ' + soBaoGia + ' chỉ có báo giá PI)');
   out.push('');
   out.push('Đổi giá: ' + doi.length + ' mã · giữ nguyên: ' + giuNguyen +
            ' · không có số bán trong cửa sổ (bỏ qua): ' + khongNguon);

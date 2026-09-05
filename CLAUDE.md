@@ -79,6 +79,10 @@ VND tại lúc đồng bộ (không phải lúc đọc), tỷ giá lấy từ ô
 hub, **bình quân gia quyền** chứ không phải trung bình cộng đơn giá, và chỉ lấy
 12 tháng gần nhất.
 
+Nguồn giá Xuất khẩu theo thứ tự ưu tiên: `Details` của Operations2026 (đơn **đã
+giao**) trước, thiếu mã nào mới lấy `PIDetails` của hub (**báo giá PI**, gồm cả
+đơn chưa giao). Báo cáo in ra bao nhiêu mã đến từ mỗi nguồn.
+
 Con số ở đây sẽ **khác** màn hình OEM — có chủ ý: OEM dùng trung bình cộng đơn
 giá (hợp cho việc nhập đơn), FC cần doanh thu kỳ vọng trên mỗi đơn vị. Ca đầu
 tiên trong `test/pricesync.test.js` chốt đúng chỗ đó.
