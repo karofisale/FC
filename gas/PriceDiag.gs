@@ -20,6 +20,69 @@
  * Báo cáo này tách rõ ba nhóm đó, kèm giá trị thô và KIỂU dữ liệu của ô.
  */
 
+/** In mang dong ra Nhat ky va tra ve cung chuoi do. */
+function psInLog_(dong) {
+  var s = dong.join(String.fromCharCode(10));
+  Logger.log(s);
+  return s;
+}
+
+/**
+ * Đếm nhanh mã thiếu giá cho TỪNG đơn vị — để biết con số trên màn hình đến từ
+ * đâu trước khi soi chi tiết.
+ *
+ * Cần vì màn hình không phải lúc nào cũng đang mở đúng đơn vị người ta nghĩ:
+ * `currentBU` mặc định là đơn vị của người dùng, và người KHÔNG thuộc đơn vị
+ * nào (central_admin) thì rơi vào ĐƠN VỊ ĐẦU TIÊN trong danh sách. Soi nhầm
+ * đơn vị là đi tìm một lỗi không tồn tại.
+ */
+function adminReportMissingPriceByBU() {
+  var bus = readObjects_(SHEETS.BUSINESS_UNITS)
+    .filter(function (b) { return String(b.is_active) !== '0'; })
+    .map(function (b) { return String(b.code).trim(); })
+    .filter(Boolean);
+
+  var out = [];
+  out.push('=== MÃ THIẾU GIÁ THEO TỪNG ĐƠN VỊ ===');
+  out.push('Đơn vị nào có con số khớp với màn hình thì soi tiếp đơn vị đó bằng');
+  out.push('run_baoCao_thieuGia() (sửa DON_VI ở đầu hàm).');
+  out.push('');
+  out.push('  ĐƠN VỊ      NHÌN THẤY   THIẾU GIÁ');
+
+  bus.forEach(function (bu) {
+    var d = psDemThieuGia_(bu);
+    out.push('  ' + (bu + '            ').slice(0, 12) + String(d.nhinThay).padStart(6) +
+             '      ' + String(d.thieu).padStart(6));
+  });
+  var tat = psDemThieuGia_('');
+  out.push('  ' + '(toàn bộ)   ' + String(tat.nhinThay).padStart(6) + '      ' + String(tat.thieu).padStart(6));
+
+  // XUONG_DONG thay cho ky tu thoat: chuoi thoat hay bi hong khi file nay
+  // di qua cac buoc sinh ma, va mot ky tu xuong dong that nam trong chuoi
+  // JS la loi cu phap — clasp chan push, nhung mat mot vong.
+  return psInLog_(out);
+}
+
+/** Đếm thuần, dùng cho bảng tổng hợp ở trên. */
+function psDemThieuGia_(bu) {
+  var table = readTable_(SHEETS.PRODUCTS);
+  var iSku = table.idx.sku_code, iGia = table.idx.avg_price;
+  var iCh = table.idx.default_channel, iAct = table.idx.is_active;
+  var nhinThay = 0, thieu = 0;
+  for (var i = 0; i < table.rows.length; i++) {
+    var r = table.rows[i];
+    if (!String(r[iSku] == null ? '' : r[iSku]).trim()) continue;
+    var act = String(r[iAct]).trim();
+    if (act === '0' || act.toLowerCase() === 'false') continue;
+    var kenh = String(r[iCh] == null ? '' : r[iCh]).trim();
+    if (bu && kenh && kenh !== String(bu)) continue;
+    nhinThay++;
+    var o = r[iGia], so = Number(o);
+    if (!(o !== '' && o !== null && o !== undefined && isFinite(so) && so > 0)) thieu++;
+  }
+  return { nhinThay: nhinThay, thieu: thieu };
+}
+
 /**
  * @param {string} bu Mã đơn vị, ví dụ 'OEM'. Bỏ trống thì soi toàn bộ danh mục.
  */

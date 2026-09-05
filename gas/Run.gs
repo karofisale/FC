@@ -159,3 +159,15 @@ function run_baoCao_thieuGia() {
 
   return adminReportMissingPrice(DON_VI);
 }
+
+/**
+ * Đếm mã thiếu giá cho TỪNG đơn vị, một bảng.
+ *
+ * Chạy cái này TRƯỚC run_baoCao_thieuGia(): màn hình không phải lúc nào cũng
+ * đang mở đúng đơn vị mình nghĩ — người không thuộc đơn vị nào thì rơi vào đơn
+ * vị đầu tiên trong danh sách. Tìm đơn vị có con số khớp với màn hình rồi mới
+ * soi chi tiết đơn vị đó.
+ */
+function run_baoCao_thieuGia_moiDonVi() {
+  return adminReportMissingPriceByBU();
+}
