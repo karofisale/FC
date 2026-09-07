@@ -199,7 +199,12 @@ function reopenCycle_(session, cycleId, reason) {
   return { message: 'Đã mở lại chu kỳ ' + cycleId + ' để chỉnh sửa.' };
 }
 
-function saveMonthlyLines_(session, versionId, lines) {
+/**
+ * @param {boolean} [replaceAll] nhập lại từ file: xoá sạch dữ liệu cũ của bản kế
+ *     hoạch này rồi ghi bộ mới. Lưới sửa tay KHÔNG dùng cờ này — sửa một ô mà
+ *     xoá cả bảng thì không ai muốn.
+ */
+function saveMonthlyLines_(session, versionId, lines, replaceAll) {
   if (!versionId || !Array.isArray(lines)) throw new Error('Thiếu versionId hoặc danh sách dòng.');
   var ctx = versionContext_(versionId);
   assertCanEdit_(session, ctx.cycle);
@@ -237,8 +242,10 @@ function saveMonthlyLines_(session, versionId, lines) {
   // mỗi lượt ghi lại toàn bộ bảng).
   assertKnownSkus_(toUpsert.map(function (r) { return r.sku_code; }));
 
-  var written = applyRowChanges_(
-    SHEETS.MONTHLY_LINES, ['version_id', 'sku_code', 'forecast_month'], toUpsert, toDelete);
+  var written = replaceAll
+    ? replaceRowsForScope_(SHEETS.MONTHLY_LINES, 'version_id', versionId, toUpsert)
+    : applyRowChanges_(
+        SHEETS.MONTHLY_LINES, ['version_id', 'sku_code', 'forecast_month'], toUpsert, toDelete);
   return {
     message: 'Đã lưu ' + written.total + ' dòng kế hoạch tháng.',
     updated: written.updated,
@@ -247,7 +254,8 @@ function saveMonthlyLines_(session, versionId, lines) {
   };
 }
 
-function saveWeeklySplits_(session, versionId, splits) {
+/** @param {boolean} [replaceAll] xem ghi chú ở saveMonthlyLines_. */
+function saveWeeklySplits_(session, versionId, splits, replaceAll) {
   if (!versionId || !Array.isArray(splits)) throw new Error('Thiếu versionId hoặc danh sách dòng.');
   var ctx = versionContext_(versionId);
   assertCanEdit_(session, ctx.cycle);
@@ -286,8 +294,10 @@ function saveWeeklySplits_(session, versionId, splits) {
   // Một lượt ghi duy nhất cho cả xoá lẫn cập nhật.
   assertKnownSkus_(toUpsert.map(function (r) { return r.sku_code; }));
 
-  var written = applyRowChanges_(
-    SHEETS.WEEKLY_SPLITS, ['version_id', 'sku_code', 'week_number', 'region_code'], toUpsert, toDelete);
+  var written = replaceAll
+    ? replaceRowsForScope_(SHEETS.WEEKLY_SPLITS, 'version_id', versionId, toUpsert)
+    : applyRowChanges_(
+        SHEETS.WEEKLY_SPLITS, ['version_id', 'sku_code', 'week_number', 'region_code'], toUpsert, toDelete);
   return {
     message: 'Đã lưu ' + written.total + ' dòng kế hoạch tuần/miền.',
     updated: written.updated,

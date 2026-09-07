@@ -464,14 +464,16 @@ export default function WeeklyForecast({ currentBU, user }) {
                 const lines = monthlyUpdates.map(({ rowKey, col, value }) => ({
                   skuCode: rowKey, forecastMonth: col, quantity: value
                 }));
-                await api.saveMonthlyLines(selectedVersion.id, lines);
+                // Nhập lại = ghi đè trọn bản kế hoạch này: SKU không còn trong file
+                // phải biến mất, không được nằm lại cộng vào tổng.
+                await api.saveMonthlyLines(selectedVersion.id, lines, true);
                 parts.push(`${lines.length} ô Bảng tháng`);
               }
               if (weeklyUpdates.length) {
                 const splits = weeklyUpdates.map(({ rowKey, col, value }) => ({
                   skuCode: rowKey, weekNumber: col.week, regionCode: col.region, quantity: value
                 }));
-                await api.saveWeeklySplits(selectedVersion.id, splits);
+                await api.saveWeeklySplits(selectedVersion.id, splits, true);
                 parts.push(`${splits.length} ô Bảng tuần/miền`);
               }
               await loadForecasts(selectedVersion.id, normalizeMonth(selectedCycle.base_month));

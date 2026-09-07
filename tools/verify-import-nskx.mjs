@@ -52,7 +52,7 @@ const say = (ok, msg) => { if (!ok) bad++; console.log(`  ${ok ? 'ok  ' : 'FAIL'
 console.log(`sheet "${sheetName}", ${rows.length} dòng\n`);
 
 console.log('1. Tách được hai bảng theo dòng phân cách ghi tên miền');
-const blocks = detectStackedBlocks(rows, DATA_START, SKU_COL, REGIONS);
+const blocks = detectStackedBlocks(rows, SKU_COL, REGIONS);
 blocks.forEach((b) => {
   const withSku = b.rows.filter((r) => String(r?.[SKU_COL] ?? '').trim()).length;
   console.log(`   ${b.region}: dòng phân cách ${b.markerRowIdx + 1}, ${withSku} mã`);

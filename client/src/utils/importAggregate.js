@@ -219,11 +219,17 @@ export function splitMonthIntoWeeks(quantity, weekCount, step = 10) {
  * Dòng "Tổng (I+II)" cuối file không có mã hàng nên tự bị bỏ qua như mọi dòng
  * không có SKU khác.
  */
-export function detectStackedBlocks(rawRows, dataStartIdx, markerColIdx, regionCodes) {
+export function detectStackedBlocks(rawRows, markerColIdx, regionCodes) {
   const blocks = [];
   let current = null;
 
-  for (let r = dataStartIdx; r < rawRows.length; r++) {
+  // Quét TỪ ĐẦU SHEET, không theo "dòng bắt đầu dữ liệu".
+  //
+  // Bản đầu bắt đầu quét từ dòng đó, nên ai đặt "bắt đầu từ dòng 3" (rất tự
+  // nhiên, vì file 3T phải đặt như vậy) là nhảy qua luôn dòng "Miền Nam" ở dòng 2
+  // — mất sạch bảng trên, chỉ còn Miền Bắc, và nút Đọc dữ liệu bị khoá vì thiếu
+  // miền. Vị trí dòng phân cách là do file quyết định, không phải do người dùng khai.
+  for (let r = 0; r < rawRows.length; r++) {
     const row = rawRows[r];
     if (!row) continue;
     const region = matchRegion(row[markerColIdx], regionCodes);
@@ -234,7 +240,10 @@ export function detectStackedBlocks(rawRows, dataStartIdx, markerColIdx, regionC
     }
     if (current) current.rows.push(row);
   }
-  return blocks;
+
+  // Bỏ bảng rỗng: một dòng tiêu đề lớn có chữ tên miền cũng khớp mẫu, nhưng
+  // nếu phía dưới không có dòng nào mang mã SKU thì đó không phải một bảng.
+  return blocks.filter((b) => b.rows.some((r) => String(r?.[markerColIdx] ?? '').trim()));
 }
 
 export function guessRegionSheets(sheetNames, regionCodes, baseMonth) {

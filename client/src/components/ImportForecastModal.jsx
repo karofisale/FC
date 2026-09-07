@@ -260,12 +260,17 @@ export default function ImportForecastModal({
 
   /** Mỗi miền một khối dòng, đã cắt đúng vùng dữ liệu. */
   const regionBlocks = useMemo(() => {
-    if (stacked) return detectStackedBlocks(rawRows, dataStartRowNum - 1, skuColIdx === NONE ? -1 : skuColIdx, regionCodes);
+    if (stacked) return detectStackedBlocks(rawRows, skuColIdx === NONE ? -1 : skuColIdx, regionCodes);
     if (!perSheet || !sheets) return [];
     return regionCodes
       .filter((code) => regionSheetMap[code] && sheets[regionSheetMap[code]])
       .map((code) => ({ region: code, rows: sheets[regionSheetMap[code]].slice(dataStartRowNum - 1) }));
   }, [stacked, rawRows, skuColIdx, perSheet, sheets, regionCodes, regionSheetMap, dataStartRowNum]);
+
+  /** Miền nào chưa tìm thấy dữ liệu — dùng để nói rõ vì sao chưa đọc được. */
+  const missingRegions = regionMode
+    ? regionCodes.filter((code) => !regionBlocks.some((b) => b.region === code))
+    : [];
 
   /**
    * Đối chiếu tổng app cộng được với DÒNG TỔNG có sẵn trong file.
@@ -661,7 +666,14 @@ export default function ImportForecastModal({
                     <NumberField label="Dòng tiêu đề là dòng số" value={headerRowNum} onChange={setHeaderRowNum} />
                   )}
                 </div>
-                <NumberField label="Bắt đầu lấy dữ liệu từ dòng số" value={dataStartRowNum} onChange={setDataStartRowNum} />
+                {stacked ? (
+                  <p className="text-[11px] text-slate-500 self-end">
+                    Bố cục chồng dọc không dùng ô “bắt đầu từ dòng” — vùng dữ liệu của mỗi miền
+                    do chính dòng phân cách trong file xác định.
+                  </p>
+                ) : (
+                  <NumberField label="Bắt đầu lấy dữ liệu từ dòng số" value={dataStartRowNum} onChange={setDataStartRowNum} />
+                )}
               </div>
 
               {canImportWeekly && (
@@ -911,6 +923,18 @@ export default function ImportForecastModal({
                       )}
                     </div>
                   )}
+                </div>
+              )}
+
+              {regionMode && missingRegions.length > 0 && (
+                <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 text-[11px] text-rose-800">
+                  <p className="font-bold">Chưa đủ dữ liệu để đọc — thiếu miền {missingRegions.join(', ')}</p>
+                  <p className="mt-1">
+                    {stacked
+                      ? 'Không tìm thấy dòng phân cách mang tên miền đó ở cột mã SKU. Kiểm lại ô "Cột mã SKU" đã trỏ đúng cột chứa chữ "Miền Bắc" / "Miền Nam" chưa.'
+                      : 'Chọn sheet cho miền còn thiếu ở phần trên.'}
+                  </p>
+                  <p className="mt-1">Nhập thiếu một miền sẽ làm mất số của miền đó, nên nút Đọc dữ liệu tạm khoá.</p>
                 </div>
               )}
 

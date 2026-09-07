@@ -375,6 +375,34 @@ function applyRowChanges_(name, keyFields, upserts, deletes) {
   return { total: records.length, updated: updated, inserted: inserted, deleted: deleted };
 }
 
+/**
+ * Thay TOÀN BỘ dữ liệu thuộc một phạm vi bằng bộ bản ghi mới.
+ *
+ * Dùng cho việc nhập lại từ file: bản cũ của kỳ phải biến mất hết, kể cả
+ * những SKU không còn trong file mới. upsertRows_ chỉ đụng tới khoá có trong
+ * danh sách gửi lên, nên SKU đã bị bỏ khỏi kế hoạch vẫn nằm lại và cộng vào
+ * tổng — không ai thấy vì lưới chỉ hiện SKU có số.
+ *
+ * Xoá theo GIÁ TRỊ CỘT chứ không theo khoá tổ hợp: không phụ thuộc việc
+ * chuẩn hoá tháng/mã hai bên có giống nhau hay không, nên không sót dòng.
+ * Vẫn chỉ MỘT lệnh ghi.
+ */
+function replaceRowsForScope_(name, scopeField, scopeValue, records) {
+  var t = readTable_(name);
+  var col = t.idx[scopeField];
+  if (col === undefined) throw new Error('Sheet ' + name + ' thiếu cột "' + scopeField + '".');
+
+  var before = t.rows.length;
+  t.rows = t.rows.filter(function (row) { return String(row[col]) !== String(scopeValue); });
+  var removed = before - t.rows.length;
+
+  var added = (records || []).map(function (rec) { return objectToRow_(t.headers, rec, null); });
+  if (added.length) t.rows = t.rows.concat(added);
+  writeTable_(name, t);
+
+  return { total: added.length, inserted: added.length, updated: 0, deleted: removed };
+}
+
 /** Chi upsert. Giu lai cho cac cho goi cu (Admin.gs, importProducts_...). */
 function upsertRows_(name, keyFields, records) {
   return applyRowChanges_(name, keyFields, records, []);

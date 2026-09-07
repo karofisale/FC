@@ -102,11 +102,14 @@ export const api = {
 
   // ----- bảng 0: kế hoạch tháng -----
   getMonthlyLines: (versionId) => callGAS('getMonthlyLines', auth({ versionId })),
-  saveMonthlyLines: (versionId, lines) => callGAS('saveMonthlyLines', auth({ versionId, lines })),
+  // replaceAll: chỉ đường nhập từ file dùng — xoá sạch bản cũ của kỳ rồi ghi lại
+  saveMonthlyLines: (versionId, lines, replaceAll) =>
+    callGAS('saveMonthlyLines', auth({ versionId, lines, replaceAll })),
 
   // ----- bảng 1: kế hoạch tuần / miền -----
   getWeeklySplits: (versionId) => callGAS('getWeeklySplits', auth({ versionId })),
-  saveWeeklySplits: (versionId, splits) => callGAS('saveWeeklySplits', auth({ versionId, splits })),
+  saveWeeklySplits: (versionId, splits, replaceAll) =>
+    callGAS('saveWeeklySplits', auth({ versionId, splits, replaceAll })),
   validateWeeklySplits: (versionId) => callGAS('validateWeekly', auth({ versionId })),
 
   // ----- báo cáo -----

@@ -145,8 +145,8 @@ function dispatch_(action, p, session) {
     // ----- ghi -----
     case 'createCycle':      return createCycle_(session, p);
     case 'createVersion':    return createVersion_(session, p);
-    case 'saveMonthlyLines': return saveMonthlyLines_(session, p.versionId, p.lines);
-    case 'saveWeeklySplits': return saveWeeklySplits_(session, p.versionId, p.splits);
+    case 'saveMonthlyLines': return saveMonthlyLines_(session, p.versionId, p.lines, p.replaceAll === true);
+    case 'saveWeeklySplits': return saveWeeklySplits_(session, p.versionId, p.splits, p.replaceAll === true);
     case 'submitCycle':      return submitCycle_(session, p.cycleId, p.versionId);
     case 'reopenCycle':      return reopenCycle_(session, p.cycleId, p.reason);
     case 'decideApproval':   return decideApproval_(session, p.approvalId, p.decision, p.comment);
