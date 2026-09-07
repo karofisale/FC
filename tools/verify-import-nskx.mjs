@@ -10,7 +10,7 @@
  *   - dòng cuối "Tổng (I+II)" ghi tổng hai miền
  *   - tuần được suy ra từ tháng đầu nên tổng tuần phải bằng tổng tháng đầu
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import {
   aggregateRegionBlocks, detectStackedBlocks, readTotalsRow, splitMonthIntoWeeks
@@ -24,9 +24,17 @@ const flag = (n, d) => {
 };
 const FILE = flag('--file', 'C:/Users/haict.tecomen/Downloads/NSKX.xlsx');
 
+// File nguon nam NGOAI kho (chua du lieu ke hoach that, kho nay phuc vu
+// GitHub Pages nen khong dua vao). Bao ro thay vi do stack ENOENT.
+if (!existsSync(FILE)) {
+  console.error(`Khong thay file NSKX: ${FILE}
+Truyen duong dan bang --file "..."`);
+  process.exit(2);
+}
+
 const wb = XLSX.read(readFileSync(FILE), { type: 'buffer' });
 const sheetName = wb.SheetNames[0];
-const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: null, blankrows: true });
+const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: '', blankrows: true });
 
 // Bố cục NSKX: A=STT, B=Mã hàng, C=Tên model, D..G=4 tháng, H=Ghi chú
 const SKU_COL = 1;

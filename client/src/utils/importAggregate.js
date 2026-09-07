@@ -131,8 +131,17 @@ export function readTotalsRow(row, monthStartCol, monthCount) {
   const out = [];
   for (let i = 0; i < monthCount; i++) {
     const v = row[monthStartCol + i];
-    if (typeof v !== 'number') return null;   // không phải dòng tổng
-    out.push(v);
+    // parseExcelFile đọc với raw:false nên MỌI ô của file tải lên là CHUỖI.
+    // Bản đầu chỉ nhận typeof 'number' nên phép đối chiếu không bao giờ chạy
+    // với file tải lên — chỉ chạy với đường Google Sheet. Nhận cả hai kiểu,
+    // nhưng vẫn phải là số thật: ô trống hay ô chữ không được coi là dòng tổng.
+    if (v === null || v === undefined) return null;
+    if (typeof v === 'number') { out.push(v); continue; }
+    const s = String(v).trim();
+    if (!s || !/^-?[\d.,\s]+$/.test(s)) return null;
+    const n = parsePastedNumber(s);
+    if (!Number.isFinite(n)) return null;
+    out.push(n);
   }
   return out;
 }
@@ -142,7 +151,10 @@ export function readTotalsRow(row, monthStartCol, monthCount) {
  * số ở các cột tháng. Trả về chỉ số dòng (0-based) hoặc -1.
  */
 export function findTotalsRow(rawRows, dataStartIdx, skuColIdx, monthStartCol, monthCount) {
-  for (let r = dataStartIdx - 1; r >= 0; r--) {
+  // Xét cả chính dòng bắt đầu dữ liệu: file 3T đặt dòng tổng ngay trên dữ liệu,
+  // ai để nguyên mặc định "bắt đầu từ dòng 2" sẽ mất luôn phép đối chiếu.
+  // Không nhầm sang dòng dữ liệu được vì dòng nào có mã SKU đều bị bỏ qua.
+  for (let r = dataStartIdx; r >= 0; r--) {
     const row = rawRows[r];
     if (!row) continue;
     if (String(row[skuColIdx] ?? '').trim()) continue;

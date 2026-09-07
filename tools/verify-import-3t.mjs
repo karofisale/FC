@@ -10,7 +10,7 @@
  *   2. tổng bốn cột tuần                  ==  cột tháng gốc (quy tắc của app)
  *   3. mã trùng trong cùng sheet phải được CỘNG, không lấy dòng sau
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import {
   aggregateRegionBlocks, readTotalsRow, findTotalsRow, guessRegionSheets
@@ -25,10 +25,18 @@ const flag = (n, d) => {
 const FILE = flag('--file', 'D:/Operation/Claude/CLAUDE-OUTPUTS/Sale FC/3TDO-000634. ĐẶT HÀNG HÀNG THÁNG_KRF THÁNG 9 gốc.xlsx');
 const MONTH = Number(flag('--month', '9'));
 
+// File nguon nam NGOAI kho (chua du lieu ke hoach that, kho nay phuc vu
+// GitHub Pages nen khong dua vao). Bao ro thay vi do stack ENOENT.
+if (!existsSync(FILE)) {
+  console.error(`Khong thay file 3T: ${FILE}
+Truyen duong dan bang --file "..."`);
+  process.exit(2);
+}
+
 const wb = XLSX.read(readFileSync(FILE), { type: 'buffer' });
 const sheets = {};
 wb.SheetNames.forEach((n) => {
-  sheets[n] = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: null, blankrows: true });
+  sheets[n] = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '', blankrows: true });
 });
 
 // Bố cục của file 3T (người dùng xác nhận: dữ liệu ở cột A..L)

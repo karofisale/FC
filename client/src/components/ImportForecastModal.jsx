@@ -137,6 +137,37 @@ export default function ImportForecastModal({
     });
   }
 
+  /**
+   * Ngay khi nạp nguồn: nếu tìm được sheet của CẢ HAI miền cho đúng kỳ thì
+   * chọn sẵn bố cục "mỗi miền một sheet".
+   *
+   * Để mặc định là "một bảng" với file kiểu 3T là sai theo kiểu nguy hiểm nhất:
+   * nó vẫn chạy, vẫn báo đã lưu, chỉ là thiếu hẳn một miền. Để máy tự nhận ra
+   * rồi nói to, thay vì bắt người dùng phải biết có tùy chọn đó mà tìm.
+   */
+  const applyRegionGuess = (names, loaded) => {
+    if (!canImportWeekly || names.length < 2) return null;
+    const guess = guessRegionSheets(names, regionCodes, monthColumns[0]);
+    const complete = regionCodes.every((code) => guess[code]);
+    if (!complete) return null;
+
+    setRegionSheetMap(guess);
+    setRegionLayout('perSheet');
+    setActiveSheet(guess[regionCodes[0]]);
+    // Đường Google Sheet chỉ tải sẵn một tab — kéo nốt tab của miền còn lại,
+    // nếu không thì bố cục vừa chọn lại thiếu dữ liệu để đọc.
+    const missing = regionCodes.map((c) => guess[c]).filter((n) => !loaded[n]);
+    if (missing.length) {
+      const id = extractSpreadsheetId(sheetIdInput);
+      if (id) {
+        Promise.all(missing.map((n) => api.readExternalSheet(id, n).then((res) => [n, res.values])))
+          .then((pairs) => setSheets((prev) => ({ ...prev, ...Object.fromEntries(pairs) })))
+          .catch((err) => setError(err.message));
+      }
+    }
+    return guess;
+  };
+
   // ---- Bước 1: chọn nguồn ----
 
   const handleFileChosen = async (file) => {
@@ -149,6 +180,7 @@ export default function ImportForecastModal({
       setSheetNames(names);
       setActiveSheet(names[0]);
       setSourceLabel(file.name);
+      applyRegionGuess(names, parsed);
       setStep(names.length > 1 ? 'sheetPicker' : 'mapping');
     } catch (err) {
       setError(err.message);
@@ -171,6 +203,7 @@ export default function ImportForecastModal({
       setSheetNames(res.availableSheets);
       setActiveSheet(res.sheetName);
       setSourceLabel(`${res.spreadsheetName} — ${res.sheetName}`);
+      applyRegionGuess(res.availableSheets, { [res.sheetName]: res.values });
       setStep(res.availableSheets.length > 1 ? 'sheetPicker' : 'mapping');
     } catch (err) {
       setError(err.message);
@@ -537,7 +570,24 @@ export default function ImportForecastModal({
 
           {step === 'sheetPicker' && (
             <div className="space-y-3">
-              <p className="text-xs text-slate-600">File có nhiều tab — chọn tab chứa dữ liệu forecast:</p>
+              {perSheet ? (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 space-y-1">
+                  <p className="text-xs font-bold text-emerald-900">
+                    File tách theo miền — sẽ đọc CẢ HAI sheet trong một lượt
+                  </p>
+                  {regionCodes.map((code) => (
+                    <p key={code} className="text-[11px] text-emerald-800">
+                      <span className="font-semibold">{code}</span> ← {regionSheetMap[code] || '(chưa chọn)'}
+                    </p>
+                  ))}
+                  <p className="text-[11px] text-emerald-700 pt-1">
+                    Sản lượng tháng của hai miền được cộng lại, cột tuần vào đúng miền của từng
+                    sheet. Đổi lại ở bước sau nếu không đúng. Tab bấm dưới đây chỉ để XEM TRƯỚC.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-600">File có nhiều tab — chọn tab chứa dữ liệu forecast:</p>
+              )}
               <div className="flex flex-wrap gap-2">
                 {sheetNames.map((name) => (
                   <button
