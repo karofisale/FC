@@ -155,7 +155,11 @@ function purgeExpiredSessions_(props) {
  * lại được nữa dù người dùng gõ đúng PIN.
  */
 function hashWithSalt_(pin, salt) {
-  var pepper = getOrCreatePepper_();
+  return hashVoiPepper_(getOrCreatePepper_(), pin, salt);
+}
+
+/** Cùng công thức, nhưng pepper truyền vào — dùng cho bản ghi của Karofi ID. */
+function hashVoiPepper_(pepper, pin, salt) {
   var raw = pepper + '|' + salt + '|' + String(pin);
   var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, raw, Utilities.Charset.UTF_8);
   return bytes.map(function (b) {
@@ -163,15 +167,47 @@ function hashWithSalt_(pin, salt) {
   }).join('');
 }
 
+/**
+ * Tiền tố của bản ghi do KAROFI ID phát.
+ *
+ * Dạng "kid$salt$hash", băm bằng pepper DÙNG CHUNG (Script Property
+ * KAROFI_ID_PEPPER, copy từ dự án Karofi ID) thay vì AUTH_PEPPER riêng của FC.
+ *
+ * VÌ SAO: một lần đổi PIN ở cổng giờ ghi CÙNG MỘT CHUỖI vào cả bốn bảng Users,
+ * nên lối ?direct=1 dùng đúng PIN người ta vừa đặt thay vì một PIN cũ không ai
+ * xoay. Trước đây mỗi app một pepper nên không thể chép chuỗi băm qua nhau.
+ *
+ * Ranh giới "mỗi app một pepper" từng là cố ý, nhưng nó đã mất từ khi
+ * KAROFI_ID_SECRET phải giống nhau ở cả bốn dự án: ai lấy được Script
+ * Properties của một app là ký được token cho bất kỳ ai vào bất kỳ app nào.
+ * Pepper riêng không còn mua được sự cô lập mà nó nhắm tới.
+ *
+ * Bản ghi dạng cũ "salt:hash" vẫn xác thực bình thường — thêm đường, không
+ * bỏ đường nào.
+ */
+var KID_PREFIX_ = 'kid$';
+
 /** Tạo bản ghi pin_hash mới ("salt:hash") để lưu vào cột pin_hash. */
 function makePinRecord_(pin) {
   var salt = Utilities.getUuid();
   return salt + ':' + hashWithSalt_(pin, salt);
 }
 
-/** So PIN người dùng nhập với bản ghi "salt:hash" đang lưu trong Sheet. */
+/** So PIN người dùng nhập với bản ghi đang lưu trong Sheet. */
 function verifyPin_(pin, storedRecord) {
   var stored = String(storedRecord || '');
+
+  if (stored.indexOf(KID_PREFIX_) === 0) {
+    var pk = stored.split('$');
+    if (pk.length !== 3) return false;
+    var kidPepper = PropertiesService.getScriptProperties().getProperty('KAROFI_ID_PEPPER');
+    // Chưa copy pepper thì KHÔNG xác thực được — trả false chứ không rơi xuống
+    // đường cũ, vì rơi xuống đó là so bản ghi mới bằng pepper cũ và luôn sai,
+    // chỉ khác là sai kèm một thông báo gây hiểu nhầm.
+    if (!kidPepper) return false;
+    return hashVoiPepper_(kidPepper, pin, pk[1]) === pk[2];
+  }
+
   var sep = stored.indexOf(':');
   if (sep < 0) return false; // định dạng cũ (không có salt) -> luôn coi là không khớp, bắt đặt lại PIN
   var salt = stored.slice(0, sep);
