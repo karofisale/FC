@@ -245,7 +245,9 @@ function saveMonthlyLines_(session, versionId, lines, replaceAll) {
   var written = replaceAll
     ? replaceRowsForScope_(SHEETS.MONTHLY_LINES, 'version_id', versionId, toUpsert)
     : applyRowChanges_(
-        SHEETS.MONTHLY_LINES, ['version_id', 'sku_code', 'forecast_month'], toUpsert, toDelete);
+        SHEETS.MONTHLY_LINES, ['version_id', 'sku_code', 'forecast_month'], toUpsert, toDelete,
+        // ô tháng có thể là ngày hoặc chuỗi — phải quy về cùng dạng rồi mới so
+        { forecast_month: normalizeMonth_, sku_code: normalizeSku_ });
   return {
     message: 'Đã lưu ' + written.total + ' dòng kế hoạch tháng.',
     updated: written.updated,
@@ -297,7 +299,8 @@ function saveWeeklySplits_(session, versionId, splits, replaceAll) {
   var written = replaceAll
     ? replaceRowsForScope_(SHEETS.WEEKLY_SPLITS, 'version_id', versionId, toUpsert)
     : applyRowChanges_(
-        SHEETS.WEEKLY_SPLITS, ['version_id', 'sku_code', 'week_number', 'region_code'], toUpsert, toDelete);
+        SHEETS.WEEKLY_SPLITS, ['version_id', 'sku_code', 'week_number', 'region_code'], toUpsert, toDelete,
+        { week_number: Number, sku_code: normalizeSku_ });
   return {
     message: 'Đã lưu ' + written.total + ' dòng kế hoạch tuần/miền.',
     updated: written.updated,

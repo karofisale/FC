@@ -310,7 +310,18 @@ function appendObjects_(name, objects) {
  * tại chỗ, dòng mới thì nối thêm, rồi ghi bằng một lệnh setValues.
  * Đây là chỗ thay cho appendRow-trong-vòng-lặp của bản cũ.
  */
-function applyRowChanges_(name, keyFields, upserts, deletes) {
+/**
+ * @param {Object} [keyNormalizers] hàm chuẩn hoá cho từng cột khoá, áp cho CẢ hai
+ *     phía trước khi so.
+ *
+ *     Bắt buộc với cột tháng: Google Sheets tự đổi "2026-09-01" thành ô kiểu
+ *     ngày, nên giá trị thô của dòng đã lưu là "Tue Sep 01 2026..." trong khi bản
+ *     ghi gửi lên là chuỗi "2026-09-01". So thô thì hai bên không khớp, nên
+ *     mỗi lần sửa tay lại CHÈN THÊM một dòng thay vì ghi đè. Lưới tháng vẫn
+ *     hiện đúng vì lấy dòng cuối, nhưng Bảng 1 CỘNG mọi dòng nên số đối chiếu
+ *     phồng lên — sai mà chỉ lộ ra ở màn hình khác.
+ */
+function applyRowChanges_(name, keyFields, upserts, deletes, keyNormalizers) {
   var records = upserts || [];
   deletes = deletes || [];
   if (!records.length && !deletes.length) {
@@ -322,11 +333,28 @@ function applyRowChanges_(name, keyFields, upserts, deletes) {
     if (t.idx[f] === undefined) throw new Error('Sheet ' + name + ' thiếu cột khoá "' + f + '".');
   });
 
+  var norm = keyNormalizers || {};
   // Co ky tu phan cach de hai khoa khac nhau khong don thanh cung mot chuoi
   // (vd 'v-w1'+'2' va 'v-w'+'12' deu cho ra 'v-w12' neu noi tran).
   var keyOf = function (getter) {
-    return keyFields.map(function (f) { return String(getter(f)); }).join(' ');
+    return keyFields.map(function (f) {
+      var v = getter(f);
+      return String(norm[f] ? norm[f](v) : v);
+    }).join(' ');
   };
+
+  // Dọn dòng trùng khoá đã lỡ sinh ra trước khi có chuẩn hoá ở trên: giữ dòng
+  // CUỐI — đúng cái lưới đang hiện và là ý định mới nhất của người dùng.
+  // Nhờ vậy bảng tự lành lại ở lần lưu kế tiếp, không cần sửa tay trên Sheet.
+  var lastAt = {};
+  t.rows.forEach(function (row, i) {
+    lastAt[keyOf(function (f) { return row[t.idx[f]]; })] = i;
+  });
+  var beforeDedupe = t.rows.length;
+  t.rows = t.rows.filter(function (row, i) {
+    return lastAt[keyOf(function (f) { return row[t.idx[f]]; })] === i;
+  });
+  var dedupedCount = beforeDedupe - t.rows.length;
 
   var deleted = 0;
   if (deletes.length) {
@@ -372,7 +400,10 @@ function applyRowChanges_(name, keyFields, upserts, deletes) {
   if (newRows.length) t.rows = t.rows.concat(newRows);
   writeTable_(name, t);
 
-  return { total: records.length, updated: updated, inserted: inserted, deleted: deleted };
+  return {
+    total: records.length, updated: updated, inserted: inserted,
+    deleted: deleted, deduped: dedupedCount
+  };
 }
 
 /**
