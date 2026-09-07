@@ -54,15 +54,8 @@ function getMonthlyWorkspace_(session, p) {
   var version = pickVersion_(versions, p.versionId);
 
   var products = getProducts_(bu, null, null);
-  // getMonthlyLines_ trả forecast_month thô từ sheet; client dựng khoá ô
-  // theo trường này và so với mốc tháng dạng YYYY-MM-01, nên phải chuẩn hoá
-  // ở đây — giữ đúng hình dạng dữ liệu client đang nhận.
-  var lines = version
-    ? getMonthlyLines_(version.id).map(function (l) {
-        l.forecast_month = normalizeMonth_(l.forecast_month);
-        return l;
-      })
-    : [];
+  // getMonthlyLines_ tự chuẩn hoá forecast_month rồi — xem ghi chú ở hàm đó.
+  var lines = version ? getMonthlyLines_(version.id) : [];
 
   return {
     businessUnitCode: bu,

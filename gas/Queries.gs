@@ -113,12 +113,26 @@ function getVersions_(cycleId) {
     .sort(function (a, b) { return Number(a.update_week) - Number(b.update_week); });
 }
 
+/**
+ * Trả forecast_month ĐÃ CHUẨN HOÁ về dạng YYYY-MM-01.
+ *
+ * Google Sheets tự đổi chuỗi "2026-09-01" thành ô kiểu ngày, nên đọc thô sẽ ra
+ * "2026-09-01T00:00:00.000Z". Client dựng khoá ô của lưới bằng
+ * `sku_thang` và so với mốc dạng YYYY-MM-01, nên chuỗi ISO làm khoá trượt và
+ * mọi ô hiện 0 — đúng triệu chứng "nhập file xong lưới chỉ có mã và tên, phải
+ * tải lại trang mới thấy số".
+ *
+ * Trước đây chỉ getMonthlyWorkspace_ chuẩn hoá, nên mở trang thì đúng còn tải
+ * lại sau khi nhập (đi đường này) thì sai. Chuẩn hoá tại đây để hai đường
+ * luôn cho ra cùng một hình dạng.
+ */
 function getMonthlyLines_(versionId) {
   if (!versionId) throw new Error('Thiếu versionId.');
   var products = productMap_();
   return readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', versionId)
     .map(function (l) {
       var p = products[l.sku_code] || {};
+      l.forecast_month = normalizeMonth_(l.forecast_month);
       l.quantity = Number(l.quantity) || 0;
       l.product_name = p.name || l.sku_code;
       l.short_name = p.short_name || '';
