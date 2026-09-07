@@ -157,8 +157,11 @@ export default function App() {
 
   const handleLogout = async () => {
     if (!confirmNavigateAway()) return;
-    await logout();
+    const dangVeCong = await logout();
     clearBootstrapCache();
+    // Đang rời trang thì đừng setState: React sẽ vẽ lại màn đăng nhập của FC
+    // nhấp nháy một cái trước khi trình duyệt kịp chuyển sang cổng.
+    if (dangVeCong) return;
     setSession(null);
     setActiveTab('dashboard');
   };

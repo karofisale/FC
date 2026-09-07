@@ -23,6 +23,7 @@ export {
   decodeToken,
   bounceToPortal,
   clearBounceFlag,
+  veCongSauDangXuat,
   appKhacDungDuoc
 } from './karofiSessionCore';
 

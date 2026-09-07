@@ -5,7 +5,7 @@
  * hiển thị của người dùng. PIN không bao giờ được lưu lại ở trình duyệt.
  */
 import { callGAS, ApiError } from './gasClient';
-import { sharedSessionForFC, clearSharedSession } from './karofiSession';
+import { sharedSessionForFC, clearSharedSession, veCongSauDangXuat } from './karofiSession';
 
 const STORAGE_KEY = 'karofi_fc_session';
 
@@ -70,10 +70,17 @@ export async function login(userId, pin) {
   return res.user;
 }
 
+/**
+ * @returns {boolean} true khi đã bắt đầu chuyển về cổng — người gọi đừng dựng
+ *   lại giao diện nữa, trang đang rời đi.
+ */
 export async function logout() {
   const token = getToken();
   persist(null);
-  clearSharedSession();   // đăng xuất một lần = ra khỏi cả ba app
+
+  // Nói với server TRƯỚC khi chuyển trang: veCongSauDangXuat() gọi
+  // location.replace(), và một lượt fetch bắt đầu sau đó có thể bị huỷ giữa
+  // đường, để lại token còn sống trong CacheService thêm 6 giờ.
   if (token) {
     try {
       await callGAS('logout', { token });
@@ -81,6 +88,11 @@ export async function logout() {
       // Phiên đã bị xoá phía client rồi, lỗi mạng lúc này không quan trọng
     }
   }
+
+  // Về CỔNG, không về form riêng của FC: trình quản lý mật khẩu của trình
+  // duyệt đã lưu thông tin cho form của cổng, nên form của FC không có gì tự
+  // điền. Hàm này cũng xoá phiên dùng chung.
+  return veCongSauDangXuat();
 }
 
 /** Xoá phiên tại chỗ, dùng khi server báo token hết hạn. */

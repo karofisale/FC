@@ -188,6 +188,33 @@ export function clearBounceFlag() {
 }
 
 /**
+ * Đăng xuất xong thì về CỔNG, không về form đăng nhập riêng của app.
+ *
+ * VÌ SAO: cả ba app đều xoá phiên rồi tự hiện form của mình. Nhìn thì hợp lý,
+ * nhưng trình quản lý mật khẩu của trình duyệt đã lưu thông tin đăng nhập cho
+ * origin + form của CỔNG — form của app là một form khác, nên không có gì tự
+ * điền, và người dùng phải gõ tay mỗi lần. Với hệ đã có đăng nhập một lần thì
+ * đó là bước lùi so với trước.
+ *
+ * KHÔNG kèm ?next=: vừa bấm đăng xuất thì chỗ muốn tới là cổng, không phải bị
+ * đẩy trở lại đúng app vừa ra khỏi.
+ *
+ * Xoá cờ bounced trước khi đi, để lần vào sau còn được đá về cổng như thiết kế
+ * — cờ còn sót là lần tới app sẽ hiện form riêng thay vì chuyển hướng.
+ *
+ * Trả về true khi đã bắt đầu chuyển trang; người gọi đừng dựng lại giao diện
+ * nữa. Trả false ở ngoài origin của cổng (máy phát triển, URL /exec) — ở đó
+ * '/VHKD/' không tồn tại, nên app phải tự hiện form của nó.
+ */
+export function veCongSauDangXuat() {
+  clearSharedSession();
+  clearBounceFlag();
+  if (location.hostname !== PORTAL_HOST) return false;
+  location.replace('/VHKD/');
+  return true;
+}
+
+/**
  * Các app khác mà người này ĐƯỢC VÀO — để dựng đường chuyển app ngay trong app.
  *
  * Vì sao cần: đã đăng nhập chung rồi mà muốn từ app này sang app khác vẫn phải
