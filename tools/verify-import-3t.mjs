@@ -33,10 +33,13 @@ Truyen duong dan bang --file "..."`);
   process.exit(2);
 }
 
-const wb = XLSX.read(readFileSync(FILE), { type: 'buffer' });
+// ĐỌC GIỐNG HỆT client/src/utils/importParsing.js — không được khác một tuỳ
+// chọn nào. Hai lần bỏ lọt lỗi thật chỉ vì script đọc khác app: raw:true trong
+// khi app dùng raw:false (số bị chia 1000), rồi thiếu cellDates.
+const wb = XLSX.read(new Uint8Array(readFileSync(FILE)), { type: 'array', cellDates: true });
 const sheets = {};
 wb.SheetNames.forEach((n) => {
-  sheets[n] = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '', blankrows: true });
+  sheets[n] = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '' });
 });
 
 // Bố cục của file 3T (người dùng xác nhận: dữ liệu ở cột A..L)
@@ -112,6 +115,25 @@ const mnSet = new Set(sheets[guessed.MN].slice(DATA_START).map((r) => String(r?.
 const overlap = [...mbSet].filter((s) => mnSet.has(s)).length;
 say(agg.rows.length === new Set([...mbSet, ...mnSet]).size, `số mã gộp = hợp của hai miền (${mbSet.size} + ${mnSet.size}, chung ${overlap})`);
 console.log(`   -> ${overlap} mã sẽ mất số của một miền nếu nhập làm hai lượt`);
+
+console.log('\n4b. Số cột tuần CÓ THẬT trong file');
+// Tháng 9/2026 có 5 tuần theo lịch nhưng file chỉ có 4 cột; đọc đủ 5 cột là
+// chạm sang cột "ĐỔI MÃ" chứa mã hàng, tổng tuần vọt lên hàng tỷ.
+{
+  const tryCols = (k) => aggregateRegionBlocks({
+    blocks, skuColIdx: SKU_COL, monthStartCol: MONTH_START, monthCount: MONTH_COUNT,
+    weekStartCol: WEEK_START, weekCount: k
+  });
+  const five = tryCols(5);
+  console.log(`   đọc 5 cột: MB ${five.weekTotalByRegion.MB.toLocaleString('vi-VN')}` +
+    `  MN ${five.weekTotalByRegion.MN.toLocaleString('vi-VN')}  (sai — chạm cột ĐỔI MÃ)`);
+  let picked = null;
+  for (let k = 5; k >= 1; k--) {
+    const t = tryCols(k);
+    if (blocks.every(({ region }) => t.weekTotalByRegion[region] === t.totalsByRegion[region][0])) { picked = k; break; }
+  }
+  say(picked === 4, `tự dò chọn ${picked} cột tuần (file chỉ có 4)`);
+}
 
 console.log('\n5. Payload cuối cùng sẽ ghi lên Sheet (đúng cách modal dựng)');
 const monthColumns = ['2026-09-01', '2026-10-01', '2026-11-01', '2026-12-01'];

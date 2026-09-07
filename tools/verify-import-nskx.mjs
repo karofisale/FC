@@ -32,9 +32,10 @@ Truyen duong dan bang --file "..."`);
   process.exit(2);
 }
 
-const wb = XLSX.read(readFileSync(FILE), { type: 'buffer' });
+// ĐỌC GIỐNG HỆT client/src/utils/importParsing.js của app.
+const wb = XLSX.read(new Uint8Array(readFileSync(FILE)), { type: 'array', cellDates: true });
 const sheetName = wb.SheetNames[0];
-const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: '', blankrows: true });
+const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: '' });
 
 // Bố cục NSKX: A=STT, B=Mã hàng, C=Tên model, D..G=4 tháng, H=Ghi chú
 const SKU_COL = 1;

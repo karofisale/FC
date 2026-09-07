@@ -83,6 +83,8 @@ export default function ImportForecastModal({
   const [regionSheetMap, setRegionSheetMap] = useState({});
   // File không có cột tuần (NSKX) — chia từ sản lượng tháng đầu
   const [deriveWeeks, setDeriveWeeks] = useState(false);
+  // Số cột tuần CÓ THẬT trong file; null = để app tự dò
+  const [weekColsInFile, setWeekColsInFile] = useState(null);
 
   const canImportWeekly = weekColumns?.length > 0 && regionCodes.length > 0;
   const hasMonthMapping = monthStartCol !== NONE;
@@ -272,6 +274,38 @@ export default function ImportForecastModal({
    * là chốt chặn rẻ nhất cho việc gán nhầm cột: gán lệch một cột là số lệch ngay,
    * thấy được trước khi ghi thay vì sau khi đã vào kế hoạch.
    */
+  /**
+   * File có bao nhiêu cột tuần thật?
+   *
+   * Bảng 1 của app chia tháng theo lịch nên tháng 9/2026 có 5 tuần, nhưng file
+   * 3T chỉ có 4 cột. Đọc đủ 5 cột liên tiếp là chạm sang cột kế bên — ở file
+   * thật đó là cột "ĐỔI MÃ" chứa mã hàng 10 chữ số, làm tổng tuần vọt lên
+   * hàng tỷ. Thử từ nhiều xuống ít và lấy số cột nào làm TỔNG TUẦN KHỚP
+   * THÁNG GỐC ở MỌI miền — dùng chính số liệu của file để quyết định, không
+   * đoán theo tiêu đề. Không số nào khớp thì giữ nguyên đủ số tuần để bảng
+   * đối chiếu báo lệch, thay vì lặng lẽ chọn bừa một con số.
+   */
+  const autoWeekCols = useMemo(() => {
+    if (!regionMode || !hasMonthMapping || weekStartCol === NONE || !canImportWeekly) return null;
+    if (!regionBlocks.length) return null;
+    for (let k = weekColumns.length; k >= 1; k--) {
+      const trial = aggregateRegionBlocks({
+        blocks: regionBlocks,
+        skuColIdx: skuColIdx === NONE ? -1 : skuColIdx,
+        monthStartCol, monthCount: monthColumns.length,
+        weekStartCol, weekCount: k
+      });
+      const ok = regionBlocks.every(
+        ({ region }) => trial.weekTotalByRegion[region] === trial.totalsByRegion[region][0]
+      );
+      if (ok) return k;
+    }
+    return null;
+  }, [regionMode, hasMonthMapping, weekStartCol, canImportWeekly, regionBlocks,
+      skuColIdx, monthStartCol, monthColumns, weekColumns]);
+
+  const effectiveWeekCols = weekColsInFile ?? autoWeekCols ?? weekColumns.length;
+
   const regionCheck = useMemo(() => {
     if (!regionMode || !hasMonthMapping || !regionBlocks.length) return null;
     const agg = aggregateRegionBlocks({
@@ -281,7 +315,7 @@ export default function ImportForecastModal({
       monthStartCol,
       monthCount: monthColumns.length,
       weekStartCol: weekStartCol === NONE ? undefined : weekStartCol,
-      weekCount: canImportWeekly ? weekColumns.length : 0,
+      weekCount: canImportWeekly ? effectiveWeekCols : 0,
       deriveWeeks, deriveStep: 10
     });
     const perRegion = regionBlocks.map((block) => {
@@ -313,7 +347,7 @@ export default function ImportForecastModal({
     return { agg, perRegion };
   }, [regionMode, stacked, hasMonthMapping, regionBlocks, skuColIdx, nameColIdx, monthStartCol,
       monthColumns, weekStartCol, weekColumns, canImportWeekly, deriveWeeks,
-      sheets, regionSheetMap, dataStartRowNum]);
+      effectiveWeekCols, sheets, regionSheetMap, dataStartRowNum]);
 
   const canProceedMapping = skuColIdx !== NONE
     && (hasMonthMapping || hasWeekMapping)
@@ -332,7 +366,7 @@ export default function ImportForecastModal({
         monthStartCol: hasMonthMapping ? monthStartCol : -1,
         monthCount: hasMonthMapping ? monthColumns.length : 0,
         weekStartCol: weekStartCol === NONE ? undefined : weekStartCol,
-        weekCount: hasWeekMapping ? weekColumns.length : 0,
+        weekCount: hasWeekMapping ? effectiveWeekCols : 0,
         deriveWeeks, deriveStep: 10
       });
       agg.rows.forEach((r) => {
@@ -745,7 +779,32 @@ export default function ImportForecastModal({
                     <>
                       <ColumnSelect label="Cột Tuần 1" value={weekStartCol} onChange={setWeekStartCol} options={colOptions} allowNone />
                       {weekStartCol !== NONE && (
-                        <p className="text-[11px] text-slate-500 mt-1">→ {sequentialColsPreview(weekStartCol, weekColumns.length)}</p>
+                        <div className="mt-2 space-y-1">
+                          <label className="flex items-center gap-2 text-[11px] text-slate-700">
+                            <span>Số cột tuần có trong file:</span>
+                            <select
+                              value={weekColsInFile ?? ''}
+                              onChange={(e) => setWeekColsInFile(e.target.value === '' ? null : Number(e.target.value))}
+                              className="border border-slate-300 rounded px-2 py-1 text-[11px]"
+                            >
+                              <option value="">
+                                tự dò{autoWeekCols ? ` — ${autoWeekCols} cột` : ' (chưa xác định)'}
+                              </option>
+                              {weekColumns.map((_, i) => (
+                                <option key={i} value={i + 1}>{i + 1} cột</option>
+                              ))}
+                            </select>
+                          </label>
+                          <p className="text-[11px] text-slate-500">
+                            → {sequentialColsPreview(weekStartCol, effectiveWeekCols)}
+                          </p>
+                          {effectiveWeekCols < weekColumns.length && (
+                            <p className="text-[11px] text-amber-700">
+                              {weekBaseMonthLabel} có {weekColumns.length} tuần nhưng file chỉ có {effectiveWeekCols} cột
+                              — các tuần còn lại ghi 0. Đọc thêm cột sẽ chạm sang dữ liệu khác của file.
+                            </p>
+                          )}
+                        </div>
                       )}
                     </>
                   )}
