@@ -124,8 +124,23 @@ hàm mà mọi màn hình khác cũng đi qua. Giữ nguyên như vậy — thê
 quyền ở đó là thêm một chỗ nữa phải rà.
 
 ```bash
-node test/portalstats.test.js   # 32 test, nạp mã thật, không stub hàm nào của dự án
+node test/portalstats.test.js   # 49 test, nạp mã thật, không stub hàm nào của dự án
 ```
+
+**"Số máy" và "doanh thu" của cùng một ô KHÔNG cùng phạm vi**, cố ý: số máy chỉ
+đếm `NHOM_MAY` (`Config.gs` — nhóm Máy TCM sx + Máy nhập khẩu), doanh thu cộng
+mọi mặt hàng kể cả lõi và linh kiện. Cổng nói rõ điều đó ở chú thích dưới bảng.
+
+`NHOM_MAY` có **hai bản chép tay**: `gas/Config.gs` và
+`client/src/pages/MonthlyForecast.jsx`. Client là bản build riêng nên không
+import được hằng số của backend. Bộ test so hai file với nhau và sẽ đỏ nếu chúng
+trôi lệch — trôi lệch nghĩa là màn Kế hoạch tháng và cổng nói hai con số "số
+máy" khác nhau cho cùng một chu kỳ, mà không có gì báo.
+
+Phân loại theo **nhóm hàng**, không theo tiền tố mã (quyết định cũ, xem chú
+thích đầu `MonthlyForecast.jsx`). Vì người dùng hay nhẩm theo "mã bắt đầu bằng
+1", endpoint đếm số mã mà hai cách phân loại lệch nhau và cổng hiện thành một
+dòng cảnh báo — thay vì để con số khác kỳ vọng mà không rõ vì sao.
 
 ## Liên quan tới app khác
 

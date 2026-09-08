@@ -123,6 +123,23 @@ const ACTION_TABLES = {
   saveActuals:        [SHEETS.ACTUALS, SHEETS.BUSINESS_UNITS, SHEETS.PRODUCTS]
 };
 
+/**
+ * Nhóm hàng được coi là MÁY khi đếm "số máy".
+ *
+ * Phân loại theo danh mục ProductGroups, KHÔNG suy từ tiền tố mã: nhóm là bảng
+ * người dùng sửa được, còn "mã bắt đầu bằng 1" là quy ước ngầm dễ sai khi có mã
+ * mới. Quyết định này đã có ở màn Kế hoạch tháng từ trước — xem chú thích đầu
+ * `client/src/pages/MonthlyForecast.jsx`, nơi có `NHOM_MAY` cùng giá trị.
+ *
+ * HAI BẢN SAO, cố ý: client là bản build riêng, không import được hằng số của
+ * backend. Sửa một bên thì phải sửa bên kia, nếu không màn Kế hoạch tháng và
+ * số tổng quan trên cổng VHKD sẽ nói hai con số "số máy" khác nhau.
+ *
+ * `getPortalStats_` báo ra số mã mà hai cách phân loại KHÔNG khớp nhau, để chỗ
+ * lệch hiện thành một dòng cảnh báo chứ không thành một con số sai im lặng.
+ */
+const NHOM_MAY = ['NHOM_1', 'NHOM_2'];   // Máy TCM sx, Máy nhập khẩu
+
 const WRITE_ACTIONS = [
   'createCycle', 'createVersion', 'saveMonthlyLines', 'saveWeeklySplits',
   'submitCycle', 'reopenCycle', 'decideApproval', 'changeMyPin', 'setUserPin',
