@@ -14,21 +14,24 @@ export const KAROFI_APPS = [
     ten: 'Sale Forecast',
     nhan: 'Forecast',
     href: '/FC/',
-    mo_ta: 'Lập và chốt kế hoạch sản lượng theo kỳ cho từng đơn vị kinh doanh.'
+    mo_ta: 'Lập và chốt kế hoạch sản lượng theo kỳ cho từng đơn vị kinh doanh.',
+    api: 'https://script.google.com/macros/s/AKfycbyyzw_uTdteqLobl6TB1DvcBxqE4BiorHFksXLx4Zc5jItQJD943vjXSynAecurccmS/exec'
   },
   {
     key: 'OEM',
     ten: 'OEM Portal',
     nhan: 'OEM',
     href: '/OEM/',
-    mo_ta: 'Đơn hàng, doanh thu và công nợ kênh OEM.'
+    mo_ta: 'Đơn hàng, doanh thu và công nợ kênh OEM.',
+    api: 'https://script.google.com/macros/s/AKfycbwKe1b7gUOnp9gPF_q6jlzTFIrD3DOtkFM8oMQf41D1iXGrEwmYElWZeupCNG-Szy7DfQ/exec'
   },
   {
     key: 'EXPORT',
     ten: 'Export Hub',
     nhan: 'Xuất khẩu',
     href: '/export/pi-app.html',
-    mo_ta: 'Lập PI, sinh chứng từ và theo dõi lô hàng xuất khẩu.'
+    mo_ta: 'Lập PI, sinh chứng từ và theo dõi lô hàng xuất khẩu.',
+    api: 'https://script.google.com/macros/s/AKfycbxGn0bRwcl94jkxWCa6o_ONkdJm9IrxapT3PoNCSILN-HHLinoFIZQ4GBx8--MowF_S/exec'
   }
 ];
 

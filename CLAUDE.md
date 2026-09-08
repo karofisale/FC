@@ -112,6 +112,21 @@ tiên trong `test/pricesync.test.js` chốt đúng chỗ đó.
 node test/pricesync.test.js gas/PriceSync.gs
 ```
 
+## Cổng VHKD gọi vào đây
+
+Action `getPortalStats` (`gas/PortalStats.gs`) là số liệu mà **cổng VHKD** hiện
+trong khối "Số liệu tổng quan". Đừng đổi tên hay bỏ nó mà không sửa
+`index.html` của kho `Karofi-VHKD` — cổng gọi thẳng `/exec` của dự án này, và
+mất action thì khối đó báo lỗi cho mọi người.
+
+Nó KHÔNG có luật phân quyền riêng: `scopedBU_()` và `getApprovals_()` là hai
+hàm mà mọi màn hình khác cũng đi qua. Giữ nguyên như vậy — thêm một nhánh
+quyền ở đó là thêm một chỗ nữa phải rà.
+
+```bash
+node test/portalstats.test.js   # 32 test, nạp mã thật, không stub hàm nào của dự án
+```
+
 ## Liên quan tới app khác
 
 `gas/KarofiToken.gs` và `client/src/services/karofiSession.js` là **bản sao** —

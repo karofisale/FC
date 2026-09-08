@@ -141,6 +141,9 @@ function dispatch_(action, p, session) {
     case 'getSapGt2Weekly': return getSapGt2Weekly_(session, p.baseMonth);
     case 'getSapExport':    return getSapExport_(session, p.baseMonth);
     case 'readExternalSheet': return readExternalSheet_(session, p.spreadsheetId, p.sheetName);
+    // Cổng VHKD. Không nhận tham số nào từ client: phạm vi lấy từ session,
+    // nên không có đường đổi tham số để xem số của kênh khác.
+    case 'getPortalStats':  return getPortalStats_(session);
 
     // ----- ghi -----
     case 'createCycle':      return createCycle_(session, p);

@@ -55,7 +55,9 @@ const READ_ACTIONS = [
   // Xuất báo cáo
   'getB0SumExport', 'getSapGt2Weekly', 'getSapExport',
   // Nhập từ Google Sheet ngoài
-  'readExternalSheet'
+  'readExternalSheet',
+  // Số tổng quan cho cổng VHKD (xem PortalStats.gs)
+  'getPortalStats'
 ];
 /**
  * Bảng nào cần đọc sẵn cho từng action.
@@ -99,6 +101,8 @@ const ACTION_TABLES = {
   getDashboardWorkspace: [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES],
   getActualsWorkspace: [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.REGIONS, SHEETS.MONTHLY_LINES, SHEETS.ACTUALS],
   getApprovalsWorkspace: [SHEETS.APPROVALS, SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.USERS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES, SHEETS.WEEKLY_SPLITS],
+  // Hợp của getCycles_ + getB0Summary_ + getApprovals_ + tên kênh.
+  getPortalStats:      [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES, SHEETS.APPROVALS, SHEETS.USERS, SHEETS.BUSINESS_UNITS],
 
   // --- ghi ---
   createCycle:        [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.BUSINESS_UNITS],
