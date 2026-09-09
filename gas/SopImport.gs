@@ -25,6 +25,12 @@ var IMP_OPS2026_ID   = '1fDUB6oqyMisV4NxId4JyGhmizgucit8zOdI38fBRZHA';
 var IMP_HUB_ID       = '16kDRbTffeSFSxwAZPCCpXGODUByEquCchnkqs1kyFrc';
 
 /** Tuần và miền quy ước cho tháng đầu kỳ — giống nhau ở cả OEM và Xuất khẩu. */
+// Giá trị của cột Channel (tab Clients, hub ExportSystem) cho hàng thuộc đơn vị
+// XK. Mọi giá trị khác đều là Brand và bị loại — giữ chiều này chứ không
+// liệt kê bốn mã KRF-*, để thị trường thứ năm thêm vào không lặng lẽ chạy
+// vào số của Export OEM.
+var IMP_KENH_XK = 'Export OEM';
+
 var IMP_TUAN = 3;
 var IMP_MIEN = 'MB';
 
@@ -58,6 +64,51 @@ function impSo_(v) {
   }
   var n = Number(v);
   return isFinite(n) ? n : 0;
+}
+
+/** 1234567 → "1.234.567" — GAS không chắc có locale vi-VN, tự ghép cho chắc. */
+function impSoDep_(n) {
+  var s = String(Math.round(Number(n) || 0));
+  return s.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+/** Tên khách để đối chiếu — gõ hoa/thường và khoảng trắng thừa không tính. */
+function impKhoaKhach_(v) {
+  return String(v === null || v === undefined ? '' : v).replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * Tên khách → kênh khai ở ExportSystem!Clients (cột Channel).
+ *
+ * Đây là chỗ duy nhất biết khách nào là Brand. Không dùng hậu tố PIC (app
+ * Export đang dùng RESTRICTED_PICS_ = ['brand']) vì PIC là NGƯỜI: đổi người
+ * phụ trách là dấu hiệu đi theo, trong khi khách vẫn thuộc thị trường đó. Cột
+ * Channel còn nói được Brand của THỊ TRƯỌNG NÀO, hai thứ hậu tố không làm được.
+ */
+function impKenhKhach_() {
+  var sh = SpreadsheetApp.openById(IMP_HUB_ID).getSheetByName('Clients');
+  if (!sh) throw new Error('Không thấy tab Clients trong hub ExportSystem.');
+  var nCot = sh.getLastColumn();
+  var nDong = sh.getLastRow();
+  if (nDong < 2 || !nCot) return {};
+
+  var v = sh.getRange(1, 1, nDong, nCot).getValues();
+  var tieuDe = v[0].map(function (h) { return String(h || '').trim().toLowerCase(); });
+  var cTen = tieuDe.indexOf('client_name');
+  var cKenh = tieuDe.indexOf('channel');
+  if (cTen < 0 || cKenh < 0) {
+    throw new Error('Tab Clients phải có cả hai cột "Client_Name" và "Channel" '
+      + '— đang thấy: ' + v[0].join(', ') + '. Không có hai cột này thì không '
+      + 'phân biệt được hàng Brand, và số của bốn đơn vị KRF-* sẽ bị cộng nhầm '
+      + 'vào Export OEM.');
+  }
+
+  var out = {};
+  for (var i = 1; i < v.length; i++) {
+    var ten = impKhoaKhach_(v[i][cTen]);
+    if (ten) out[ten] = String(v[i][cKenh] || '').trim();
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------
@@ -112,6 +163,38 @@ function impGomXK_(thang) {
     soDong++;
   }
 
+  // --- Lọc khách Brand ---------------------------------------------------
+  // Đơn vị XK là Export OEM, không gồm Brand. Bốn thị trường KRF-* lập kế
+  // hoạch tay riêng nên việc ở đây chỉ là TRỪA họ ra, không chia số cho ai.
+  var kenhKhach = impKenhKhach_();
+  var daBo = {};       // kênh Brand → { dong, sl, khach:{} }
+  var khachLa = {};    // khách có đơn nhưng không có trong tab Clients → sản lượng
+
+  /**
+   * Khách này có thuộc Export OEM không.
+   *
+   * Khách KHÔNG có trong tab Clients thì VẪN tính vào Export OEM, và báo tên
+   * ra. Bỏ họ đi là mất sản lượng đã có đơn mà không dấu hiệu gì — kiểu hỏng
+   * chỉ lộ ra khi sản xuất giao thiếu. Chưa khai khác với khai là Brand.
+   */
+  function giuKhach(ten, sl) {
+    var khoa = impKhoaKhach_(ten);
+    var kenh = khoa ? kenhKhach[khoa] : undefined;
+    if (kenh === undefined) {
+      var nhan = String(ten || '').trim() || '(không có tên khách)';
+      khachLa[nhan] = (khachLa[nhan] || 0) + (sl || 0);
+      return true;
+    }
+    if (kenh === IMP_KENH_XK) return true;
+
+    var k = kenh || '(để trống)';
+    if (!daBo[k]) daBo[k] = { dong: 0, sl: 0, khach: {} };
+    daBo[k].dong++;
+    daBo[k].sl += (sl || 0);
+    daBo[k].khach[String(ten || '').trim()] = true;
+    return false;
+  }
+
   // --- Đơn đã có: Ship Qty theo Shipdate ---
   var det = SpreadsheetApp.openById(IMP_OPS2026_ID).getSheetByName('Details');
   if (!det) throw new Error('Không thấy tab Details trong Operations2026.');
@@ -121,7 +204,9 @@ function impGomXK_(thang) {
       if (!ma) return;
       var k = impThangCua_(r[9]);                  // J = Shipdate
       if (viTri[k] === undefined) return;
-      cong(ma, viTri[k], impSo_(r[6]));            // G = Ship Qty
+      var sl = impSo_(r[6]);                       // G = Ship Qty
+      if (!giuKhach(r[2], sl)) return;             // C = Client
+      cong(ma, viTri[k], sl);
     });
   }
 
@@ -140,19 +225,41 @@ function impGomXK_(thang) {
   }
   var thieuNgay = 0;
   if (pd.getLastRow() > 1) {
-    pd.getRange(2, 3, pd.getLastRow() - 1, 5).getValues().forEach(function (r) {
-      var pi = impMa_(r[0]);                       // C = PI_Number
-      var ma = impMa_(r[2]);                       // E = Item_code
+    // Đọc từ cột B để có tên khách — trước đây bắt đầu từ C nên không cách
+    // nào biết dòng PI thuộc khách nào.
+    pd.getRange(2, 2, pd.getLastRow() - 1, 6).getValues().forEach(function (r) {
+      var pi = impMa_(r[1]);                       // C = PI_Number
+      var ma = impMa_(r[3]);                       // E = Item_code
       if (!ma) return;
       var ngay = ngayPi[pi];
       if (ngay === undefined || ngay === '') { thieuNgay++; return; }
       var k = impThangCua_(ngay);
       if (viTri[k] === undefined) return;
-      cong(ma, viTri[k], impSo_(r[4]));            // G = Qty
+      var sl = impSo_(r[5]);                       // G = Qty
+      if (!giuKhach(r[0], sl)) return;             // B = Client
+      cong(ma, viTri[k], sl);
     });
   }
   if (thieuNgay) {
     ghiChu.push(thieuNgay + ' dòng PI không tra được ngày Expected Load trong PITotal — bị bỏ qua.');
+  }
+
+  var cacKenh = Object.keys(daBo).sort();
+  if (cacKenh.length) {
+    ghiChu.push('Đã loại hàng Brand khỏi Export OEM — ' + cacKenh.map(function (k) {
+      var d = daBo[k];
+      return k + ': ' + impSoDep_(d.sl) + ' cái / ' + d.dong + ' dòng ('
+        + Object.keys(d.khach).sort().join(', ') + ')';
+    }).join('; ') + '. Các đơn vị này lập kế hoạch riêng.');
+  }
+
+  var laDs = Object.keys(khachLa).sort(function (a, b) { return khachLa[b] - khachLa[a]; });
+  if (laDs.length) {
+    ghiChu.push(laDs.length + ' khách có đơn trong kỳ nhưng KHÔNG có trong tab Clients '
+      + 'nên không biết thuộc đơn vị nào — vẫn tính vào Export OEM: '
+      + laDs.slice(0, 15).map(function (t) { return t + ' (' + impSoDep_(khachLa[t]) + ')'; }).join(', ')
+      + (laDs.length > 15 ? ' … và ' + (laDs.length - 15) + ' khách nữa' : '')
+      + '. Nếu có khách Brand trong danh sách này, khai kênh cho họ ở tab Clients rồi nhập lại.');
   }
 
   return { theoMa: theoMa, phiChuan: phiChuan, soDong: soDong, ghiChu: ghiChu };

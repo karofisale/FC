@@ -54,10 +54,13 @@ function setupDatabase() {
     { code: '3T', name: 'Kênh 3T', is_active: 1, sap_channel: 'GT2' },
     { code: 'NSKX', name: 'Nước Sạch Khí Xanh', is_active: 1, sap_channel: 'GT2' },
     { code: 'Online', name: 'Kênh Online (cũ — đã tách thành 3T và NSKX)', is_active: 0, sap_channel: 'GT2' },
-    { code: 'MT', name: 'Kênh Modern Trade', is_active: 1, sap_channel: 'GT2' },
-    { code: 'MLT', name: 'Kênh MLT', is_active: 1, sap_channel: 'GT2' },
-    { code: 'Retail', name: 'Kênh Bán lẻ', is_active: 1, sap_channel: 'GT2' },
-    { code: 'GT1', name: 'Kênh GT1', is_active: 1, sap_channel: 'GT2' }
+    // 2026-09: chưa dùng đến — tắt khỏi các ô xổ xuống. GIỮ DÒNG như 'Online':
+    // is_active = 0 chỉ ẩn khỏi chọn lựa, xoá dòng là mất tên hiển thị của
+    // bất kỳ dữ liệu cũ nào tham chiếu mã đó. Bật lại chỉ việc đổi về 1.
+    { code: 'MT', name: 'Kênh Modern Trade', is_active: 0, sap_channel: 'GT2' },
+    { code: 'MLT', name: 'Kênh MLT', is_active: 0, sap_channel: 'GT2' },
+    { code: 'Retail', name: 'Kênh Bán lẻ', is_active: 0, sap_channel: 'GT2' },
+    { code: 'GT1', name: 'Kênh GT1', is_active: 0, sap_channel: 'GT2' }
   ]);
 
   upsertRows_(SHEETS.REGIONS, ['code'], [
