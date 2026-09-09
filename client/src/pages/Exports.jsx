@@ -3,7 +3,7 @@ import { FileSpreadsheet, Download, Loader2, AlertCircle, AlertTriangle } from '
 import { api } from '../services/api';
 import { monthLabel, currentMonth, weeksOfMonth } from '../utils/period';
 import { downloadWorkbook, buildB0SumSheet, buildB1SumSheet } from '../utils/excelExport';
-import { buildSapRows, SAP_CHANNELS } from '../utils/sapExport';
+import { buildSapRows, SAP_CHANNELS, sapChannelOfBU } from '../utils/sapExport';
 import { downloadZpp702 } from '../utils/zpp702Workbook';
 
 export default function Exports({ user }) {
@@ -81,8 +81,13 @@ export default function Exports({ user }) {
       const folded = [];
 
       Object.keys(SAP_CHANNELS).forEach((channel) => {
-        if ((data.missingApproval || []).includes(channel)) {
-          skipped.push(`${channel} (chưa có bản duyệt)`);
+        // Một file SAP có thể gồm nhiều đơn vị (KH_XK = XK + bốn thị trường KRF-*).
+        // Chỉ cần MỘT đơn vị chưa duyệt là file thiếu phần của đơn vị đó nhưng
+        // vẫn trông bình thường — không xuất, và nói rõ thiếu ai.
+        const chuaDuyet = (data.missingApproval || [])
+          .filter((bu) => sapChannelOfBU(bu, data.buChannels) === channel);
+        if (chuaDuyet.length) {
+          skipped.push(`${channel} (chưa duyệt: ${chuaDuyet.join(', ')})`);
           return;
         }
         const rows = buildSapRows({
@@ -90,6 +95,7 @@ export default function Exports({ user }) {
           baseMonth: data.baseMonth,
           rows: data.rows,
           weekly: data.weekly,
+          buChannels: data.buChannels,
           exportedAt
         });
         if (!rows.length) {

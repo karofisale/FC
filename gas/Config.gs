@@ -24,7 +24,12 @@ const SHEETS = {
 
 const SCHEMA = {
   [SHEETS.USERS]: ['id', 'full_name', 'email', 'role', 'business_unit_code', 'pin_hash', 'is_active', 'failed_attempts', 'locked_until', 'last_login'],
-  [SHEETS.BUSINESS_UNITS]: ['code', 'name', 'is_active'],
+  // sap_channel: đơn vị này nằm trong file upload SAP nào (XK / OEM / GT2).
+  // Trước đây suy bằng loại trừ — "không phải XK và OEM thì là GT2" — nên
+  // thêm bất kỳ đơn vị mới nào là nó lặng lẽ rơi vào file GT2 / nhà máy 0200.
+  // Khai thẳng ở dữ liệu thì thêm đơn vị không cần sửa code, và không đơn
+  // vị nào vào nhầm file mà không ai biết.
+  [SHEETS.BUSINESS_UNITS]: ['code', 'name', 'is_active', 'sap_channel'],
   [SHEETS.REGIONS]: ['code', 'name', 'is_active'],
   [SHEETS.PRODUCT_GROUPS]: ['code', 'name'],
   [SHEETS.PRODUCTS]: ['sku_code', 'name', 'short_name', 'product_group_code', 'product_group_name', 'technology', 'default_channel', 'avg_price', 'is_active', 'requirements_type'],
@@ -92,8 +97,8 @@ const ACTION_TABLES = {
   getActuals:         [SHEETS.ACTUALS, SHEETS.PRODUCTS, SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.MONTHLY_LINES],
   getFcVsActual:      [SHEETS.ACTUALS, SHEETS.PRODUCTS, SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.MONTHLY_LINES],
   readExternalSheet:  [SHEETS.AUDIT],
-  getB0SumExport:     [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES],
-  getSapExport:       [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES, SHEETS.WEEKLY_SPLITS, SHEETS.APPROVALS],
+  getB0SumExport:     [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES, SHEETS.BUSINESS_UNITS],
+  getSapExport:       [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES, SHEETS.WEEKLY_SPLITS, SHEETS.APPROVALS, SHEETS.BUSINESS_UNITS],
   getSapGt2Weekly:    [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.WEEKLY_SPLITS],
 
   getMonthlyWorkspace: [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES],

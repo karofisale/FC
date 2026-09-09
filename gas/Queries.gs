@@ -557,6 +557,24 @@ function getFcVsActual_(bu, month) {
  * cột nào. reopenCycle_ cố ý KHÔNG xoá dòng đã duyệt: mở lại để sửa thì cái
  * đã duyệt vẫn là cái đã duyệt, cho tới khi có phê duyệt mới.
  */
+/**
+ * Mã đơn vị → kênh SAP (XK / OEM / GT2).
+ *
+ * Lấy từ cột sap_channel của BusinessUnits. Đơn vị chưa khai thì rơi về quy
+ * tắc cũ (XK→XK, OEM→OEM, còn lại→GT2), để file dữ liệu chưa kịp thêm cột
+ * vẫn chạy đúng như trước.
+ */
+function sapChannelByBU_() {
+  var out = {};
+  readObjects_(SHEETS.BUSINESS_UNITS).forEach(function (b) {
+    var code = String(b.code || '').trim();
+    if (!code) return;
+    var khai = String(b.sap_channel || '').trim().toUpperCase();
+    out[code] = khai || (code === 'XK' ? 'XK' : (code === 'OEM' ? 'OEM' : 'GT2'));
+  });
+  return out;
+}
+
 function approvedVersionByCycle_() {
   var out = {};
   readObjects_(SHEETS.APPROVALS).forEach(function (a) {
@@ -665,6 +683,7 @@ function getSapExport_(session, baseMonth) {
     missingApproval: missingApproval.sort(),
     rows: Object.keys(rowsMap).map(function (k) { return rowsMap[k]; }),
     weekly: weekly,
+    buChannels: sapChannelByBU_(),
     hasRequirementsTypeColumn: hasTypeColumn,
     requirementsTypeOverrides: typeOverrides
   };
@@ -730,6 +749,7 @@ function getB0SumExport_(session, baseMonth) {
     baseMonth: month0,
     months: months,
     businessUnits: Object.keys(businessUnits).sort(),
+    buChannels: sapChannelByBU_(),
     rows: Object.keys(rowsMap).map(function (k) { return rowsMap[k]; })
   };
 }

@@ -55,13 +55,31 @@ export const SAP_CHANNELS = {
     plan: 'KH_GT2',
     plant: '0200',
     dateRule: 'wednesdayOfNextWeek',
-    excludeBUs: ['XK', 'OEM'],
     fixedRequirementsType: 'VSF',   // kênh 0200 luôn VSF, không xét mã đầu 1
     weekColumns: 4,                 // W1..W4 lấy từ bảng chia tuần
     spreadOffsets: [1, 2],          // hai tháng sau, mỗi tháng chia đều 4 cột
     spreadDivisor: 4
   }
 };
+
+/**
+ * Đơn vị kinh doanh này thuộc file SAP nào.
+ *
+ * Lấy từ cột sap_channel của BusinessUnits (backend trả về trong `buChannels`).
+ * Trước đây quy tắc nằm trong code dưới dạng LOẠI TRỪ — "không phải XK và
+ * OEM thì là GT2" — nên mỗi đơn vị mới thêm vào (KRF-Phil, KRF-India…) sẽ tự
+ * rơi vào file GT2 / nhà máy 0200 mà file nhìn vẫn bình thường.
+ *
+ * Không có `buChannels` thì giữ nguyên quy tắc cũ, để các bài kiểm đối chiếu
+ * với file thật và backend chưa kịp thêm cột vẫn cho đúng kết quả cũ.
+ */
+export function sapChannelOfBU(bu, buChannels) {
+  const declared = String((buChannels || {})[bu] || '').trim().toUpperCase();
+  if (declared) return declared;
+  if (bu === 'XK') return 'XK';
+  if (bu === 'OEM') return 'OEM';
+  return 'GT2';
+}
 
 /** W3, W7, W11 là cột thứ 3, 7, 11 trong khối W1..W12 (đếm từ 1). */
 const QUANTITY_WEEK_SLOTS = [3, 7, 11];
@@ -154,6 +172,22 @@ function materialValue(skuCode) {
   return Number.isFinite(n) ? n : String(skuCode).trim();
 }
 
+/**
+ * Tổng sản lượng một SKU trong một tháng, cộng MỌI đơn vị thuộc kênh SAP này.
+ *
+ * File KH_XK giờ không còn là số của riêng đơn vị 'XK': bốn thị trường Brand
+ * (KRF-Phil, KRF-India, KRF-US, KRF-Indo) lập kế hoạch riêng nhưng đều lên
+ * cùng file xuất khẩu. Đọc thẳng monthly[tháng]['XK'] sẽ bỏ sót họ.
+ */
+function channelTotal(row, month, channel, buChannels) {
+  const byBu = row.monthly?.[month];
+  if (!byBu) return 0;
+  return Object.keys(byBu).reduce(
+    (s, bu) => (sapChannelOfBU(bu, buChannels) === channel ? s + (Number(byBu[bu]) || 0) : s),
+    0
+  );
+}
+
 /** Tổng sản lượng của MỌI kênh cho một SKU trong một tháng. */
 function companyTotal(row, month) {
   const byBu = row.monthly?.[month];
@@ -173,14 +207,17 @@ function companyTotal(row, month) {
  * được DỒN vào W4 thay vì bỏ đi — bỏ đi là mất sản lượng đã lên kế hoạch mà
  * không ai thấy. Tháng 7/2026 có tuần thứ 5 thật: 13 SKU, 2.861 cái.
  */
-function buildPlant0200Rows(cfg, channel, baseMonth, rows, weekly, dateStr, year) {
+function buildPlant0200Rows(cfg, channel, baseMonth, rows, weekly, dateStr, year, buChannels) {
   const spreadMonths = cfg.spreadOffsets.map((off) => addMonths(baseMonth, off));
   const out = [];
   const folded = [];
 
   rows.forEach((r) => {
+    // Kênh mặc định của mã hàng quyết định mã đó thuộc file nào. Sản phẩm
+    // của bốn đơn vị KRF-* sẽ được đổi kênh mặc định sang chính mã đơn vị đó,
+    // nên phải tra bản đồ kênh chứ không loại trừ hai mã XK/OEM như trước.
     const bu = String(r.default_channel || '');
-    if (cfg.excludeBUs.indexOf(bu) >= 0) return;
+    if (sapChannelOfBU(bu, buChannels) !== channel) return;
 
     const byWeek = (weekly && weekly[r.sku_code]) || {};
     const weeks = new Array(WEEK_COUNT).fill(0);
@@ -234,10 +271,11 @@ function buildPlant0200Rows(cfg, channel, baseMonth, rows, weekly, dateStr, year
  *                                monthly: { [month]: { [bu]: qty } } }]
  * @param {object} [p.weekly]   chỉ kênh 0200 cần: { [sku]: { [số tuần]: qty đã cộng MB+MN } }
  * @param {Date}   [p.exportedAt] thời điểm xuất — quyết định cột Năm và ngày của OEM/GT2
+ * @param {object} [p.buChannels] mã đơn vị → kênh SAP; thiếu thì dùng quy tắc cũ
  * @returns {Array<Array>} mỗi dòng 21 phần tử đúng thứ tự cột A..U. Riêng kênh 0200
  *     còn gắn thêm thuộc tính `foldedWeeks` liệt kê SKU bị dồn tuần 5 vào W4.
  */
-export function buildSapRows({ channel, baseMonth, rows, weekly, exportedAt = new Date(), config }) {
+export function buildSapRows({ channel, baseMonth, rows, weekly, exportedAt = new Date(), config, buChannels }) {
   // `config` cho phép truyền bố cục khác với mặc định. Dùng ở
   // tools/verify-sap-export.mjs để dựng lại bố cục 5+4+3 của file thật tháng 7
   // và chứng minh phần tính toán đúng, trong khi app xuất 4+4+4 theo yêu cầu.
@@ -248,14 +286,14 @@ export function buildSapRows({ channel, baseMonth, rows, weekly, exportedAt = ne
   const year = exportedAt.getFullYear();
 
   if (cfg.weekColumns) {
-    return buildPlant0200Rows(cfg, channel, baseMonth, rows, weekly, dateStr, year);
+    return buildPlant0200Rows(cfg, channel, baseMonth, rows, weekly, dateStr, year, buChannels);
   }
 
   const months = cfg.monthOffsets.map((off) => addMonths(baseMonth, off));
 
   const out = [];
   rows.forEach((r) => {
-    const quantities = months.map((m) => Number(r.monthly?.[m]?.[channel]) || 0);
+    const quantities = months.map((m) => channelTotal(r, m, channel, buChannels));
     // Chỉ xuất SKU thực sự có số. Danh mục đầy đủ kèm dòng 0 là cách làm
     // tay trước đây; app không lưu dòng số lượng 0 nên cũng không dựng lại
     // được chúng từ kế hoạch.

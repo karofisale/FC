@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
-import { monthLabel } from './period';
+import { monthLabel } from './period.js';
+import { sapChannelOfBU } from './sapExport.js';
 
 /** Tải một workbook gồm nhiều sheet, mỗi phần tử là [tênSheet, aoa]. */
 export function downloadWorkbook(sheets, filename) {
@@ -18,13 +19,25 @@ export function downloadWorkbook(sheets, filename) {
  * [Tổng, <từng BU>]).
  */
 export function buildB0SumSheet(data) {
-  const { months, businessUnits, rows } = data;
+  const { months, businessUnits, rows, buChannels } = data;
+
+  // Bốn thị trường Brand xuất khẩu (KRF-Phil, KRF-India, KRF-US, KRF-Indo) lập
+  // kế hoạch riêng nhưng báo cáo chung một cột Xuất khẩu.
+  //
+  // Chỉ gộp nhóm xuất khẩu, không gộp theo file SAP: 3T/NSKX/GT2 tuy cùng lên
+  // file KH_GT2 nhưng đây là báo cáo theo ĐƠN VỊ, mỗi bên vẫn cần cột riêng.
+  const colOf = (bu) => (sapChannelOfBU(bu, buChannels) === 'XK' ? 'XK' : bu);
+  const cols = [];
+  businessUnits.forEach((bu) => {
+    const c = colOf(bu);
+    if (cols.indexOf(c) < 0) cols.push(c);
+  });
 
   const header1 = ['Mã sp', 'Tên sp', 'Tên gọi tắt', 'Nhóm', 'Công nghệ', 'Kênh', 'Giá bán BQ'];
   const header2 = ['', '', '', '', '', '', ''];
   months.forEach((m) => {
-    header1.push(monthLabel(m), ...businessUnits.map(() => ''));
-    header2.push('Tổng', ...businessUnits);
+    header1.push(monthLabel(m), ...cols.map(() => ''));
+    header2.push('Tổng', ...cols);
   });
 
   const aoa = [header1, header2];
@@ -33,8 +46,13 @@ export function buildB0SumSheet(data) {
     const line = [r.sku_code, r.name, r.short_name, r.product_group_name || r.product_group_code, r.technology, r.default_channel, r.avg_price];
     months.forEach((m) => {
       const byBu = r.monthly?.[m] || {};
-      const total = businessUnits.reduce((s, bu) => s + (byBu[bu] || 0), 0);
-      line.push(total, ...businessUnits.map((bu) => byBu[bu] || 0));
+      const byCol = {};
+      businessUnits.forEach((bu) => {
+        const c = colOf(bu);
+        byCol[c] = (byCol[c] || 0) + (byBu[bu] || 0);
+      });
+      const total = cols.reduce((s, c) => s + (byCol[c] || 0), 0);
+      line.push(total, ...cols.map((c) => byCol[c] || 0));
     });
     aoa.push(line);
   });
