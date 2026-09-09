@@ -278,3 +278,142 @@ function adminRevokeAllSessions() {
   Logger.log('Đã huỷ ' + n + ' phiên đăng nhập.');
   return n;
 }
+
+
+/**
+ * Tình trạng tất cả tài khoản: ai chưa có PIN, ai đang bị khoá, đơn vị nào
+ * chưa có người lập hoặc chưa có người duyệt.
+ *
+ * KHÔNG in pin_hash — báo cáo này chỉ trả lời "có hay không", không đưa giá
+ * trị băm ra ngoài.
+ *
+ * Ba lỗi im lặng mà báo cáo này bắt:
+ *   - tài khoản đã tạo nhưng chưa cấp PIN: đăng nhập báo "chưa được cấp PIN"
+ *     và người dùng thường hiểu nhầm thành sai PIN rồi nhập lại tới khoá máy;
+ *   - business_unit_code gõ không khớp mã đơn vị nào (thừa khoảng trắng, sai
+ *     hoa thường, thiếu dấu gạch): tài khoản đăng nhập được nhưng không thấy
+ *     chu kỳ nào, trông hệt như "app hỏng";
+ *   - đơn vị đang bật mà không có ai lập / không có ai duyệt: kế hoạch của
+ *     họ sẽ không bao giờ được duyệt, mà file SAP thiếu hẳn một đơn vị thì
+ *     nhìn vẫn bình thường.
+ */
+function adminReportAccounts() {
+  var users = readObjects_(SHEETS.USERS);
+  var bus = readObjects_(SHEETS.BUSINESS_UNITS);
+
+  var buTen = {}, buBat = {};
+  bus.forEach(function (b) {
+    var c = String(b.code || '').trim();
+    if (!c) return;
+    buTen[c] = String(b.name || '');
+    buBat[c] = String(b.is_active) === '1' || b.is_active === true;
+  });
+
+  var bay = Date.now();
+  var canPin = [], sapKhoa = [], donViLa = [], tatCa = [];
+  var coNguoi = {};   // mã đơn vị → { bu_editor: n, bu_approver: n }
+
+  users.forEach(function (u) {
+    var id = String(u.id || '').trim();
+    if (!id) return;
+    // KHÔNG trim: assertBU_ so chuỗi THÔ (String(session.bu) !== String(buCode)),
+    // nên một dấu cách thừa trong ô này làm người dùng đăng nhập được nhưng
+    // không thao tác được trên đơn vị của chính mình. Trim ở đây là giấu đi
+    // đúng cái lỗi cần tìm.
+    var bu = String(u.business_unit_code === null || u.business_unit_code === undefined ? '' : u.business_unit_code);
+    var bat = String(u.is_active) === '1' || u.is_active === true;
+    var coPin = !!String(u.pin_hash || '').trim();
+    var khoaToi = u.locked_until ? new Date(u.locked_until).getTime() : 0;
+    var dangKhoa = khoaToi && khoaToi > bay;
+
+    tatCa.push({
+      id: id, ten: String(u.full_name || ''), vaiTro: String(u.role || ''),
+      bu: bu, bat: bat, coPin: coPin, dangKhoa: !!dangKhoa,
+      saiLan: Number(u.failed_attempts) || 0,
+      lanCuoi: u.last_login ? String(u.last_login).slice(0, 10) : ''
+    });
+
+    if (bat && !coPin) canPin.push(id + '  (' + (u.full_name || '') + ' — ' + (u.role || '') + (bu ? ' / ' + bu : '') + ')');
+    if (dangKhoa) sapKhoa.push(id + '  (mở từ ' + String(u.locked_until).slice(0, 16) + ')');
+    if (bu && buTen[bu] === undefined) {
+      var goi = buTen[bu.trim()] !== undefined
+        ? ' (thừa khoảng trắng — đúng ra là "' + bu.trim() + '")'
+        : '';
+      donViLa.push(id + '  → business_unit_code = "' + bu + '"' + goi);
+    }
+    if (bat && bu && (u.role === 'bu_editor' || u.role === 'bu_approver')) {
+      if (!coNguoi[bu]) coNguoi[bu] = { bu_editor: 0, bu_approver: 0 };
+      coNguoi[bu][u.role]++;
+    }
+  });
+
+  var out = [];
+  out.push('=== TÌNH TRẠNG TÀI KHOẢN ===');
+  out.push('');
+  out.push('TỔNG: ' + tatCa.length + ' tài khoản ('
+    + tatCa.filter(function (u) { return u.bat; }).length + ' đang bật)');
+  out.push('');
+
+  out.push('--- CẦN ĐẶT PIN (đang bật nhưng chưa có PIN) ---');
+  if (!canPin.length) out.push('  (không có — mọi tài khoản đang bật đều đã có PIN)');
+  else {
+    canPin.forEach(function (x) { out.push('  ' + x); });
+    out.push('  → Đặt bằng bulkSetInitialPins() (sửa danh sách trong hàm trước khi chạy,');
+    out.push('    xoá PIN thật khỏi mã nguồn ngay sau khi chạy xong).');
+  }
+  out.push('');
+
+  out.push('--- ĐANG BỊ KHOÁ ---');
+  if (!sapKhoa.length) out.push('  (không có)');
+  else {
+    sapKhoa.forEach(function (x) { out.push('  ' + x); });
+    out.push('  → Mở ngay bằng run_moKhoaTaiKhoan().');
+  }
+  out.push('');
+
+  out.push('--- ĐƠN VỊ GÕ KHÔNG KHỚP DANH MỤC ---');
+  if (!donViLa.length) out.push('  (không có)');
+  else {
+    donViLa.forEach(function (x) { out.push('  ' + x); });
+    out.push('  → Tài khoản này đăng nhập được nhưng không thấy chu kỳ nào.');
+    out.push('    Mã phải trùng TỪNG KÝ TỰ với cột code của BusinessUnits.');
+  }
+  out.push('');
+
+  out.push('--- ĐƠN VỊ ĐANG BẬT: AI LẬP, AI DUYỆT ---');
+  Object.keys(buTen).sort().forEach(function (c) {
+    if (!buBat[c]) return;
+    var n = coNguoi[c] || { bu_editor: 0, bu_approver: 0 };
+    var thieu = [];
+    if (!n.bu_editor) thieu.push('CHƯA CÓ NGƯỜI LẬP');
+    if (!n.bu_approver) thieu.push('CHƯA CÓ NGƯỜI DUYỆT');
+    out.push('  ' + (thieu.length ? '⚠ ' : '  ') + c
+      + '  — lập: ' + n.bu_editor + ', duyệt: ' + n.bu_approver
+      + (thieu.length ? '   ← ' + thieu.join(' + ') : ''));
+  });
+  out.push('  (đơn vị thiếu người duyệt thì kế hoạch không bao giờ được duyệt,');
+  out.push('   và file SAP sẽ thiếu hẳn đơn vị đó mà nhìn vẫn bình thường.)');
+  out.push('');
+
+  out.push('--- TOÀN BỘ TÀI KHOẢN ---');
+  out.push('  id | họ tên | vai trò | đơn vị | bật | PIN | đăng nhập cuối');
+  tatCa.sort(function (a, b) { return a.id < b.id ? -1 : 1; }).forEach(function (u) {
+    out.push('  ' + [
+      u.id, u.ten, u.vaiTro, u.bu || '—',
+      u.bat ? 'bật' : 'TẮT',
+      u.coPin ? 'có' : 'CHƯA',
+      u.lanCuoi || 'chưa bao giờ'
+    ].join(' | ') + (u.dangKhoa ? '   [ĐANG KHOÁ]' : '')
+      + (u.saiLan ? '   [sai ' + u.saiLan + ' lần]' : ''));
+  });
+
+  out.push('');
+  out.push('=== HẾT ===');
+  Logger.log(out.join('\n'));
+  return {
+    canDatPin: canPin.length,
+    dangKhoa: sapKhoa.length,
+    donViSai: donViLa.length,
+    tongTaiKhoan: tatCa.length
+  };
+}

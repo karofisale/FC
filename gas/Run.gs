@@ -246,3 +246,14 @@ function run_baoCao_kieuMa() {
 function run_baoCao_nguonXK() {
   return adminInspectExportSource();
 }
+
+
+/**
+ * Tài khoản nào chưa có PIN, ai đang bị khoá, đơn vị nào chưa có người
+ * lập / người duyệt, và tài khoản nào gõ sai mã đơn vị.
+ *
+ * Chạy sau mỗi lần thêm đơn vị hoặc thêm người. Không in pin_hash.
+ */
+function run_baoCao_taiKhoan() {
+  return adminReportAccounts();
+}
