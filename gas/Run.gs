@@ -234,3 +234,15 @@ function run_baoCao_soiMa() {
 function run_baoCao_kieuMa() {
   return adminReportSkuTypes();
 }
+
+
+/**
+ * Bố cục bốn tab nguồn của luồng nhập XK: tên từng cột kèm chữ cái, vài
+ * dòng mẫu, và phân bố giá trị các cột cuối của Clients.
+ *
+ * Chạy trước khi viết bộ lọc đơn vị cho hàng xuất khẩu — biết chính xác
+ * cột nào nối được đơn với khách, và còn khách nào chưa được gán đơn vị.
+ */
+function run_baoCao_nguonXK() {
+  return adminInspectExportSource();
+}

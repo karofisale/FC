@@ -278,3 +278,96 @@ function importSopFromSource_(session, p) {
   tomTat.dryRun = false;
   return tomTat;
 }
+
+
+// ---------------------------------------------------------------------
+// SOI BỐ CỤC NGUỒN (chạy tay)
+// ---------------------------------------------------------------------
+
+/** 0 → A, 25 → Z, 26 → AA. */
+function impTenCot_(i) {
+  var s = '';
+  i += 1;
+  while (i > 0) {
+    var d = (i - 1) % 26;
+    s = String.fromCharCode(65 + d) + s;
+    i = Math.floor((i - d) / 26);
+  }
+  return s;
+}
+
+function impGonGang_(v) {
+  if (v === '' || v === null || v === undefined) return '∅';
+  if (Object.prototype.toString.call(v) === '[object Date]') return 'NGÀY ' + v.toISOString().slice(0, 10);
+  var s = String(v).replace(/\s+/g, ' ').trim();
+  return s.length > 28 ? s.slice(0, 28) + '…' : s;
+}
+
+function impSoiTab_(sheet, nhan, soDongMau) {
+  if (!sheet) { Logger.log('  ' + nhan + ': KHÔNG CÓ TAB NÀY'); return null; }
+  var nCot = sheet.getLastColumn();
+  var nDong = sheet.getLastRow();
+  Logger.log('');
+  Logger.log('--- ' + nhan + ' — ' + (nDong - 1) + ' dòng dữ liệu × ' + nCot + ' cột ---');
+  if (!nCot || nDong < 1) return null;
+
+  var v = sheet.getRange(1, 1, Math.min(nDong, 1 + (soDongMau || 2)), nCot).getValues();
+  var tieuDe = v[0];
+  tieuDe.forEach(function (h, i) {
+    var mau = [];
+    for (var r = 1; r < v.length; r++) mau.push(impGonGang_(v[r][i]));
+    Logger.log('  ' + impTenCot_(i) + ' | ' + impGonGang_(h) + '   → ' + mau.join('  /  '));
+  });
+  return { headers: tieuDe, nCot: nCot, nDong: nDong };
+}
+
+/**
+ * In bố cục bốn tab mà luồng nhập XK đọc, để viết bộ lọc đơn vị theo
+ * ĐÚNG tên cột và giá trị thật đang có, không theo mô tả.
+ *
+ * Riêng tab Clients còn đếm phân bố giá trị của TỪNG cột cuối — cột đánh dấu
+ * khách thuộc đơn vị nào nằm ở đó, và phân bố cho biết còn khách nào chưa
+ * được gán. Khách chưa gán là sản lượng sẽ rơi sai đơn vị mà không ai thấy.
+ */
+function adminInspectExportSource() {
+  Logger.log('=== BỐ CỤC NGUỒN NHẬP XK ===');
+
+  var ops = SpreadsheetApp.openById(IMP_OPS2026_ID);
+  Logger.log('');
+  Logger.log('[Operations2026] ' + ops.getName() + '  — các tab: ' +
+    ops.getSheets().map(function (s) { return s.getName(); }).join(', '));
+  impSoiTab_(ops.getSheetByName('Details'), 'Operations2026!Details', 2);
+
+  var hub = SpreadsheetApp.openById(IMP_HUB_ID);
+  Logger.log('');
+  Logger.log('[ExportSystem] ' + hub.getName() + '  — các tab: ' +
+    hub.getSheets().map(function (s) { return s.getName(); }).join(', '));
+  impSoiTab_(hub.getSheetByName('PITotal'), 'ExportSystem!PITotal', 2);
+  impSoiTab_(hub.getSheetByName('PIDetails'), 'ExportSystem!PIDetails', 2);
+
+  var cl = hub.getSheetByName('Clients');
+  var info = impSoiTab_(cl, 'ExportSystem!Clients', 3);
+
+  // Phân bố giá trị của bốn cột cuối: cột đánh dấu đơn vị nằm trong số đó.
+  if (cl && info && info.nDong > 1) {
+    var tu = Math.max(1, info.nCot - 3);
+    var data = cl.getRange(2, tu, info.nDong - 1, info.nCot - tu + 1).getValues();
+    Logger.log('');
+    Logger.log('--- Phân bố giá trị bốn cột cuối của Clients ---');
+    for (var c = 0; c < data[0].length; c++) {
+      var dem = {};
+      data.forEach(function (r) {
+        var k = String(r[c] === '' || r[c] === null ? '(trống)' : r[c]).trim();
+        dem[k] = (dem[k] || 0) + 1;
+      });
+      var ds = Object.keys(dem).sort(function (a, b) { return dem[b] - dem[a]; });
+      Logger.log('  cột ' + impTenCot_(tu - 1 + c) + ' (' + impGonGang_(info.headers[tu - 1 + c]) + '): ' +
+        ds.slice(0, 12).map(function (k) { return k + '=' + dem[k]; }).join('  |  ') +
+        (ds.length > 12 ? '  … ' + (ds.length - 12) + ' giá trị khác' : ''));
+    }
+  }
+
+  Logger.log('');
+  Logger.log('=== HẾT ===');
+  return 'Xem Nhật ký thực thi.';
+}
