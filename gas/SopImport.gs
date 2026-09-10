@@ -382,6 +382,17 @@ function importSopFromSource_(session, p) {
   logAuth_(session.userId, 'sop_imported',
     bu + ' ' + ky + ' · ' + soSku + ' SKU · bản ' + versionId);
 
+  // Một nhịp cho MỖI ĐƠN VỊ, không phải một nhịp chung: nhập SOP của OEM
+  // không làm cho số của Xuất khẩu tươi hơn, mà một dòng chung sẽ nói đúng
+  // như vậy. `han_gio` để trống — nhập SOP là việc theo kỳ do người quyết
+  // định, chưa có nhịp cố định nào để kỳ vọng; ai muốn đặt thì sửa trên Sheet.
+  ghiNhipTim_(getSpreadsheet_(), 'fc.nhap-sop.' + String(bu).toLowerCase(), {
+    moTa: 'Nhập kế hoạch SOP đơn vị ' + bu + ' từ nguồn gốc (OEM / Xuất khẩu)',
+    soDong: soSku,
+    ghiChu: 'kỳ ' + ky + ' · bản ' + versionId +
+            (tomTat.createdCycle ? ' · tạo chu kỳ mới' : ' · thêm bản vào chu kỳ có sẵn')
+  });
+
   tomTat.dryRun = false;
   return tomTat;
 }

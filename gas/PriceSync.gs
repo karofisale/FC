@@ -340,6 +340,17 @@ function psChay_(ghiThat) {
   props.setProperty(PS_PROP_RATE, String(tyGia));
   props.setProperty(PS_PROP_AT, new Date().toISOString());
 
+  // Nhịp tim ghi SAU khi đã ghi giá xong — nó kể lại việc đã xảy ra, không
+  // phải ý định. Chỉ ở nhánh ghi thật: một lần chạy thử không làm giá tươi
+  // hơn, đếm nó vào nhịp là nói dối cổng.
+  ghiNhipTim_(getSpreadsheet_(), 'fc.dong-bo-gia', {
+    moTa: 'Đồng bộ giá bán trung bình từ số bán thật của OEM và Xuất khẩu',
+    soDong: doi.length,
+    ghiChu: 'tỷ giá ' + tyGia.toLocaleString('en-US') + ' · giữ nguyên ' + giuNguyen +
+            ' · không có số bán ' + khongNguon + (lech.length ? ' · lệch hai nguồn ' + lech.length : ''),
+    hanGio: 24 * 40
+  });
+
   out.push('');
   out.push('ĐÃ GHI ' + doi.length + ' mã. Tỷ giá và thời điểm lưu ở Script Property ' +
            PS_PROP_RATE + ' / ' + PS_PROP_AT + '.');

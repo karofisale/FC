@@ -140,7 +140,12 @@ function getPortalStats_(session) {
     channels: [],
     total: null,
     pending: [],
-    lechPhanLoai: null
+    lechPhanLoai: null,
+    // Độ tươi của những việc chạy tự động đổ số vào file này. Đi kèm ngay đây
+    // chứ không thành một endpoint riêng: cổng đã gọi hàm này rồi, thêm một
+    // lượt gọi nữa là thêm một thứ có thể hỏng riêng — mà nếu nó hỏng thì cái
+    // hỏng lại đúng là thứ cảnh báo. Xem NhipTim.gs.
+    nhipTim: docNhipTim_(getSpreadsheet_())
   };
 
   // Kế hoạch chờ duyệt KHÔNG phụ thuộc chu kỳ đang xem: một bản gửi tháng

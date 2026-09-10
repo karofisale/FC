@@ -28,7 +28,13 @@ const path = require('path');
 const vm = require('vm');
 
 const GAS = path.join(__dirname, '..', 'gas');
-const FILES = ['Config.gs', 'Utils.gs', 'SheetDb.gs', 'Queries.gs', 'Auth.gs', 'PortalStats.gs'];
+// NhipTim.gs có trong danh sách vì getPortalStats_ gọi docNhipTim_ thật. Nạp
+// mã thật chứ không stub — đó là tính chất của bài test này, và nó vừa chứng
+// minh giá trị của mình: thêm dòng nhipTim vào payload mà quên file này thì
+// cổng gọi getPortalStats sẽ nổ ReferenceError cho MỌI người dùng, và bài test
+// đỏ ngay tại chỗ.
+const FILES = ['Config.gs', 'Utils.gs', 'SheetDb.gs', 'Queries.gs', 'Auth.gs',
+  'NhipTim.gs', 'PortalStats.gs'];
 
 let pass = 0, fail = 0;
 function check(ten, dieuKien, them) {
@@ -296,6 +302,27 @@ console.log('\n8. Không có chu kỳ nào -> trả về rỗng, không nổ');
   check('không có kênh nào', r3.channels.length === 0);
   check('total là null chứ không phải mảng số 0', r3.total === null, r3.total);
   check('không đọc phân loại khi chưa có chu kỳ', r3.lechPhanLoai === null, r3.lechPhanLoai);
+}
+
+console.log('\n9. Nhịp tim đi kèm payload — và chưa có tab thì cũng không sao');
+{
+  // Đây là trạng thái của LẦN DEPLOY ĐẦU TIÊN: tab JobHeartbeat chưa tồn tại ở
+  // file nào cả. Nếu nó làm getPortalStats_ nổ thì cả khối số liệu của cổng
+  // tắt cho mọi người — một cơ chế cảnh báo làm hỏng đúng thứ nó canh.
+  const r = nap(duLieu()).getPortalStats_({ userId: 'admin', role: 'central_admin', bu: '' });
+  check('có trường nhipTim', Object.prototype.hasOwnProperty.call(r, 'nhipTim'));
+  check('là mảng rỗng khi chưa có tab', Array.isArray(r.nhipTim) && r.nhipTim.length === 0,
+    JSON.stringify(r.nhipTim));
+  // Chỉ đường GHI mới được tạo tab. Đọc mà tạo thì mỗi lần có người mở cổng
+  // lại sinh một tab trống — và cổng chỉ đọc, nên nó sẽ tạo mãi mãi.
+  // bangTinh() ném lỗi ngay khi ai đó gọi insertSheet, nên bài này bắt được.
+  const duAn = nap(duLieu());
+  let tao = false;
+  const giaSS = {
+    getSheetByName: () => null,
+    insertSheet: () => { tao = true; throw new Error('không được tạo tab ở đường đọc'); }
+  };
+  check('docNhipTim_ không tạo tab', duAn.docNhipTim_(giaSS).length === 0 && tao === false);
 }
 
 console.log('');

@@ -142,6 +142,25 @@ thích đầu `MonthlyForecast.jsx`). Vì người dùng hay nhẩm theo "mã b�
 1", endpoint đếm số mã mà hai cách phân loại lệch nhau và cổng hiện thành một
 dòng cảnh báo — thay vì để con số khác kỳ vọng mà không rõ vì sao.
 
+## Nhịp tim của việc tự động
+
+`gas/NhipTim.gs` giống hệt **từng byte** với bản ở OEM App, Export Ops Hub,
+Karofi ID và `D:\Operation\Claude\Scripts\up-dt-oem`. Sửa ở đây phải chép sang
+bốn nơi kia — `test/nhip-tim.test.js` của Karofi ID so cả năm file.
+
+Hai việc của FC đang ghi nhịp: `fc.dong-bo-gia` (trong `psChay_`, chỉ nhánh ghi
+thật) và `fc.nhap-sop.<đơn vị>` (cuối `importSopFromSource_`). Chúng ghi vào tab
+`JobHeartbeat` của chính file Sheet FC, và `getPortalStats_` trả kèm cho cổng
+VHKD hiện độ tươi.
+
+**`NhipTim.gs` phải có trong `FILES` của `test/portalstats.test.js`** — bài test
+đó nạp mã thật không stub, nên thiếu file là `docNhipTim_ is not defined`, mà
+lỗi đó ở production sẽ tắt cả khối số liệu của cổng cho mọi người.
+
+```bash
+node test/portalstats.test.js   # 52 test
+```
+
 ## Liên quan tới app khác
 
 `gas/KarofiToken.gs` và `client/src/services/karofiSession.js` là **bản sao** —
