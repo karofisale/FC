@@ -58,9 +58,15 @@ const S = {
     // KRF-Phil: cung ma 2001 (phai CONG vao XK) va ma rieng 2002
     line('l5','v_phi','2001','2026-10-01',50),
     line('l6','v_phi','2002','2026-10-01',70),
-    line('l7','v_phi','2002','2026-11-01',800)],
+    line('l7','v_phi','2002','2026-11-01',800),
+    // XK cung dat chinh ma cua GT2: hai cach gom so cho ket qua KHAC NHAU,
+    // nho vay bai kiem phan biet duoc "chi kenh 0200" voi "ca cong ty"
+    line('l8','v_xk','1001','2026-10-01',1000),
+    line('l9','v_xk','1001','2026-11-01',1000)],
   WeeklyRegionSplits: [['id','version_id','sku_code','week_number','region_code','quantity','updated_at','updated_by'],
-                       ['w1','v_gt2','1001',1,'MB',100,'','']],
+                       ['w1','v_gt2','1001',1,'MB',100,'',''],
+                       // luong nhap XK CO ghi dong chia tuan (tuan 3 mien Bac)
+                       ['w2','v_xk','1001',1,'MB',500,'','']],
   Approvals: [['id','cycle_id','version_id','approver_id','status','comment','requested_by','requested_at','decided_at'],
               approval('a1','c_gt2','v_gt2'), approval('a2','c_xk','v_xk'), approval('a3','c_phi','v_phi')],
   ActualSalesResults: [['id','business_unit_code','sku_code','actual_month','region_code','quantity','source_system','imported_by','imported_at']],
@@ -111,7 +117,7 @@ say(data.buChannels && data.buChannels['3T'] === undefined ? true : data.buChann
 
 console.log('\n2. File KH_XK cong ca XK lan bon thi truong Brand');
 const xk = buildSapRows({ channel: 'XK', baseMonth: data.baseMonth, rows: data.rows,
-  weekly: data.weekly, buChannels: data.buChannels, exportedAt: at });
+  weekly: data.weeklyByChannel?.XK, buChannels: data.buChannels, exportedAt: at });
 const xkBy = {};
 xk.forEach((r) => { xkBy[String(r[1])] = r; });
 xk.forEach((r) => console.log(`      ${r[0]} | ${r[1]} | ${r[2]} | W3=${r[W3]}`));
@@ -121,18 +127,29 @@ say(xk.every((r) => r[0] === 'KH_XK' && r[2] === '0400'), 'moi dong deu KH_XK / 
 
 console.log('\n3. File GT2 khong duoc nuot hang cua KRF-Phil');
 const gt2 = buildSapRows({ channel: 'GT2', baseMonth: data.baseMonth, rows: data.rows,
-  weekly: data.weekly, buChannels: data.buChannels, exportedAt: at });
+  weekly: data.weeklyByChannel?.GT2, buChannels: data.buChannels, exportedAt: at });
 gt2.forEach((r) => console.log(`      ${r[0]} | ${r[1]} | ${r[2]}`));
 say(gt2.some((r) => String(r[1]) === '1001'), 'hang GT2 (1001) van co trong file 0200');
 say(!gt2.some((r) => String(r[1]) === '2002'), 'hang cua KRF-Phil (2002) KHONG co trong file 0200');
 
+console.log('\n3b. File GT2 chi duoc gom san luong cua cac don vi kenh 0200');
+const g1001 = gt2.find((r) => String(r[1]) === '1001');
+// A..I = 9 cot dau. weekColumns = 4 nen W1..W4 o idx 9..12,
+// thang base+1 o idx 13..16, thang base+2 o idx 17..20.
+console.log(`      W1..W4   = [${g1001.slice(9, 13).join(', ')}]`);
+console.log(`      thang 10 = [${g1001.slice(13, 17).join(', ')}]   thang 11 = [${g1001.slice(17, 21).join(', ')}]`);
+say(g1001[9] === 100, `W1 = ${g1001[9]} (chia tuan cua GT2; KHONG gom 500 cua XK)`);
+say(g1001.slice(13, 17).every((q) => q === 100),
+  'thang 10 chia deu 400/4 = 100 moi cot (gom ca cong ty se ra (400+1000)/4 = 350)');
+say(g1001.slice(17, 21).every((q) => q === 100), 'thang 11 cung vay');
+
 console.log('\n4. Bo cot sap_channel di → tai hien dung cai bay cu');
 const cu = buildSapRows({ channel: 'GT2', baseMonth: data.baseMonth, rows: data.rows,
-  weekly: data.weekly, exportedAt: at });
+  weekly: data.weeklyByChannel?.GT2, exportedAt: at });
 say(cu.some((r) => String(r[1]) === '2002'),
   'khong co ban do thi 2002 roi vao file GT2 — dung cai cot nay dang chan');
 const xkCu = buildSapRows({ channel: 'XK', baseMonth: data.baseMonth, rows: data.rows,
-  weekly: data.weekly, exportedAt: at });
+  weekly: data.weeklyByChannel?.XK, exportedAt: at });
 const cu2001 = xkCu.find((r) => String(r[1]) === '2001');
 say(cu2001 && cu2001[W3] === 200, `va KH_XK chi con 200 (thieu 50 cua KRF-Phil)`);
 

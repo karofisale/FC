@@ -611,6 +611,7 @@ function getSapExport_(session, baseMonth) {
 
   var approved = approvedVersionByCycle_();
   var products = productMap_();
+  var buChannels = sapChannelByBU_();
 
   var buByVersionId = {};
   var readyBUs = [];
@@ -651,15 +652,23 @@ function getSapExport_(session, baseMonth) {
 
   // Chia tuần của tháng gốc, đã cộng hai miền — chỉ kênh nhà máy 0200 dùng
   // (W1..W4). Các kênh 0400 không đọc tới nên không tốn thêm gì cho chúng.
-  var weekly = {};
+  //
+  // Tách theo KÊNH SAP chứ không cộng chung một rổ. Trước đây gộp mọi đơn
+  // vị vào cùng một map, mà luồng nhập của XK/OEM CÓ ghi dòng chia tuần
+  // (tuần 3 miền Bắc) — nên sản lượng xuất khẩu và OEM chảy thẳng vào cột
+  // W1..W4 của file GT2 mà file nhìn vẫn đủ cột, đủ dòng.
+  var weeklyByChannel = {};
   readObjectsWhere_(SHEETS.WEEKLY_SPLITS, 'version_id', function (v) {
     return buByVersionId[v] !== undefined;
   }).forEach(function (w) {
     var sku = w.sku_code;
     var week = Number(w.week_number) || 0;
     if (!week) return;
-    if (!weekly[sku]) weekly[sku] = {};
-    weekly[sku][week] = (weekly[sku][week] || 0) + (Number(w.quantity) || 0);
+    var kenh = buChannels[buByVersionId[w.version_id]] || 'GT2';
+    if (!weeklyByChannel[kenh]) weeklyByChannel[kenh] = {};
+    var m = weeklyByChannel[kenh];
+    if (!m[sku]) m[sku] = {};
+    m[sku][week] = (m[sku][week] || 0) + (Number(w.quantity) || 0);
   });
 
   // Cột requirements_type là tùy chọn, nhưng nếu thiếu thì các mã cần ghi đè
@@ -682,8 +691,8 @@ function getSapExport_(session, baseMonth) {
     approvedBUs: readyBUs.sort(),
     missingApproval: missingApproval.sort(),
     rows: Object.keys(rowsMap).map(function (k) { return rowsMap[k]; }),
-    weekly: weekly,
-    buChannels: sapChannelByBU_(),
+    weeklyByChannel: weeklyByChannel,
+    buChannels: buChannels,
     hasRequirementsTypeColumn: hasTypeColumn,
     requirementsTypeOverrides: typeOverrides
   };

@@ -199,9 +199,16 @@ function companyTotal(row, month) {
  * Kênh 0200: W1..W4 lấy từ bảng chia tuần của tháng gốc (đã cộng MB+MN),
  * tám cột sau chia đều sản lượng hai tháng tiếp theo.
  *
- * Phần chia đều dùng TỔNG CẢ CÔNG TY chứ không riêng kênh 0200 — đo trên
- * 19 SKU mà XK/OEM cũng có số (tức hai cách cho kết quả khác nhau): tổng cả
- * công ty khớp 19/19, riêng kênh 0200 khớp 0/19.
+ * Cả hai phần chỉ gồm các ĐƠN VỊ THUỘC KÊNH NÀY (GT2, 3T, NSKX…), theo
+ * `spreadScope` mặc định 'channel'.
+ *
+ * File thật tháng 7/2026 lại dùng TỔNG CẢ CÔNG TY cho tám cột chia đều: đo
+ * trên 19 SKU mà XK/OEM cũng có số (tức hai cách cho kết quả khác nhau), tổng
+ * cả công ty khớp 19/19 còn riêng kênh 0200 khớp 0/19. Tức cách làm tay trước
+ * đây CÓ cộng sản lượng OEM/XK vào file nhà máy 0200. Nghiệp vụ (09/2026)
+ * xác nhận đó là sai: file GT2 chỉ được gồm GT2, 3T, NSKX. Giữ 'company'
+ * lại dưới dạng tuỳ chọn để tools/verify-sap-export.mjs còn dựng lại được file
+ * cũ mà đối chiếu — bằng chứng không biến mất khi quy tắc đổi.
  *
  * Tuần thứ 5: bố cục 4+4+4 chỉ có bốn cột tuần, nên sản lượng tuần 5 (và 6)
  * được DỒN vào W4 thay vì bỏ đi — bỏ đi là mất sản lượng đã lên kế hoạch mà
@@ -236,7 +243,10 @@ function buildPlant0200Rows(cfg, channel, baseMonth, rows, weekly, dateStr, year
     let at = cfg.weekColumns;
     spreadMonths.forEach((m, i) => {
       const n = Array.isArray(cfg.spreadDivisor) ? cfg.spreadDivisor[i] : cfg.spreadDivisor;
-      const per = roundHalfEven(companyTotal(r, m) / n);
+      const goc = cfg.spreadScope === 'company'
+        ? companyTotal(r, m)
+        : channelTotal(r, m, channel, buChannels);
+      const per = roundHalfEven(goc / n);
       for (let k = 0; k < n; k++) weeks[at + k] = per;
       at += n;
     });

@@ -94,7 +94,8 @@ export default function Exports({ user }) {
           channel,
           baseMonth: data.baseMonth,
           rows: data.rows,
-          weekly: data.weekly,
+          // Bảng chia tuần của RIÊNG kênh này — không phải của cả công ty.
+          weekly: (data.weeklyByChannel || {})[channel] || {},
           buChannels: data.buChannels,
           exportedAt
         });

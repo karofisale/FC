@@ -216,19 +216,45 @@ for (const [channel, sheet, uploadPath] of [
   console.log(`  ngày trong file: ${[...dateOk].join(', ')}   (quy tắc: thứ Tư tuần kế tiếp, giống OEM)`);
 
   // Bố cục CỦA FILE THẬT là 5+4+3; app xuất 4+4+4 theo quyết định của người dùng.
-  const asFile = Object.assign({}, SAP_CHANNELS.GT2, { weekColumns: 5, spreadDivisor: [4, 3] });
-  const gen = buildSapRows({ channel: 'GT2', baseMonth, rows: rows0200, weekly: {}, exportedAt: new Date(2026, 6, 2), config: asFile });
-  const genBySku = new Map(gen.map((r) => [String(r[1]).trim(), r]));
+  //
+  // Đo CẢ HAI phạm vi gom số cho tám cột chia đều, vì đây chính là chỗ cách làm
+  // tay cũ và yêu cầu nghiệp vụ mới nói ngược nhau: file thật cộng sản lượng
+  // cả công ty (gồm OEM/XK) vào file nhà máy 0200, còn app nay chỉ gồm các
+  // đơn vị thuộc kênh 0200. Giữ cả hai con số để bằng chứng không biến mất
+  // khi quy tắc đổi — và để thấy rõ quy tắc mới làm lệch đúng bao nhiêu dòng.
+  const doSpread = (scope) => {
+    const cfg = Object.assign({}, SAP_CHANNELS.GT2, {
+      weekColumns: 5, spreadDivisor: [4, 3], spreadScope: scope
+    });
+    const gen = buildSapRows({
+      channel: 'GT2', baseMonth, rows: rows0200, weekly: {},
+      exportedAt: new Date(2026, 6, 2), config: cfg
+    });
+    const bySku = new Map(gen.map((r) => [String(r[1]).trim(), r]));
+    let ok = 0, bad = 0;
+    for (const a of actual) {
+      const g = bySku.get(String(a[1]).trim());
+      if (!g) continue;
+      const same7 = [5, 6, 7, 8, 9, 10, 11].every((i) => Number(a[9 + i]) === Number(g[9 + i]));
+      if (same7) ok++; else bad++;
+    }
+    const tong = gen.reduce((t, r) => t + r.slice(9, 21).reduce((x, q) => x + (Number(q) || 0), 0), 0);
+    return { ok, bad, soDong: gen.length, tong };
+  };
 
-  let spreadOk = 0, spreadBad = 0;
-  for (const a of actual) {
-    const g = genBySku.get(String(a[1]).trim());
-    if (!g) continue;
-    const same7 = [5, 6, 7, 8, 9, 10, 11].every((i) => Number(a[9 + i]) === Number(g[9 + i]));
-    if (same7) spreadOk++; else spreadBad++;
-  }
-  console.log(`  bố cục 5+4+3 như file thật, tám cột chia đều: khớp ${spreadOk}/${spreadOk + spreadBad}`);
-  console.log(`     (${spreadBad} dòng lệch là do FC đã đổi giữa 2/7 và 27/7 — xem ghi chú ở trên)`);
+  const congTy = doSpread('company');
+  const rieng = doSpread('channel');
+  console.log(`  bố cục 5+4+3 như file thật, tám cột chia đều:`);
+  console.log(`     cộng TỔNG CẢ CÔNG TY (cách làm tay cũ) : khớp ${congTy.ok}/${congTy.ok + congTy.bad}`);
+  console.log(`     chỉ các đơn vị kênh 0200 (app nay)    : khớp ${rieng.ok}/${rieng.ok + rieng.bad}`);
+  console.log(`     (${congTy.bad} dòng lệch ở dòng trên là do FC đã đổi giữa 2/7 và 27/7 — xem ghi chú ở trên)`);
+  console.log(`     Dòng dưới thấp hơn là ĐÚNG DỰ KIẾN: file cũ đang gom cả OEM/XK vào`);
+  console.log(`     file nhà máy 0200, nghiệp vụ 09/2026 xác nhận đó là sai.`);
+  console.log(`  Số bị cộng nhầm vào file GT2 tháng 7:`);
+  console.log(`     cách cũ: ${congTy.soDong} dòng, ${congTy.tong.toLocaleString('vi-VN')} cái`);
+  console.log(`     cách mới: ${rieng.soDong} dòng, ${rieng.tong.toLocaleString('vi-VN')} cái`);
+  console.log(`     chênh : ${congTy.soDong - rieng.soDong} dòng chỉ tồn tại nhờ sản lượng OEM/XK, `
+    + `${(congTy.tong - rieng.tong).toLocaleString('vi-VN')} cái thừa`);
 
   const w5 = actual.filter((a) => Number(a[9 + 4]) !== 0);
   const w5sum = w5.reduce((s, a) => s + Number(a[9 + 4]), 0);
