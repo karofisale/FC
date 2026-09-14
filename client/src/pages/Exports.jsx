@@ -90,6 +90,14 @@ export default function Exports({ user }) {
           skipped.push(`${channel} (chưa duyệt: ${chuaDuyet.join(', ')})`);
           return;
         }
+        // Kênh 0200 lấy cột W1..W4 từ bảng chia tuần. Nếu backend chưa được
+        // triển khai bản mới thì không có weeklyByChannel, và file vẫn xuất ra
+        // được — chỉ là bốn cột tuần đều bằng 0, trông hoàn toàn bình thường.
+        // Thà không xuất còn hơn để một file thiếu sản lượng tháng đầu lên SAP.
+        if (SAP_CHANNELS[channel].weekColumns && !data.weeklyByChannel) {
+          skipped.push(`${channel} (backend chưa cập nhật — thiếu bảng chia tuần theo kênh)`);
+          return;
+        }
         const rows = buildSapRows({
           channel,
           baseMonth: data.baseMonth,
