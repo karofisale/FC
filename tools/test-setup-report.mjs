@@ -34,12 +34,17 @@ const RONG = {
   AuthLog: [['at','user_id','event','detail']]
 };
 
-const noop = { setFontWeight(){return this;}, setBackground(){return this;}, setFontColor(){return this;} };
+// setNumberFormat / getMaxRows: setupDatabase dat dinh dang CHU cho cac cot ma
+// to chuc SAP. Mock thieu chung thi bai kiem no ngay, va đo là dung — mock phai
+// co day du cai app that goi.
+const noop = { setFontWeight(){return this;}, setBackground(){return this;},
+  setFontColor(){return this;}, setNumberFormat(){return this;} };
 
 function chay(sheetsBanDau) {
   const S = JSON.parse(JSON.stringify({ ...RONG, ...sheetsBanDau }));
   const sh = (n) => ({
     getName: () => n, getLastRow: () => S[n].length, getLastColumn: () => S[n][0].length,
+    getMaxRows: () => S[n].length + 50,
     getDataRange: () => ({ getValues: () => S[n].map((r) => r.slice()) }),
     getRange: (row, col, nR, nC) => ({ ...noop,
       getValues: () => S[n].slice(row - 1, row - 1 + nR).map((r) => r.slice(col - 1, col - 1 + nC)),
@@ -108,15 +113,31 @@ say(/không phải sửa gì/.test(lai.log), 'bao la moi sheet da dung cot');
 say(lai.ket.businessUnits.inserted === 0, `khong chen them don vi nao (${lai.ket.businessUnits.inserted})`);
 say(lai.ket.canhBao.length === 0, 'khong canh bao gi');
 
-console.log('\n4. Cot bi DOI CHO — hong du lieu that, phai bao to');
-const daoCot = chay({
+console.log('\n4a. Cot DOI CHO nhung moi dong deu nam trong danh muc gieo');
+// Buoc gieo ghi de nguyen dong nen no TU VA lai nhung dong do. Bao dong
+// "kiem tay sheet nay" o day la keu oan — keu mai thi khong ai doc nua.
+const daoCotVa = chay({
   // is_active va name dao cho nhau: gia tri "1" dang nam duoi cot name
   BusinessUnits: [['code','is_active','name'], ['GT2','1','Kênh GT2']],
   Regions: [['code','name','is_active'], ['MB','Miền Bắc','1']]
 });
-console.log('     ' + daoCot.ket.canhBao.join('\n     '));
-say(daoCot.ket.canhBao.some((c) => /ĐỔI CHỖ/.test(c)), 'co canh bao doi cho cot');
-say(daoCot.ket.canhBao.some((c) => /BusinessUnits/.test(c)), 'noi ro sheet nao');
+say(daoCotVa.ket.canhBao.length === 0, `khong canh bao (${daoCotVa.ket.canhBao.join('; ')})`);
+say(/đổi chỗ, nhưng mọi dòng đều nằm trong danh mục gieo/.test(daoCotVa.log),
+  'bao la da duoc ghi de lai dung');
+const gt2 = daoCotVa.S.BusinessUnits.slice(1).find((r) => r[0] === 'GT2');
+say(gt2[1] === 'Kênh GT2 (General Trade 2)' && String(gt2[2]) === '1',
+  `du lieu GT2 dung cho: name="${gt2[1]}" is_active=${gt2[2]}`);
+
+console.log('\n4b. Cot DOI CHO va co dong NGOAI danh muc gieo — hong that');
+const daoCotHong = chay({
+  BusinessUnits: [['code','is_active','name'],
+                  ['GT2','1','Kênh GT2'],
+                  ['TUTHEM','1','Đơn vị tự thêm']],
+  Regions: [['code','name','is_active'], ['MB','Miền Bắc','1']]
+});
+console.log('     ' + daoCotHong.ket.canhBao.join('\n     '));
+say(daoCotHong.ket.canhBao.some((c) => /ĐỔI CHỖ/.test(c)), 'co canh bao doi cho cot');
+say(daoCotHong.ket.canhBao.some((c) => /TUTHEM/.test(c)), 'chi dich danh dong phai sua tay');
 
 console.log('\n5. Sheet co cot la (khong nam trong SCHEMA)');
 const cotLa = chay({

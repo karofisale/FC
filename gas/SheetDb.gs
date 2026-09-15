@@ -402,7 +402,13 @@ function applyRowChanges_(name, keyFields, upserts, deletes, keyNormalizers) {
 
   return {
     total: records.length, updated: updated, inserted: inserted,
-    deleted: deleted, deduped: dedupedCount
+    deleted: deleted, deduped: dedupedCount,
+    // Khoá của những dòng vừa được ghi đè — setupDatabase dùng để biết dòng
+    // nào KHÔNG nằm trong danh mục gieo, tức dòng nào không được tự vá sau
+    // một lần đổi chỗ cột.
+    keys: records.map(function (rec) {
+      return keyFields.map(function (f) { return String(rec[f]); }).join(' ');
+    })
   };
 }
 

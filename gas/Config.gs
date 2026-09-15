@@ -101,6 +101,19 @@ const READ_ACTIONS = [
  *
  * Action không có trong bảng này sẽ đọc tất cả như cũ.
  */
+/**
+ * Cột phải giữ đúng dạng CHỮ.
+ *
+ * Google Sheets tự đổi "0200" thành số 200 và "02" thành 2 — mất số 0 đứng
+ * đầu. Mã tổ chức bán hàng và kênh phân phối của SAP luôn có số 0 đầu,
+ * nên để nguyên là vừa hiển sai vừa không so được với giá trị thật.
+ *
+ * setupDatabase đặt định dạng '@' cho các cột này TRƯỚC khi gieo dữ liệu,
+ * nên sửa tay trên Sheet sau này cũng giữ nguyên số 0.
+ */
+const TEXT_COLUMNS = {};
+TEXT_COLUMNS[SHEETS.BUSINESS_UNITS] = ['sap_vkorg', 'sap_vtweg', 'sap_sold_to'];
+
 const ACTION_TABLES = {
   // --- đọc ---
   login:              [SHEETS.USERS, SHEETS.AUDIT],

@@ -23,6 +23,7 @@ function setupDatabase() {
 
   var bc = [];
   var canhBao = [];
+  var doiChoSheets = {};
   function ghi(d) { bc.push(d); }
 
   Object.keys(SCHEMA).forEach(function (name) {
@@ -30,6 +31,16 @@ function setupDatabase() {
     var headers = SCHEMA[name];
     var current = sheet.getLastColumn() ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0] : [];
     current = current.map(function (h) { return String(h === null || h === undefined ? '' : h).trim(); });
+
+    // Đặt định dạng chữ cho các cột mã tổ chức SAP, làm TRƯỚC khi gieo dữ
+    // liệu để "0200" không bị Sheets đổi thành 200.
+    (TEXT_COLUMNS[name] || []).forEach(function (col) {
+      var i = headers.indexOf(col);
+      if (i < 0) return;
+      var soDong = Math.max(1, sheet.getMaxRows() - 1);
+      sheet.getRange(2, i + 1, soDong, 1).setNumberFormat('@');
+    });
+
     if (current.join('|') === headers.join('|')) return;
 
     var them = headers.filter(function (h) { return current.indexOf(h) < 0; });
@@ -55,8 +66,11 @@ function setupDatabase() {
       if (doiCho.length) phan.push('ĐỔI CHỖ ' + doiCho.join(', '));
       ghi('  ' + name + ': ' + (phan.join(' · ') || 'chỉnh lại tiêu đề'));
       if (doiCho.length) {
-        canhBao.push(name + ': cột ' + doiCho.join(', ') + ' đã ĐỔI CHỖ. Dữ liệu bên dưới '
-          + 'KHÔNG di chuyển theo, nên giờ đang nằm dưới tên cột khác. Kiểm tay sheet này.');
+        // Để đối chiếu SAU khi gieo danh mục: bước gieo ghi đè nguyên dòng nên nó
+        // TỰ VÁ mọi dòng nằm trong danh mục. Chỉ dòng ngoài danh mục mới thật sự
+        // hỏng — báo chung chung "kiểm tay sheet này" thì lần nào cũng kêu, mà kêu
+        // mãi thì không ai đọc nữa.
+        doiChoSheets[name] = doiCho;
       }
       if (thua.length) {
         canhBao.push(name + ': có cột "' + thua.join('", "') + '" không nằm trong SCHEMA — '
@@ -157,8 +171,37 @@ function setupDatabase() {
   out.push('  Nhóm sản phẩm    : thêm ' + groupWritten.inserted + ', cập nhật ' + groupWritten.updated);
   out.push('');
 
-  out.push('TRẠNG THÁI SAU KHI CHẠY:');
+  // Dòng không nằm trong danh mục gieo thì không được ghi đè, nên nếu cột vừa
+  // đổi chỗ thì đúng những dòng đó đang lệch dữ liệu.
   resetTableCache_();
+  var daGieo = {};
+  daGieo[SHEETS.BUSINESS_UNITS] = buWritten.keys || [];
+  daGieo[SHEETS.REGIONS] = regionWritten.keys || [];
+  daGieo[SHEETS.PRODUCT_GROUPS] = groupWritten.keys || [];
+
+  Object.keys(doiChoSheets).forEach(function (name) {
+    var co = {};
+    (daGieo[name] || []).forEach(function (k) { co[k] = true; });
+    var conLech = (daGieo[name] === undefined) ? null : readObjects_(name)
+      .map(function (r) { return String(r.code || '').trim(); })
+      .filter(function (c) { return c && !co[c]; });
+
+    if (conLech === null) {
+      canhBao.push(name + ': cột ' + doiChoSheets[name].join(', ') + ' đã ĐỔI CHỖ. '
+        + 'Dữ liệu bên dưới KHÔNG di chuyển theo. Kiểm tay sheet này.');
+    } else if (conLech.length) {
+      canhBao.push(name + ': cột ' + doiChoSheets[name].join(', ') + ' đã ĐỔI CHỖ, và '
+        + conLech.length + ' dòng không nằm trong danh mục gieo nên không được ghi đè '
+        + '— dữ liệu của chúng giờ nằm dưới tên cột khác. Sửa tay: ' + conLech.join(', '));
+    } else {
+      // Phải đẩy thẳng vào out: khối báo cáo đã in xong mảng bc ở trên rồi.
+      out.push('  ' + name + ': cột ' + doiChoSheets[name].join(', ') + ' đổi chỗ, nhưng mọi '
+        + 'dòng đều nằm trong danh mục gieo nên đã được ghi đè lại đúng.');
+      out.push('');
+    }
+  });
+
+  out.push('TRẠNG THÁI SAU KHI CHẠY:');
   var bus = readObjects_(SHEETS.BUSINESS_UNITS);
   var bat = bus.filter(function (b) { return String(b.is_active) === '1' || b.is_active === true; });
   out.push('  Đơn vị đang bật (' + bat.length + '/' + bus.length + '):');
