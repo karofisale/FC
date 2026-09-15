@@ -33,7 +33,7 @@ function setupDatabase() {
   });
 
   upsertRows_(SHEETS.BUSINESS_UNITS, ['code'], [
-    { code: 'GT2', name: 'Kênh GT2 (General Trade 2)', is_active: 1, sap_channel: 'GT2' },
+    { code: 'GT2', name: 'Kênh GT2 (General Trade 2)', is_active: 1, sap_channel: 'GT2', sap_sold_to: '1009062' },
     // 2026-09: bỏ phần sale Brand ra khỏi Xuất khẩu thì phần còn lại chính là
     // hàng OEM xuất khẩu — đổi tên cho đúng bản chất. Mã GIỮ NGUYÊN 'XK' vì
     // mọi chu kỳ, kế hoạch và danh mục đã tham chiếu mã này.
@@ -43,16 +43,16 @@ function setupDatabase() {
     // Bốn thị trường Brand xuất khẩu, mỗi đơn vị lập kế hoạch và duyệt riêng.
     // sap_channel = XK nên số của chúng vào file upload của Xuất khẩu (KH_XK,
     // nhà máy 0400) và vào cột XK của B0.SUM, không rơi vào GT2.
-    { code: 'KRF-Phil', name: 'KRF Philippines', is_active: 1, sap_channel: 'XK' },
-    { code: 'KRF-India', name: 'KRF India', is_active: 1, sap_channel: 'XK' },
-    { code: 'KRF-US', name: 'KRF US', is_active: 1, sap_channel: 'XK' },
-    { code: 'KRF-Indo', name: 'KRF Indonesia', is_active: 1, sap_channel: 'XK' },
+    { code: 'KRF-Phil', name: 'KRF Philippines', is_active: 1, sap_channel: 'XK', sap_sold_to: '2000562' },
+    { code: 'KRF-India', name: 'KRF India', is_active: 1, sap_channel: 'XK', sap_sold_to: '2000940' },
+    { code: 'KRF-US', name: 'KRF US', is_active: 1, sap_channel: 'XK', sap_sold_to: '2000769' },
+    { code: 'KRF-Indo', name: 'KRF Indonesia', is_active: 1, sap_channel: 'XK', sap_sold_to: '2000690' },
     // 2026-09: tách 'Online' thành hai đơn vị riêng, mỗi bên có bảng SOP
     // tháng/tuần và người lập/người duyệt riêng. Dòng 'Online' GIỮ LẠI nhưng
     // tắt: các chu kỳ đã lập trước đây vẫn tham chiếu mã này, xoá dòng là mất
     // tên hiển thị của lịch sử. is_active = 0 chỉ ẩn khỏi các ô chọn.
-    { code: '3T', name: 'Kênh 3T', is_active: 1, sap_channel: 'GT2' },
-    { code: 'NSKX', name: 'Nước Sạch Khí Xanh', is_active: 1, sap_channel: 'GT2' },
+    { code: '3T', name: 'Kênh 3T', is_active: 1, sap_channel: 'GT2', sap_sold_to: '1008903' },
+    { code: 'NSKX', name: 'Nước Sạch Khí Xanh', is_active: 1, sap_channel: 'GT2', sap_sold_to: '1011827' },
     { code: 'Online', name: 'Kênh Online (cũ — đã tách thành 3T và NSKX)', is_active: 0, sap_channel: 'GT2' },
     // 2026-09: chưa dùng đến — tắt khỏi các ô xổ xuống. GIỮ DÒNG như 'Online':
     // is_active = 0 chỉ ẩn khỏi chọn lựa, xoá dòng là mất tên hiển thị của

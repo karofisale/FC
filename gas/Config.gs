@@ -29,7 +29,12 @@ const SCHEMA = {
   // thêm bất kỳ đơn vị mới nào là nó lặng lẽ rơi vào file GT2 / nhà máy 0200.
   // Khai thẳng ở dữ liệu thì thêm đơn vị không cần sửa code, và không đơn
   // vị nào vào nhầm file mà không ai biết.
-  [SHEETS.BUSINESS_UNITS]: ['code', 'name', 'is_active', 'sap_channel'],
+  // sap_sold_to: mã khách (Sold-to party) của đơn vị này trong báo cáo ZSD450
+  // — dùng để tách sản lượng thực hiện của từng đơn vị từ một file chung.
+  // File ZSD450 KHÔNG có cột Sales Organization, và cột kênh bán hàng về dưới
+  // dạng TÊN ("Nội địa") chứ không phải mã 01/13/02, nên mã khách là thứ
+  // duy nhất trong file tách được đơn vị.
+  [SHEETS.BUSINESS_UNITS]: ['code', 'name', 'is_active', 'sap_channel', 'sap_sold_to'],
   [SHEETS.REGIONS]: ['code', 'name', 'is_active'],
   [SHEETS.PRODUCT_GROUPS]: ['code', 'name'],
   [SHEETS.PRODUCTS]: ['sku_code', 'name', 'short_name', 'product_group_code', 'product_group_name', 'technology', 'default_channel', 'avg_price', 'is_active', 'requirements_type'],
@@ -104,7 +109,7 @@ const ACTION_TABLES = {
   getMonthlyWorkspace: [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES],
   getWeeklyWorkspace:  [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.REGIONS, SHEETS.MONTHLY_LINES, SHEETS.WEEKLY_SPLITS],
   getDashboardWorkspace: [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES],
-  getActualsWorkspace: [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.REGIONS, SHEETS.MONTHLY_LINES, SHEETS.ACTUALS],
+  getActualsWorkspace: [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.REGIONS, SHEETS.MONTHLY_LINES, SHEETS.ACTUALS, SHEETS.BUSINESS_UNITS, SHEETS.APPROVALS],
   getApprovalsWorkspace: [SHEETS.APPROVALS, SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.USERS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES, SHEETS.WEEKLY_SPLITS],
   // Hợp của getCycles_ + getB0Summary_ + getApprovals_ + tên kênh.
   getPortalStats:      [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES, SHEETS.APPROVALS, SHEETS.USERS, SHEETS.BUSINESS_UNITS],

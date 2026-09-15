@@ -147,9 +147,17 @@ function getActualsWorkspace_(session, p) {
   if (!month) throw new Error('Thiếu tháng cần xem.');
   assertCanReadBU_(session, bu);
 
+  // Mã khách SAP của đơn vị này — màn hình dùng để lọc đúng phần của mình
+  // khi đọc file ZSD450 chung. Chưa khai thì trả '' và màn hình nói rõ, chứ
+  // không để người dùng nhập nhầm sản lượng của đơn vị khác.
+  var donVi = readObjects_(SHEETS.BUSINESS_UNITS).filter(function (b) {
+    return String(b.code || '').trim() === String(bu).trim();
+  })[0] || {};
+
   return {
     businessUnitCode: bu,
     month: month,
+    sapSoldTo: String(donVi.sap_sold_to || '').trim(),
     regions: activeOnly_(readObjects_(SHEETS.REGIONS)),
     products: getProducts_(bu, null, null),
     actuals: getActuals_(bu, month, null),
