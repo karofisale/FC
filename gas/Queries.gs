@@ -467,26 +467,70 @@ function getActuals_(bu, month, sku) {
 }
 
 /**
- * So sánh FC (từ version mới nhất của chu kỳ gần nhất của đơn vị, đúng
- * tháng yêu cầu) với sản lượng thực hiện đã nhập — trả về % lệch theo
- * từng SKU và tổng, để đo độ chính xác của kế hoạch đã lập.
+ * So sánh kế hoạch với sản lượng thực hiện của MỘT tháng — trả về % lệch
+ * theo từng SKU và tổng, để đo độ chính xác của kế hoạch đã lập.
+ *
+ * CHỌN CHU KỲ: phải là chu kỳ CÓ LẬP KẾ HOẠCH cho tháng đang xem, không phải
+ * chu kỳ mới nhất của đơn vị. Một chu kỳ chỉ phủ base_month..base+3, mà màn
+ * hình mặc định xem THÁNG TRƯỚC — trong khi chu kỳ mới nhất thường bắt đầu
+ * từ tháng NÀY. Kết quả: FC = 0 cho mọi mã, lệch = 100% sản lượng thực hiện,
+ * mà cờ cycleFound vẫn true nên màn hình không báo gì.
+ *
+ * Ưu tiên chu kỳ có base_month ĐÚNG bằng tháng đang xem (kế hoạch lập đầu
+ * chính tháng đó — thước đo sát nhất); không có thì lấy chu kỳ gần nhất có
+ * phủ tháng đó, và nói rõ lấy từ chu kỳ nào, lệch trước mấy tháng.
+ *
+ * CHỌN BẢN: ưu tiên bản ĐÃ DUYỆT, giống file upload SAP. Cờ is_final bị
+ * createVersion_ chuyển sang bản cập nhật tuần mới, nên đo theo is_final là đo
+ * với một bản có thể chưa ai duyệt — và con số độ chính xác tự đổi mỗi lần có
+ * người tạo bản mới.
  */
 function getFcVsActual_(bu, month) {
   if (!bu || !month) throw new Error('Cần truyền cả bu và month.');
   var normMonth = normalizeMonth_(month);
   var products = productMap_();
 
-  var cycle = readObjects_(SHEETS.CYCLES)
-    .filter(function (c) { return String(c.business_unit_code) === String(bu); })
-    .sort(function (a, b) { return String(b.base_month).localeCompare(String(a.base_month)); })[0];
+  var cuaDonVi = readObjects_(SHEETS.CYCLES).filter(function (c) {
+    return String(c.business_unit_code) === String(bu);
+  });
+
+  // Chu kỳ có phủ tháng đang xem: base_month <= tháng <= base_month + (horizon-1)
+  var phuThang = cuaDonVi.filter(function (c) {
+    var b = normalizeMonth_(c.base_month);
+    if (!b) return false;
+    var n = Number(c.horizon_months) || 4;
+    var p = b.split('-').map(Number);
+    var het = new Date(Date.UTC(p[0], p[1] - 1 + (n - 1), 1));
+    var hetStr = het.getUTCFullYear() + '-' + ('0' + (het.getUTCMonth() + 1)).slice(-2) + '-01';
+    return b <= normMonth && normMonth <= hetStr;
+  }).sort(function (a, b) {
+    return String(normalizeMonth_(b.base_month)).localeCompare(String(normalizeMonth_(a.base_month)));
+  });
+
+  var cycle = phuThang.filter(function (c) { return normalizeMonth_(c.base_month) === normMonth; })[0]
+    || phuThang[0]
+    || null;
 
   var fcBySku = {};
+  var versionBasis = 'none';
+  var versionId = '';
   if (cycle) {
-    var finalVersion = readObjectsWhere_(SHEETS.VERSIONS, 'cycle_id', cycle.id).filter(function (v) {
-      return String(v.is_final) === '1' || v.is_final === true;
-    })[0];
-    if (finalVersion) {
-      readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', finalVersion.id).forEach(function (l) {
+    var duyet = approvedVersionByCycle_()[cycle.id];
+    var banList = readObjectsWhere_(SHEETS.VERSIONS, 'cycle_id', cycle.id);
+    var ban = null;
+    if (duyet && duyet.version_id) {
+      ban = banList.filter(function (v) { return String(v.id) === String(duyet.version_id); })[0];
+      if (ban) versionBasis = 'approved';
+    }
+    if (!ban) {
+      ban = banList.filter(function (v) {
+        return String(v.is_final) === '1' || v.is_final === true;
+      })[0];
+      if (ban) versionBasis = 'final';
+    }
+    if (ban) {
+      versionId = ban.id;
+      readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', ban.id).forEach(function (l) {
         if (normalizeMonth_(l.forecast_month) !== normMonth) return;
         fcBySku[l.sku_code] = (fcBySku[l.sku_code] || 0) + (Number(l.quantity) || 0);
       });
@@ -523,10 +567,25 @@ function getFcVsActual_(bu, month) {
   var totalFc = rows.reduce(function (s, r) { return s + r.forecast_qty; }, 0);
   var totalActual = rows.reduce(function (s, r) { return s + r.actual_qty; }, 0);
 
+  // Số tháng giữa lúc lập kế hoạch và tháng đang đo: 0 = kế hoạch lập đầu
+  // chính tháng đó, 3 = lập trước đó ba tháng (dự báo xa thì lệch nhiều là
+  // bình thường — không biết độ trễ thì không đọc được con số lệch).
+  var leadMonths = null;
+  if (cycle) {
+    var bm = normalizeMonth_(cycle.base_month).split('-').map(Number);
+    var am = normMonth.split('-').map(Number);
+    leadMonths = (am[0] * 12 + am[1]) - (bm[0] * 12 + bm[1]);
+  }
+
   return {
     businessUnitCode: bu,
     month: normMonth,
     cycleFound: !!cycle,
+    cycleId: cycle ? cycle.id : '',
+    cycleBaseMonth: cycle ? normalizeMonth_(cycle.base_month) : '',
+    leadMonths: leadMonths,
+    versionBasis: versionBasis,
+    versionId: versionId,
     totalForecast: totalFc,
     totalActual: totalActual,
     totalVariance: totalActual - totalFc,

@@ -197,13 +197,30 @@ export default function Actuals({ currentBU, user }) {
 
       {/* So sánh FC vs Thực hiện */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-        <h3 className="text-xs font-bold uppercase text-slate-700 mb-3">So sánh Forecast (bản mới nhất) và Thực hiện</h3>
+        <h3 className="text-xs font-bold uppercase text-slate-700 mb-1">So sánh Forecast và Thực hiện</h3>
+        {/* Con số lệch chỉ đọc được khi biết đang so với kế hoạch nào: lập đầu
+            chính tháng đó hay dự báo từ ba tháng trước, đã duyệt hay chưa. */}
+        {comparison?.cycleFound && (
+          <p className="text-[11px] text-slate-500 mb-3">
+            {comparison.leadMonths === 0
+              ? 'Kế hoạch lập đầu chính tháng này'
+              : `Kế hoạch lập từ chu kỳ ${monthLabel(comparison.cycleBaseMonth)} (trước ${comparison.leadMonths} tháng)`}
+            {' · '}
+            {comparison.versionBasis === 'approved'
+              ? <span className="text-emerald-700 font-semibold">bản đã duyệt</span>
+              : comparison.versionBasis === 'final'
+                ? <span className="text-amber-700 font-semibold">bản mới nhất — CHƯA DUYỆT</span>
+                : <span className="text-rose-700 font-semibold">chưa có bản kế hoạch nào</span>}
+          </p>
+        )}
         {comparisonLoading ? (
           <div className="text-xs text-slate-400 flex items-center gap-2">
             <Loader2 className="w-3.5 h-3.5 animate-spin" /> Đang tính toán...
           </div>
         ) : !comparison || !comparison.cycleFound ? (
-          <div className="text-xs text-slate-400">Chưa có chu kỳ Forecast nào cho {currentBU} để so sánh.</div>
+          <div className="text-xs text-slate-500">
+            Không có chu kỳ nào của {currentBU} lập kế hoạch cho {monthLabel(month)} — chưa so sánh được.
+          </div>
         ) : (
           <div className="space-y-3">
             <div className="grid grid-cols-3 gap-3 text-center">

@@ -16,7 +16,7 @@
  *   - app không xuất dòng toàn số 0
  *   - cột Requirements Type lấy theo danh mục Products khi có ghi sẵn
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { buildSapRows, SAP_CHANNELS } from '../client/src/utils/sapExport.js';
 
@@ -31,6 +31,26 @@ function flag(name, fallback) {
 const FC_PATH = flag('--fc', 'XK_OEM_GT2_Online_Sales FC_2026_BACKUP_20260727.xlsx');
 const OEM_PATH = flag('--oem', 'D:/Operation/Claude/CLAUDE-OUTPUTS/Sale FC/ZPP702_Upload_KHKD_0400_OEM.xlsx');
 const XK_PATH = flag('--xk', 'D:/Operation/Claude/CLAUDE-OUTPUTS/Sale FC/ZPP702_Upload_KHKD_0400_XK.xlsx');
+
+/**
+ * Trình kiểm tra này đối chiếu với các file THẬT đã upload lên SAP, mà chúng
+ * nằm ngoài kho. File bị dọn đi thì phải nói rõ là "chưa đối chiếu được",
+ * chứ để ENOENT đổ ra thì trông hệt như mã vừa hỏng.
+ */
+function thieuFile(...files) {
+  const mat = files.filter((f) => !existsSync(f));
+  if (!mat.length) return false;
+  console.log('='.repeat(78));
+  console.log('BỎ QUA — không tìm thấy file đối chiếu:');
+  mat.forEach((f) => console.log('   ' + f));
+  console.log();
+  console.log('Đây là các file ZPP702 thật đã upload lên SAP, nằm ngoài kho nên có');
+  console.log('thể bị dọn đi. Chỉ là KHÔNG ĐỐI CHIẾU ĐƯỢC, không phải mã hỏng.');
+  console.log('Chỉ đường dẫn khác bằng --fc / --oem / --xk / --gt2.');
+  console.log('='.repeat(78));
+  console.log();
+  return true;
+}
 
 const sheetRows = (file, name) => {
   const wb = XLSX.read(readFileSync(file), { type: 'buffer' });
@@ -104,6 +124,7 @@ for (const [channel, sheet, uploadPath] of [
   console.log(`${channel}   FC tab "${sheet}"   vs   ${uploadPath.split(/[\\/]/).pop()}`);
   console.log('='.repeat(78));
 
+  if (thieuFile(FC_PATH, uploadPath)) continue;
   const fc = readFcChannel(FC_PATH, sheet, channel);
   const actual = readUpload(uploadPath);
 
@@ -183,12 +204,13 @@ for (const [channel, sheet, uploadPath] of [
 // Vì vậy phần này kiểm những gì kiểm được: tập SKU, các cột cố định, ngày,
 // và phép chia đều tám cột cuối.
 // ---------------------------------------------------------------------------
-{
+khoiGT2: {
   const GT2_UPLOAD = flag('--gt2', 'D:/Operation/Claude/CLAUDE-OUTPUTS/Sale FC/ZPP702_Upload_KHKD_0200_GT2.xlsx');
   console.log('='.repeat(78));
   console.log('GT2   FC tabs "B0.5.GT2" + "B0.8.Online"   vs   ' + GT2_UPLOAD.split(/[\/]/).pop());
   console.log('='.repeat(78));
 
+  if (thieuFile(FC_PATH, GT2_UPLOAD)) break khoiGT2;
   const actual = readUpload(GT2_UPLOAD);
   const actualBySku = new Map(actual.map((r) => [String(r[1]).trim(), r]));
 
