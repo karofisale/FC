@@ -42,6 +42,9 @@ export default function Actuals({ currentBU, user }) {
 
   const isEditor = user?.role === 'bu_editor' || user?.role === 'central_admin';
   const regionCodes = regions.map((r) => r.code);
+  // Sản lượng thực hiện không tách miền nữa (chỉ còn TQ). MB/MN chỉ còn hiện
+  // ở những tháng đã trót nhập tay theo miền trước đây.
+  const nhieuMien = regionCodes.length > 1;
 
   /**
    * Một lượt gọi thay cho getProducts + getRegions + getActuals +
@@ -328,14 +331,16 @@ export default function Actuals({ currentBU, user }) {
                 {regionCodes.map((r) => (
                   <th key={r} className="py-2.5 px-3 border-r border-slate-700 text-right w-28 bg-blue-900/60">{r}</th>
                 ))}
-                <th className="py-2.5 px-3 text-right w-28 bg-cyan-900/60">Tổng</th>
+                {/* Một miền thì cột Tổng lặp lại đúng cột bên cạnh — hai cột giống hệt
+                    nhau làm người đọc tưởng chúng đo hai thứ khác nhau. */}
+                {nhieuMien && <th className="py-2.5 px-3 text-right w-28 bg-cyan-900/60">Tổng</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 font-mono">
               {loading ? (
-                <tr><td colSpan={3 + regionCodes.length} className="py-8 text-center text-slate-400 font-sans">Đang tải dữ liệu...</td></tr>
+                <tr><td colSpan={2 + regionCodes.length + (nhieuMien ? 1 : 0)} className="py-8 text-center text-slate-400 font-sans">Đang tải dữ liệu...</td></tr>
               ) : filteredProducts.length === 0 ? (
-                <tr><td colSpan={3 + regionCodes.length} className="py-8 text-center text-slate-400 font-sans">Không tìm thấy SKU phù hợp</td></tr>
+                <tr><td colSpan={2 + regionCodes.length + (nhieuMien ? 1 : 0)} className="py-8 text-center text-slate-400 font-sans">Không tìm thấy SKU phù hợp</td></tr>
               ) : (
                 <>
                   {topPad > 0 && <tr style={{ height: topPad }} aria-hidden="true" />}
@@ -366,9 +371,11 @@ export default function Actuals({ currentBU, user }) {
                             </td>
                           );
                         })}
-                        <td className="py-2 px-3 text-right font-bold text-blue-700 bg-slate-50">
-                          {getSkuTotal(p.sku_code).toLocaleString('vi-VN')}
-                        </td>
+                        {nhieuMien && (
+                          <td className="py-2 px-3 text-right font-bold text-blue-700 bg-slate-50">
+                            {getSkuTotal(p.sku_code).toLocaleString('vi-VN')}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}

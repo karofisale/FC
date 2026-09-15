@@ -154,15 +154,31 @@ function getActualsWorkspace_(session, p) {
     return String(b.code || '').trim() === String(bu).trim();
   })[0] || {};
 
+  var soLieu = getActuals_(bu, month, null);
+
+  // Miền để nhập là TQ (scope 'actual'). Nhưng tháng cũ có thể đã nhập tay
+  // theo MB/MN trước khi bỏ tách miền — ẩn các cột đó đi thì số cũ biến mất
+  // khỏi màn hình trong khi VẪN được tính vào phần so sánh (hàm đó cộng mọi
+  // miền). Hai con số lệch nhau trên cùng một màn hình mà không ai giải thích
+  // được. Nên: giữ lại đúng những miền CÓ số liệu trong tháng đang xem.
+  var mien = regionsFor_('actual');
+  var daCo = {};
+  mien.forEach(function (r) { daCo[r.code] = true; });
+  var coSo = {};
+  soLieu.forEach(function (a) { coSo[String(a.region_code)] = true; });
+  activeOnly_(readObjects_(SHEETS.REGIONS)).forEach(function (r) {
+    if (coSo[r.code] && !daCo[r.code]) mien.push(r);
+  });
+
   return {
     businessUnitCode: bu,
     month: month,
     sapSoldTo: String(donVi.sap_sold_to || '').trim(),
     sapVkorg: String(donVi.sap_vkorg || '').trim(),
     sapVtweg: String(donVi.sap_vtweg || '').trim(),
-    regions: regionsFor_('actual'),
+    regions: mien,
     products: getProducts_(bu, null, null),
-    actuals: getActuals_(bu, month, null),
+    actuals: soLieu,
     comparison: getFcVsActual_(bu, month)
   };
 }

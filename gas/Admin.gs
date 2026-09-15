@@ -123,8 +123,12 @@ function setupDatabase() {
   ]);
 
   var regionWritten = upsertRows_(SHEETS.REGIONS, ['code'], [
-    { code: 'MB', name: 'Miền Bắc', is_active: 1, scope: 'both' },
-    { code: 'MN', name: 'Miền Nam', is_active: 1, scope: 'both' },
+    // scope 'weekly': miền chỉ dùng cho lưới chia tuần của kế hoạch. Sản lượng
+    // thực hiện không tách miền — việc đối chiếu chỉ so TỔNG với kế hoạch, mà
+    // nguồn ZSD450 cũng không có cột miền. Để MB/MN ở màn Thực hiện là bắt
+    // người dùng chia một con số mà chính họ không có căn cứ để chia.
+    { code: 'MB', name: 'Miền Bắc', is_active: 1, scope: 'weekly' },
+    { code: 'MN', name: 'Miền Nam', is_active: 1, scope: 'weekly' },
     // 2026-09: báo cáo ZSD450 không có cột miền (ô Tỉnh và Khu vực trống toàn
     // bộ), nên sản lượng thực hiện nhập từ SAP ghi vào đây. Thực hiện không
     // tách miền thì không giả vờ tách. scope = 'actual' để lưới chia tuần
