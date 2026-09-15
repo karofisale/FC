@@ -59,23 +59,53 @@ if (!cfg.webapp_url || !cfg.secret) {
 
 const THANG_DAY = `${THANG}-01`;
 
+/**
+ * Nguong cho TANG DAN, va PHAI thu lai.
+ *
+ * Apps Script Web App ngu khi khong co request nao mot luc, va reset hoan toan
+ * ngay sau moi lan trien khai ban moi. Do that tren chinh URL nay: 2,5s / 84s /
+ * 11,8s cho ba luot ping lien tiep. Qua nguong thi ha tang cua Google bo cuoc
+ * va tra TRANG HTML LOI kem 404 — khong phai JSON.
+ *
+ * Thu lai an toan cho ca ba action o day: sapFilters chi doc, sapHeartbeat ghi
+ * de mot dong, sapImportActuals la upsert theo khoa nen gui lai cung payload
+ * cho ra dung cung ket qua.
+ */
+const THU_LAI_MS = [30000, 75000, 120000];
+const nghi = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function goi(action, payload) {
-  const res = await fetch(cfg.webapp_url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action, ...payload }),
-    redirect: 'follow'
-  });
-  const text = await res.text();
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error(`Backend khong tra ve JSON (HTTP ${res.status}): `
-      + text.slice(0, 80).replace(/\s+/g, ' '));
+  let loiCuoi = '';
+  for (let i = 0; i < THU_LAI_MS.length; i++) {
+    try {
+      const res = await fetch(cfg.webapp_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action, ...payload }),
+        redirect: 'follow',
+        signal: AbortSignal.timeout(THU_LAI_MS[i])
+      });
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Khong phai JSON = van con o tang van chuyen (container dang khoi
+        // dong, hoac URL sai). Thu lai; 80 ky tu dau de biet la cai nao.
+        loiCuoi = `HTTP ${res.status}: ${text.slice(0, 80).replace(/\s+/g, ' ')}`;
+        if (i < THU_LAI_MS.length - 1) { await nghi(3000); continue; }
+        throw new Error(`Backend khong tra ve JSON — ${loiCuoi}`);
+      }
+      // Da nhan duoc JSON hop le: loi nghiep vu thi KHONG thu lai.
+      if (data && data.error) throw new Error(data.error);
+      return data;
+    } catch (e) {
+      if (e instanceof Error && !/fetch failed|timed out|aborted|HTTP \d/i.test(e.message)) throw e;
+      loiCuoi = e.message;
+      if (i < THU_LAI_MS.length - 1) await nghi(3000);
+    }
   }
-  if (data && data.error) throw new Error(data.error);
-  return data;
+  throw new Error(`Goi Web App that bai sau ${THU_LAI_MS.length} lan. Loi cuoi: ${loiCuoi}`);
 }
 
 try {
