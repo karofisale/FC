@@ -122,6 +122,44 @@ say(het.rowsMatched === 4, `dong khop = ${het.rowsMatched}`);
 say(MOI_KHACH !== '', "'*' khac han chuoi rong");
 say(Array.isArray(het.channelsSeen), 'tra ve danh sach kenh ban hang de doi chieu dung file');
 
+console.log('\n3c. Duong KHONG QUA FILE phai ra dung con so nhu duong file');
+// export_zsd450.py doc thang workbook SAP dang nhung (Office Integration) roi
+// ghi ra JSON — khong sinh Excel, khong hop thoai Save As. Hai duong phai cho
+// CUNG MOT ket qua, neu khong thi bo nut mot-cham lai ghi so khac voi nhap tay
+// ma khong ai doi chieu duoc.
+//
+// Mo phong dung phep bien doi cua _o_thuong() trong Python: o ngay -> chuoi
+// "YYYY-MM-DD" giu nguyen year/month/day (KHONG quy doi mui gio — SAP dua ra
+// mot NGAY, khong phai mot moc thoi gian), o rong -> chuoi rong.
+const nhuWorkbook = (aoaFile) => JSON.parse(JSON.stringify(
+  aoaFile.map((r) => r.map((v) => {
+    if (v instanceof Date) {
+      const p2 = (n) => String(n).padStart(2, '0');
+      return `${v.getUTCFullYear()}-${p2(v.getUTCMonth() + 1)}-${p2(v.getUTCDate())}`;
+    }
+    return v === null || v === undefined ? '' : v;
+  }))
+));
+
+if (docDuoc) {
+  for (const [ten] of FILES) {
+    const duongDan = `${DIR}/${ten}`;
+    if (!existsSync(duongDan)) continue;
+    const aoaFile = sheet1(duongDan);
+    const qFile = parseZsd450(aoaFile, {});
+    const qJson = parseZsd450(nhuWorkbook(aoaFile), {});
+    const tongF = Object.values(qFile.bySku).reduce((a, b) => a + b, 0);
+    const tongJ = Object.values(qJson.bySku).reduce((a, b) => a + b, 0);
+    say(tongF === tongJ && qFile.rowsRead === qJson.rowsRead
+      && JSON.stringify(qFile.bySku) === JSON.stringify(qJson.bySku),
+      `${ten}: file ${tongF} / workbook ${tongJ}, ${qFile.rowsRead} vs ${qJson.rowsRead} dong`);
+    say(qJson.monthsSeen.join(',') === qFile.monthsSeen.join(','),
+      `  thang doc ra giong nhau: ${qJson.monthsSeen.join(', ')}`);
+  }
+} else {
+  console.log('  (khong co file that — phan doi chieu hai duong khong chay)');
+}
+
 console.log('\n4. Doc thang');
 say(parseZsdMonth('T09-2026') === '2026-09-01', 'T09-2026 → 2026-09-01');
 say(parseZsdMonth('T9-2026') === '2026-09-01', 'T9-2026 → 2026-09-01');

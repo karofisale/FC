@@ -37,12 +37,14 @@ function xong(obj) {
 const BU = lay('--bu');
 const THANG = lay('--month');
 const FILE = lay('--file');
+const JSON_PATH = lay('--json');
 const CONFIG = lay('--config');
 
-if (!BU || !/^\d{4}-\d{2}$/.test(THANG) || !FILE || !CONFIG) {
-  xong({ ok: false, error: 'Thieu tham so: --bu --month YYYY-MM --file --config' });
+if (!BU || !/^\d{4}-\d{2}$/.test(THANG) || (!FILE && !JSON_PATH) || !CONFIG) {
+  xong({ ok: false, error: 'Thieu tham so: --bu --month YYYY-MM (--json | --file) --config' });
 }
-if (!existsSync(FILE)) xong({ ok: false, error: `Khong thay file: ${FILE}` });
+const NGUON = JSON_PATH || FILE;
+if (!existsSync(NGUON)) xong({ ok: false, error: `Khong thay nguon: ${NGUON}` });
 if (!existsSync(CONFIG)) xong({ ok: false, error: `Khong thay config: ${CONFIG}` });
 
 let cfg;
@@ -84,11 +86,20 @@ try {
     xong({ ok: false, error: `Don vi ${BU} chua khai sap_vkorg/sap_vtweg tren sheet BusinessUnits.` });
   }
 
-  // DOC Y HET parseExcelFile cua app: cellDates, raw, defval
-  const wb = XLSX.read(readFileSync(FILE), { type: 'buffer', cellDates: true });
-  const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
-    header: 1, raw: true, defval: ''
-  });
+  // DUONG CHINH: export_zsd450.py doc thang workbook SAP dang nhung roi ghi ra
+  // JSON — khong qua Excel chut nao. Duong --file chi con cho truong hop no
+  // phai roi ve Save As (SAP cu khong dung Office Integration).
+  let aoa;
+  if (JSON_PATH) {
+    aoa = JSON.parse(readFileSync(JSON_PATH, 'utf8'));
+    if (!Array.isArray(aoa)) xong({ ok: false, error: 'File JSON khong phai mang cac dong.' });
+  } else {
+    // DOC Y HET parseExcelFile cua app: cellDates, raw, defval
+    const wb = XLSX.read(readFileSync(FILE), { type: 'buffer', cellDates: true });
+    aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
+      header: 1, raw: true, defval: ''
+    });
+  }
 
   const ket = parseZsd450(aoa, { soldTo: donVi.soldTo, month: THANG_DAY });
   if (ket.missingColumns.length) {
@@ -114,7 +125,7 @@ try {
     ok: true,
     bu: BU,
     month: THANG,
-    file: FILE,
+    nguon: NGUON,
     rowsRead: ket.rowsRead,
     rowsMatched: ket.rowsMatched,
     written: kq.total,
