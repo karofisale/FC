@@ -80,7 +80,9 @@ const say = (ok, m) => { if (!ok) bad++; console.log(`  ${ok ? 'ok  ' : 'FAIL'} 
 
 console.log('1. Sheet cu thieu cot moi — phai bao them cot nao');
 const cu = chay({
-  BusinessUnits: [['code','name','is_active'], ['GT2','Kênh GT2','1'], ['XK','Kênh Xuất khẩu','1']],
+  BusinessUnits: [['code','name','is_active'], ['GT2','Kênh GT2','1'], ['XK','Kênh Xuất khẩu','1'],
+                  // don vi tu them tay, khong nam trong danh sach gieo
+                  ['TUTHEM','Đơn vị tự thêm','1']],
   Regions: [['code','name','is_active'], ['MB','Miền Bắc','1'], ['MN','Miền Nam','1']]
 });
 say(/BusinessUnits: thêm cột .*sap_channel/.test(cu.log), 'bao them cot sap_channel');
@@ -93,8 +95,12 @@ console.log('\n2. Bao so don vi / mien da them va cap nhat');
 say(cu.ket.businessUnits.inserted > 0, `them ${cu.ket.businessUnits.inserted} don vi`);
 say(cu.ket.regions.inserted === 1, `them ${cu.ket.regions.inserted} mien (TQ)`);
 say(/TQ \(actual\)/.test(cu.log), 'bao mien TQ co scope actual');
-say(/KRF-Phil.*2000562/.test(cu.log), 'liet ke ma khach ZSD450 cua tung don vi');
-say(/XK.*mã khách ZSD450: \(chưa khai\)/.test(cu.log), 'noi ro don vi nao CHUA khai ma khach');
+say(/KRF-Phil.*0202\/02\/2000562/.test(cu.log), 'liet ke bo loc ZSD450 cua tung don vi');
+// XK co y KHONG loc theo ma khach — phai hien la "moi khach", khong phai
+// "(chua khai)". Gop hai thu nay lai thi hoac chan nham mot don vi hop le,
+// hoac nhan ca file cua don vi khac ma khong ai biet.
+say(/XK.*0401\/02\/mọi khách/.test(cu.log), 'XK hien "moi khach", khong phai "(chua khai)"');
+say(/TUTHEM.*\(chưa khai\)/.test(cu.log), 'don vi chua khai bo loc thi noi ro la chua khai');
 
 console.log('\n3. Chay lan hai: khong con gi de sua');
 const lai = chay(cu.S);   // truyen lai TOAN BO sheet sau lan chay dau

@@ -37,6 +37,7 @@ export default function Actuals({ currentBU, user }) {
   const [comparison, setComparison] = useState(null);
   const [comparisonLoading, setComparisonLoading] = useState(false);
   const [sapSoldTo, setSapSoldTo] = useState('');
+  const [sapLoc, setSapLoc] = useState({ vkorg: '', vtweg: '' });
   const [showImport, setShowImport] = useState(false);
 
   const isEditor = user?.role === 'bu_editor' || user?.role === 'central_admin';
@@ -56,6 +57,7 @@ export default function Actuals({ currentBU, user }) {
       setProducts(ws.products || []);
       setRegions(ws.regions || []);
       setSapSoldTo(ws.sapSoldTo || '');
+      setSapLoc({ vkorg: ws.sapVkorg || '', vtweg: ws.sapVtweg || '' });
 
       const map = {};
       (ws.actuals || []).forEach((a) => {
@@ -382,6 +384,8 @@ export default function Actuals({ currentBU, user }) {
         <ImportActualsModal
           businessUnitCode={currentBU}
           sapSoldTo={sapSoldTo}
+          sapVkorg={sapLoc.vkorg}
+          sapVtweg={sapLoc.vtweg}
           month={month}
           regionCode={regionNhap}
           knownSkus={knownSkus}

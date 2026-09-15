@@ -67,26 +67,37 @@ function setupDatabase() {
   if (!bc.length) ghi('  (mọi sheet đã đúng cột, không phải sửa gì)');
 
   var buWritten = upsertRows_(SHEETS.BUSINESS_UNITS, ['code'], [
-    { code: 'GT2', name: 'Kênh GT2 (General Trade 2)', is_active: 1, sap_channel: 'GT2', sap_sold_to: '1009062' },
+    { code: 'GT2', name: 'Kênh GT2 (General Trade 2)', is_active: 1, sap_channel: 'GT2',
+      sap_vkorg: '0200', sap_vtweg: '13', sap_sold_to: '1009062' },
     // 2026-09: bỏ phần sale Brand ra khỏi Xuất khẩu thì phần còn lại chính là
     // hàng OEM xuất khẩu — đổi tên cho đúng bản chất. Mã GIỮ NGUYÊN 'XK' vì
     // mọi chu kỳ, kế hoạch và danh mục đã tham chiếu mã này.
-    { code: 'XK', name: 'Export OEM (xuất khẩu, không gồm Brand)', is_active: 1, sap_channel: 'XK' },
-    { code: 'OEM', name: 'Domestic OEM (OEM trong nước)', is_active: 1, sap_channel: 'OEM' },
+    // '*' = không lọc theo mã khách: bản thân bộ lọc VKORG 0401 + VTWEG 02 đã
+    // ra đúng phần Export OEM rồi.
+    { code: 'XK', name: 'Export OEM (xuất khẩu, không gồm Brand)', is_active: 1, sap_channel: 'XK',
+      sap_vkorg: '0401', sap_vtweg: '02', sap_sold_to: '*' },
+    { code: 'OEM', name: 'Domestic OEM (OEM trong nước)', is_active: 1, sap_channel: 'OEM',
+      sap_vkorg: '0400', sap_vtweg: '01', sap_sold_to: '*' },
 
     // Bốn thị trường Brand xuất khẩu, mỗi đơn vị lập kế hoạch và duyệt riêng.
     // sap_channel = XK nên số của chúng vào file upload của Xuất khẩu (KH_XK,
     // nhà máy 0400) và vào cột XK của B0.SUM, không rơi vào GT2.
-    { code: 'KRF-Phil', name: 'KRF Philippines', is_active: 1, sap_channel: 'XK', sap_sold_to: '2000562' },
-    { code: 'KRF-India', name: 'KRF India', is_active: 1, sap_channel: 'XK', sap_sold_to: '2000940' },
-    { code: 'KRF-US', name: 'KRF US', is_active: 1, sap_channel: 'XK', sap_sold_to: '2000769' },
-    { code: 'KRF-Indo', name: 'KRF Indonesia', is_active: 1, sap_channel: 'XK', sap_sold_to: '2000690' },
+    { code: 'KRF-Phil', name: 'KRF Philippines', is_active: 1, sap_channel: 'XK',
+      sap_vkorg: '0202', sap_vtweg: '02', sap_sold_to: '2000562' },
+    { code: 'KRF-India', name: 'KRF India', is_active: 1, sap_channel: 'XK',
+      sap_vkorg: '0202', sap_vtweg: '02', sap_sold_to: '2000940' },
+    { code: 'KRF-US', name: 'KRF US', is_active: 1, sap_channel: 'XK',
+      sap_vkorg: '0202', sap_vtweg: '02', sap_sold_to: '2000769' },
+    { code: 'KRF-Indo', name: 'KRF Indonesia', is_active: 1, sap_channel: 'XK',
+      sap_vkorg: '0202', sap_vtweg: '02', sap_sold_to: '2000690' },
     // 2026-09: tách 'Online' thành hai đơn vị riêng, mỗi bên có bảng SOP
     // tháng/tuần và người lập/người duyệt riêng. Dòng 'Online' GIỮ LẠI nhưng
     // tắt: các chu kỳ đã lập trước đây vẫn tham chiếu mã này, xoá dòng là mất
     // tên hiển thị của lịch sử. is_active = 0 chỉ ẩn khỏi các ô chọn.
-    { code: '3T', name: 'Kênh 3T', is_active: 1, sap_channel: 'GT2', sap_sold_to: '1008903' },
-    { code: 'NSKX', name: 'Nước Sạch Khí Xanh', is_active: 1, sap_channel: 'GT2', sap_sold_to: '1011827' },
+    { code: '3T', name: 'Kênh 3T', is_active: 1, sap_channel: 'GT2',
+      sap_vkorg: '0200', sap_vtweg: '13', sap_sold_to: '1008903' },
+    { code: 'NSKX', name: 'Nước Sạch Khí Xanh', is_active: 1, sap_channel: 'GT2',
+      sap_vkorg: '0200', sap_vtweg: '13', sap_sold_to: '1011827' },
     { code: 'Online', name: 'Kênh Online (cũ — đã tách thành 3T và NSKX)', is_active: 0, sap_channel: 'GT2' },
     // 2026-09: chưa dùng đến — tắt khỏi các ô xổ xuống. GIỮ DÒNG như 'Online':
     // is_active = 0 chỉ ẩn khỏi chọn lựa, xoá dòng là mất tên hiển thị của
@@ -152,8 +163,10 @@ function setupDatabase() {
   var bat = bus.filter(function (b) { return String(b.is_active) === '1' || b.is_active === true; });
   out.push('  Đơn vị đang bật (' + bat.length + '/' + bus.length + '):');
   bat.forEach(function (b) {
+    var loc = (b.sap_vkorg || '?') + '/' + (b.sap_vtweg || '?') + '/'
+      + (b.sap_sold_to === '*' ? 'mọi khách' : (b.sap_sold_to || '(chưa khai)'));
     out.push('     ' + b.code + '  — file SAP: ' + (b.sap_channel || '(chưa khai)')
-      + '  · mã khách ZSD450: ' + (b.sap_sold_to || '(chưa khai)'));
+      + '  · ZSD450 (VKORG/VTWEG/khách): ' + loc);
   });
   var rs = readObjects_(SHEETS.REGIONS).filter(function (r) {
     return String(r.is_active) === '1' || r.is_active === true;

@@ -15,7 +15,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { parseZsd450, parseZsdMonth, ZSD450_COLUMNS } from '../client/src/utils/zsd450.js';
+import { parseZsd450, parseZsdMonth, ZSD450_COLUMNS, MOI_KHACH } from '../client/src/utils/zsd450.js';
 
 const XLSX = createRequire(new URL('../client/package.json', import.meta.url))('xlsx');
 const DIR = process.argv[2] || 'D:/Operation/Claude/CLAUDE-OUTPUTS/Update Tuan';
@@ -108,6 +108,19 @@ say(r.rowsMatched === 3, `dong khop = ${r.rowsMatched} (khong tinh dong danh so)
 say(!('6' in r.bySku) && !('3' in r.bySku), 'dong danh so cot KHONG lot vao ket qua');
 say(r.soldToSeen.length === 2, `thay ca 2 ma khach trong file (${r.soldToSeen.map((s) => s.code).join(', ')})`);
 say(r.monthsSeen.join(',') === '2026-08-01,2026-09-01', `thay ca hai thang: ${r.monthsSeen.join(', ')}`);
+
+console.log('\n3b. Don vi khong loc theo ma khach (XK: VKORG 0401 + VTWEG 02)');
+// File cua XK duoc SAP loc san nen moi dong deu la cua XK. Nhung '*' phai
+// KHAC HAN chuoi rong: rong = chua khai thi man hinh tu choi; '*' = co y
+// khong loc thi phai lay het. Gop hai thu nay lai thi hoac chan nham mot
+// don vi hop le, hoac nhan ca file cua don vi khac ma khong ai biet.
+const het = parseZsd450(aoa, { soldTo: MOI_KHACH, month: '2026-09-01' });
+console.log(`     bySku = ${JSON.stringify(het.bySku)}`);
+say(het.bySku['1002020024'] === 1299,
+  `lay ca hai ma khach: ${het.bySku['1002020024']} (300 cua 3T + 999 cua NSKX)`);
+say(het.rowsMatched === 4, `dong khop = ${het.rowsMatched}`);
+say(MOI_KHACH !== '', "'*' khac han chuoi rong");
+say(Array.isArray(het.channelsSeen), 'tra ve danh sach kenh ban hang de doi chieu dung file');
 
 console.log('\n4. Doc thang');
 say(parseZsdMonth('T09-2026') === '2026-09-01', 'T09-2026 → 2026-09-01');

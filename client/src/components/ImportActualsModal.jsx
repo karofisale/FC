@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X, Loader2, AlertTriangle, ArrowDownToLine, CheckCircle2, Info, Upload } from 'lucide-react';
 import { api } from '../services/api';
 import { parseExcelFile } from '../utils/importParsing';
-import { parseZsd450 } from '../utils/zsd450';
+import { parseZsd450, MOI_KHACH } from '../utils/zsd450';
 import { monthLabel } from '../utils/period';
 
 /**
@@ -21,8 +21,16 @@ import { monthLabel } from '../utils/period';
  *   - mã hàng không có trong danh mục FC → liệt kê ra, không ghi lặng lẽ.
  */
 export default function ImportActualsModal({
-  businessUnitCode, sapSoldTo, month, regionCode, knownSkus, onClose, onImported
+  businessUnitCode, sapSoldTo, sapVkorg, sapVtweg, month, regionCode,
+  knownSkus, onClose, onImported
 }) {
+  // '*' = đơn vị cố ý không lọc theo mã khách (XK chỉ lọc VKORG 0401 +
+  // VTWEG 02). Khác hẳn với để trống = chưa khai: gộp hai thứ này thì hoặc
+  // chặn nhầm một đơn vị hợp lệ, hoặc nhận cả file của đơn vị khác.
+  const khongLocKhach = sapSoldTo === MOI_KHACH;
+  const daKhai = !!sapSoldTo;
+  const boLoc = [sapVkorg && `VKORG ${sapVkorg}`, sapVtweg && `VTWEG ${sapVtweg}`,
+    khongLocKhach ? 'mọi khách' : (sapSoldTo && `khách ${sapSoldTo}`)].filter(Boolean).join(' · ');
   const [fileName, setFileName] = useState('');
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -103,7 +111,7 @@ export default function ImportActualsModal({
 
         <div className="p-5 space-y-4">
 
-          {!sapSoldTo ? (
+          {!daKhai ? (
             <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-900">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
@@ -118,8 +126,12 @@ export default function ImportActualsModal({
           ) : (
             <>
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
-                Lọc theo mã khách <strong className="font-mono text-slate-900">{sapSoldTo}</strong>.
-                Một mã hàng có nhiều dòng trong tháng sẽ được cộng lại.
+                File phải xuất từ ZSD450 với bộ lọc{' '}
+                <strong className="font-mono text-slate-900">{boLoc || '(chưa khai)'}</strong>.
+                {khongLocKhach
+                  ? ' Đơn vị này không lọc theo mã khách nên MỌI dòng trong file sẽ được lấy — chọn đúng file.'
+                  : ' App lọc lại theo mã khách này như một lớp chặn nầm file.'}
+                {' '}Một mã hàng có nhiều dòng trong tháng sẽ được cộng lại.
               </div>
 
               <label className="flex items-center justify-center gap-2 border-2 border-dashed border-slate-300 rounded-lg px-4 py-6 cursor-pointer hover:border-blue-400 hover:bg-blue-50/40 transition">
@@ -176,12 +188,34 @@ export default function ImportActualsModal({
                 </div>
               )}
 
+              {khongLocKhach && ket.rowsMatched > 0 && (
+                <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div>
+                    Không lọc theo mã khách, nên hãy đối chiếu file đúng đơn vị:
+                    {ket.channelsSeen.length > 0 && (
+                      <> kênh bán hàng trong file là{' '}
+                        <strong className="font-mono">{ket.channelsSeen.join(', ')}</strong>;</>
+                    )}
+                    {' '}{ket.soldToSeen.length} mã khách
+                    {ket.soldToSeen.length > 0 && (
+                      <> (<span className="font-mono">
+                        {ket.soldToSeen.slice(0, 5).map((s) => s.code).join(', ')}
+                        {ket.soldToSeen.length > 5 && '…'}
+                      </span>)</>
+                    )}.
+                  </div>
+                </div>
+              )}
+
               {ket.rowsMatched === 0 && (
                 <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <div>
-                    Không có dòng nào của mã khách <strong className="font-mono">{sapSoldTo}</strong> —
-                    nhiều khả năng file xuất nhầm bộ lọc.
+                    {khongLocKhach
+                      ? 'File không có dòng dữ liệu nào đọc được — nhiều khả năng xuất nhầm bộ lọc hoặc nhầm kỳ.'
+                      : <>Không có dòng nào của mã khách <strong className="font-mono">{sapSoldTo}</strong> —
+                        nhiều khả năng file xuất nhầm bộ lọc.</>}
                     {ket.soldToSeen.length > 0 && (
                       <div className="mt-1">
                         Mã khách có trong file:{' '}

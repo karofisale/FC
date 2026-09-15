@@ -158,6 +158,8 @@ function getActualsWorkspace_(session, p) {
     businessUnitCode: bu,
     month: month,
     sapSoldTo: String(donVi.sap_sold_to || '').trim(),
+    sapVkorg: String(donVi.sap_vkorg || '').trim(),
+    sapVtweg: String(donVi.sap_vtweg || '').trim(),
     regions: regionsFor_('actual'),
     products: getProducts_(bu, null, null),
     actuals: getActuals_(bu, month, null),

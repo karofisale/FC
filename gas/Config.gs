@@ -34,7 +34,16 @@ const SCHEMA = {
   // File ZSD450 KHÔNG có cột Sales Organization, và cột kênh bán hàng về dưới
   // dạng TÊN ("Nội địa") chứ không phải mã 01/13/02, nên mã khách là thứ
   // duy nhất trong file tách được đơn vị.
-  [SHEETS.BUSINESS_UNITS]: ['code', 'name', 'is_active', 'sap_channel', 'sap_sold_to'],
+  // sap_vkorg / sap_vtweg / sap_sold_to: bộ lọc để xuất báo cáo ZSD450 của
+  // đơn vị này (Sales Organization / Distribution Channel / Sold-to party).
+  // File đã được lọc sẵn ở SAP nên mỗi file vốn chỉ chứa một đơn vị; app
+  // lọc lại theo sap_sold_to như một lớp chặn nầm file.
+  //
+  // sap_sold_to = '*' nghĩa là ĐƠN VỊ NÀY KHÔNG LỌC THEO MÃ KHÁCH (XK chỉ
+  // lọc VKORG 0401 + VTWEG 02). Khác hẳn với để TRỐNG = chưa khai — hai thứ
+  // này mà lẫn nhau thì hoặc chặn nhầm đơn vị hợp lệ, hoặc nhận cả file của
+  // đơn vị khác mà không ai biết.
+  [SHEETS.BUSINESS_UNITS]: ['code', 'name', 'is_active', 'sap_channel', 'sap_vkorg', 'sap_vtweg', 'sap_sold_to'],
   // scope: miền này dùng ở màn nào — 'weekly' (lưới chia tuần), 'actual'
   // (sản lượng thực hiện), hoặc 'both'. Để trống = dùng ở mọi nơi, để dữ
   // liệu cũ chưa có cột này vẫn chạy y như trước.

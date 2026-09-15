@@ -26,6 +26,13 @@ export const ZSD450_COLUMNS = {
   distChannel: 'Kênh bán hàng (Distribution channel)'
 };
 
+/**
+ * Mã khách mang giá trị này nghĩa là đơn vị không lọc theo khách: bản thân
+ * bộ lọc VKORG + VTWEG lúc xuất đã ra đúng phần của đơn vị (XK: 0401/02;
+ * OEM: 0400/01). Phải khác hẳn chuỗi rỗng, vì rỗng = chưa khai.
+ */
+export const MOI_KHACH = '*';
+
 /** "1016243" và 1016243 phải là một. Mã có số 0 đứng đầu vẫn giữ nguyên. */
 export function normalizeCode(v) {
   if (v === null || v === undefined) return '';
@@ -57,22 +64,24 @@ function isNumberingRow(row) {
 /**
  * @param {Array<Array>} aoa  sheet đọc với { header: 1, raw: true }
  * @param {object} p
- * @param {string} p.soldTo   mã khách của đơn vị cần lấy; để trống = lấy tất cả
+ * @param {string} p.soldTo   mã khách của đơn vị cần lấy; '' hoặc '*' = lấy tất cả
  * @param {string} [p.month]  'YYYY-MM-01'; để trống = lấy mọi tháng có trong file
  * @returns {{
  *   bySku: Object<string, number>, skuNames: Object<string, string>,
  *   rowsRead: number, rowsMatched: number,
  *   soldToSeen: Array<{code: string, name: string, rows: number}>,
- *   monthsSeen: Array<string>, missingColumns: Array<string>
+ *   monthsSeen: Array<string>, channelsSeen: Array<string>,
+ *   missingColumns: Array<string>
  * }}
  */
 export function parseZsd450(aoa, { soldTo = '', month = '' } = {}) {
-  const wantSoldTo = normalizeCode(soldTo);
+  const wantSoldTo = normalizeCode(soldTo) === MOI_KHACH ? '' : normalizeCode(soldTo);
   const rows = (aoa || []).filter((r) => Array.isArray(r) && r.some((v) => v !== null && v !== ''));
   if (!rows.length) {
     return {
       bySku: {}, skuNames: {}, rowsRead: 0, rowsMatched: 0,
-      soldToSeen: [], monthsSeen: [], missingColumns: Object.values(ZSD450_COLUMNS)
+      soldToSeen: [], monthsSeen: [], channelsSeen: [],
+      missingColumns: Object.values(ZSD450_COLUMNS)
     };
   }
 
@@ -89,7 +98,7 @@ export function parseZsd450(aoa, { soldTo = '', month = '' } = {}) {
   if (['soldTo', 'sku', 'quantity', 'month'].some((k) => at[k] < 0)) {
     return {
       bySku: {}, skuNames: {}, rowsRead: 0, rowsMatched: 0,
-      soldToSeen: [], monthsSeen: [], missingColumns
+      soldToSeen: [], monthsSeen: [], channelsSeen: [], missingColumns
     };
   }
 
@@ -98,6 +107,9 @@ export function parseZsd450(aoa, { soldTo = '', month = '' } = {}) {
   const soldToCount = {};
   const soldToName = {};
   const months = {};
+  // Đơn vị không lọc theo khách thì đây là thứ duy nhất còn lại để nhìn ra
+  // file có đúng bộ lọc không — file OEM hiện "Nội địa".
+  const channels = {};
   let rowsRead = 0;
   let rowsMatched = 0;
 
@@ -116,6 +128,10 @@ export function parseZsd450(aoa, { soldTo = '', month = '' } = {}) {
     }
     const m = parseZsdMonth(r[at.month]);
     if (m) months[m] = true;
+    if (at.distChannel >= 0) {
+      const dc = String(r[at.distChannel] ?? '').trim();
+      if (dc) channels[dc] = (channels[dc] || 0) + 1;
+    }
 
     if (wantSoldTo && kh !== wantSoldTo) continue;
     if (month && m !== month) continue;
@@ -138,6 +154,7 @@ export function parseZsd450(aoa, { soldTo = '', month = '' } = {}) {
       .map((c) => ({ code: c, name: soldToName[c] || '', rows: soldToCount[c] }))
       .sort((a, b) => b.rows - a.rows),
     monthsSeen: Object.keys(months).sort(),
+    channelsSeen: Object.keys(channels).sort((a, b) => channels[b] - channels[a]),
     missingColumns
   };
 }
