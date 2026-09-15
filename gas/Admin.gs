@@ -64,8 +64,13 @@ function setupDatabase() {
   ]);
 
   upsertRows_(SHEETS.REGIONS, ['code'], [
-    { code: 'MB', name: 'Miền Bắc', is_active: 1 },
-    { code: 'MN', name: 'Miền Nam', is_active: 1 }
+    { code: 'MB', name: 'Miền Bắc', is_active: 1, scope: 'both' },
+    { code: 'MN', name: 'Miền Nam', is_active: 1, scope: 'both' },
+    // 2026-09: báo cáo ZSD450 không có cột miền (ô Tỉnh và Khu vực trống toàn
+    // bộ), nên sản lượng thực hiện nhập từ SAP ghi vào đây. Thực hiện không
+    // tách miền thì không giả vờ tách. scope = 'actual' để lưới chia tuần
+    // không mọc thêm cột.
+    { code: 'TQ', name: 'Toàn quốc', is_active: 1, scope: 'actual' }
   ]);
 
   upsertRows_(SHEETS.PRODUCT_GROUPS, ['code'], [

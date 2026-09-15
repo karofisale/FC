@@ -35,7 +35,15 @@ const SCHEMA = {
   // dạng TÊN ("Nội địa") chứ không phải mã 01/13/02, nên mã khách là thứ
   // duy nhất trong file tách được đơn vị.
   [SHEETS.BUSINESS_UNITS]: ['code', 'name', 'is_active', 'sap_channel', 'sap_sold_to'],
-  [SHEETS.REGIONS]: ['code', 'name', 'is_active'],
+  // scope: miền này dùng ở màn nào — 'weekly' (lưới chia tuần), 'actual'
+  // (sản lượng thực hiện), hoặc 'both'. Để trống = dùng ở mọi nơi, để dữ
+  // liệu cũ chưa có cột này vẫn chạy y như trước.
+  //
+  // Cần cột này vì báo cáo ZSD450 không tách miền, nên sản lượng thực hiện
+  // ghi vào một miền 'TQ'. Thêm thẳng TQ vào danh mục mà không có scope thì
+  // lưới chia tuần mọc thêm một cột thứ ba, và Bảng 1 đối chiếu tháng–tuần
+  // sẽ cộng cả cột đó vào.
+  [SHEETS.REGIONS]: ['code', 'name', 'is_active', 'scope'],
   [SHEETS.PRODUCT_GROUPS]: ['code', 'name'],
   [SHEETS.PRODUCTS]: ['sku_code', 'name', 'short_name', 'product_group_code', 'product_group_name', 'technology', 'default_channel', 'avg_price', 'is_active', 'requirements_type'],
   [SHEETS.CYCLES]: ['id', 'business_unit_code', 'base_month', 'horizon_months', 'status', 'created_by', 'created_at'],

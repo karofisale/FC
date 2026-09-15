@@ -17,7 +17,9 @@ function getBootstrap_(session) {
       business_unit_code: session.bu
     },
     businessUnits: activeOnly_(readObjects_(SHEETS.BUSINESS_UNITS)),
-    regions: activeOnly_(readObjects_(SHEETS.REGIONS)),
+    // getBootstrap nuôi các lưới chia tuần — không đưa miền riêng của màn
+    // Thực hiện vào đây.
+    regions: regionsFor_('weekly'),
     productGroups: readObjects_(SHEETS.PRODUCT_GROUPS)
   };
 }
@@ -623,6 +625,17 @@ function getFcVsActual_(bu, month) {
  * tắc cũ (XK→XK, OEM→OEM, còn lại→GT2), để file dữ liệu chưa kịp thêm cột
  * vẫn chạy đúng như trước.
  */
+/**
+ * Miền dùng ở một màn cụ thể. Miền để trống scope thì dùng ở mọi nơi.
+ * @param {'weekly'|'actual'} manHinh
+ */
+function regionsFor_(manHinh) {
+  return activeOnly_(readObjects_(SHEETS.REGIONS)).filter(function (r) {
+    var s = String(r.scope || '').trim().toLowerCase();
+    return !s || s === 'both' || s === manHinh;
+  });
+}
+
 function sapChannelByBU_() {
   var out = {};
   readObjects_(SHEETS.BUSINESS_UNITS).forEach(function (b) {

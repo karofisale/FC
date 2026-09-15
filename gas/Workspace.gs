@@ -101,7 +101,7 @@ function getWeeklyWorkspace_(session, p) {
     versions: versions,
     version: version,
     baseMonth: baseMonth,
-    regions: activeOnly_(readObjects_(SHEETS.REGIONS)),
+    regions: regionsFor_('weekly'),
     products: products,
     monthlyQuantities: monthQty,
     splits: version ? getWeeklySplits_(version.id) : [],
@@ -158,7 +158,7 @@ function getActualsWorkspace_(session, p) {
     businessUnitCode: bu,
     month: month,
     sapSoldTo: String(donVi.sap_sold_to || '').trim(),
-    regions: activeOnly_(readObjects_(SHEETS.REGIONS)),
+    regions: regionsFor_('actual'),
     products: getProducts_(bu, null, null),
     actuals: getActuals_(bu, month, null),
     comparison: getFcVsActual_(bu, month)

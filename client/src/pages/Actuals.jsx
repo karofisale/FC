@@ -2,10 +2,11 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { api } from '../services/api';
 import {
-  Save, Search, AlertCircle, CheckCircle2, Loader2, TrendingUp, TrendingDown, Minus
+  Save, Search, AlertCircle, CheckCircle2, Loader2, TrendingUp, TrendingDown, Minus, FileDown
 } from 'lucide-react';
 import { monthLabel } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
+import ImportActualsModal from '../components/ImportActualsModal';
 
 const ROW_HEIGHT_PX = 37;
 
@@ -35,6 +36,8 @@ export default function Actuals({ currentBU, user }) {
 
   const [comparison, setComparison] = useState(null);
   const [comparisonLoading, setComparisonLoading] = useState(false);
+  const [sapSoldTo, setSapSoldTo] = useState('');
+  const [showImport, setShowImport] = useState(false);
 
   const isEditor = user?.role === 'bu_editor' || user?.role === 'central_admin';
   const regionCodes = regions.map((r) => r.code);
@@ -52,6 +55,7 @@ export default function Actuals({ currentBU, user }) {
       const ws = await api.getActualsWorkspace({ bu: currentBU, month });
       setProducts(ws.products || []);
       setRegions(ws.regions || []);
+      setSapSoldTo(ws.sapSoldTo || '');
 
       const map = {};
       (ws.actuals || []).forEach((a) => {
@@ -134,6 +138,11 @@ export default function Actuals({ currentBU, user }) {
 
   const getSkuTotal = (sku) => regionCodes.reduce((sum, r) => sum + (actualsMap[`${sku}_${r}`] || 0), 0);
 
+  // Miền để ghi số từ SAP vào. Không chọn bừa miền đầu tiên: ghi nhầm vào MB
+  // thì toàn bộ sản lượng dồn lệch hẳn một bên mà bảng nhìn vẫn bình thường.
+  const regionNhap = regions.find((r) => String(r.scope || '').toLowerCase() === 'actual')?.code || '';
+  const knownSkus = new Set(products.map((p) => String(p.sku_code).trim()));
+
   const scrollParentRef = useRef(null);
   const rowVirtualizer = useVirtualizer({
     count: filteredProducts.length,
@@ -165,6 +174,19 @@ export default function Actuals({ currentBU, user }) {
             onChange={(e) => setMonth(`${e.target.value}-01`)}
             className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-blue-500"
           />
+          {/* Miền dành cho sản lượng thực hiện (scope = 'actual'): ZSD450 không tách
+              miền nên số từ SAP vào đúng một miền này, không chia bừa vào MB/MN. */}
+          <button
+            onClick={() => setShowImport(true)}
+            disabled={!isEditor || !regionNhap}
+            title={regionNhap
+              ? `Đọc file ZSD450 và ghi vào miền ${regionNhap}`
+              : 'Chưa có miền dành cho sản lượng thực hiện — chạy setupDatabase() để thêm miền TQ'}
+            className="flex items-center gap-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3.5 py-2 rounded-lg text-xs font-semibold shadow-sm transition disabled:opacity-50"
+          >
+            <FileDown className="w-4 h-4" />
+            Nhập từ ZSD450
+          </button>
           <button
             onClick={handleSave}
             disabled={saving || !isEditor || dirtyKeys.size === 0}
@@ -355,6 +377,18 @@ export default function Actuals({ currentBU, user }) {
           </table>
         </div>
       </div>
+
+      {showImport && (
+        <ImportActualsModal
+          businessUnitCode={currentBU}
+          sapSoldTo={sapSoldTo}
+          month={month}
+          regionCode={regionNhap}
+          knownSkus={knownSkus}
+          onClose={() => setShowImport(false)}
+          onImported={loadGrid}
+        />
+      )}
 
     </div>
   );

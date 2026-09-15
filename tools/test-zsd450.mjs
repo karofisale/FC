@@ -23,10 +23,13 @@ const DIR = process.argv[2] || 'D:/Operation/Claude/CLAUDE-OUTPUTS/Update Tuan';
 let bad = 0;
 const say = (ok, m) => { if (!ok) bad++; console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${m}`); };
 
+// ĐỌC Y HỆT parseExcelFile của app (cellDates, raw, defval). Lần trước bộ
+// kiểm tra đọc khác app ở đúng hai tuỳ chọn này, và cái khe đó giú ba lỗi
+// chạy qua mà bài kiểm vẫn xanh.
 const sheet1 = (file) => {
-  const wb = XLSX.read(readFileSync(file), { type: 'buffer' });
+  const wb = XLSX.read(readFileSync(file), { type: 'buffer', cellDates: true });
   return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
-    header: 1, raw: true, defval: null, blankrows: false
+    header: 1, raw: true, defval: ''
   });
 };
 
@@ -51,6 +54,7 @@ for (const [ten, thang] of FILES) {
   let tho = 0, dongTho = 0;
   aoa.slice(1).forEach((row) => {
     if (row.every((v, i) => v === null || v === '' || Number(v) === i + 1)) return;  // dong danh so
+    if (!row.some((v) => v !== null && v !== '')) return;                            // dong trong
     if (!String(row[cMa] ?? '').trim()) return;
     const q = Number(row[cSL]);
     if (Number.isFinite(q)) { tho += q; dongTho++; }
