@@ -155,20 +155,88 @@ function getActualsWorkspace_(session, p) {
   })[0] || {};
 
   var soLieu = getActuals_(bu, month, null);
+  var sanh = getFcVsActual_(bu, month);
 
-  // Miền để nhập là TQ (scope 'actual'). Nhưng tháng cũ có thể đã nhập tay
-  // theo MB/MN trước khi bỏ tách miền — ẩn các cột đó đi thì số cũ biến mất
-  // khỏi màn hình trong khi VẪN được tính vào phần so sánh (hàm đó cộng mọi
-  // miền). Hai con số lệch nhau trên cùng một màn hình mà không ai giải thích
-  // được. Nên: giữ lại đúng những miền CÓ số liệu trong tháng đang xem.
-  var mien = regionsFor_('actual');
-  var daCo = {};
-  mien.forEach(function (r) { daCo[r.code] = true; });
-  var coSo = {};
-  soLieu.forEach(function (a) { coSo[String(a.region_code)] = true; });
-  activeOnly_(readObjects_(SHEETS.REGIONS)).forEach(function (r) {
-    if (coSo[r.code] && !daCo[r.code]) mien.push(r);
+  // MỘT CỘT TỔNG, không tách miền. Sản lượng thực hiện không có căn cứ để chia
+  // hai miền (ZSD450 không có cột miền), và phần đối chiếu cũng chỉ so tổng.
+  //
+  // Miền để GHI là miền scope 'actual' (TQ). Tháng cũ có thể đã trót nhập tay
+  // theo MB/MN — những dòng đó vẫn được CỘNG vào tổng chứ không bị giấu đi,
+  // và màn hình trả về danh sách miền đang giữ số để lúc lưu còn dọn chúng về 0.
+  var mienGhi = regionsFor_('actual')[0];
+  if (!mienGhi) {
+    throw new Error('Chưa có miền dành cho sản lượng thực hiện (scope = actual). '
+      + 'Chạy setupDatabase() để thêm miền TQ.');
+  }
+
+  var tongTheoSku = {};
+  var mienCoSo = {};
+  soLieu.forEach(function (a) {
+    var sku = normalizeSku_(a.sku_code);
+    tongTheoSku[sku] = (tongTheoSku[sku] || 0) + (Number(a.quantity) || 0);
+    var m = String(a.region_code || '').trim();
+    if (m && m !== mienGhi.code) mienCoSo[m] = true;
   });
+
+  // MÃ NÀO ĐƯỢC HIỆN. Trước đây là toàn bộ danh mục của kênh — vài trăm dòng
+  // mà phần lớn không bao giờ có số, nên thứ cần nhìn bị chôn trong đó.
+  //
+  // Giờ: mã CÓ sản lượng thực hiện, hoặc mã CÓ trong kế hoạch. Hai nguồn này
+  // là đúng những gì người dùng cần đối chiếu.
+  var duocHien = {};
+  Object.keys(tongTheoSku).forEach(function (sku) { duocHien[sku] = true; });
+  (sanh.rows || []).forEach(function (r) {
+    if (Number(r.forecast_qty) !== 0) duocHien[normalizeSku_(r.sku_code)] = true;
+  });
+
+  // Tháng này chưa có kế hoạch thì lấy kế hoạch của BA THÁNG TỚI: đầu kỳ, khi
+  // thực hiện đã có mà chu kỳ của chính tháng đó chưa lập, lưới sẽ chỉ còn vài
+  // mã có số — nhìn như danh mục hỏng. Ba tháng tới là tập mã gần nhất mà đơn
+  // vị đã tự khai là sẽ bán.
+  var laySauNay = !Object.keys(duocHien).length
+    || !(sanh.rows || []).some(function (r) { return Number(r.forecast_qty) !== 0; });
+  var thangSau = [];
+  if (laySauNay) {
+    var pm = month.split('-').map(Number);
+    for (var i = 1; i <= 3; i++) {
+      var d = new Date(Date.UTC(pm[0], pm[1] - 1 + i, 1));
+      thangSau.push(d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-01');
+    }
+    var duyet = approvedVersionByCycle_();
+    readObjects_(SHEETS.CYCLES).forEach(function (c) {
+      if (String(c.business_unit_code) !== String(bu)) return;
+      var a = duyet[c.id];
+      var banList = readObjectsWhere_(SHEETS.VERSIONS, 'cycle_id', c.id);
+      var ban = (a && a.version_id)
+        ? banList.filter(function (v) { return String(v.id) === String(a.version_id); })[0]
+        : banList.filter(function (v) { return String(v.is_final) === '1' || v.is_final === true; })[0];
+      if (!ban) return;
+      readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', ban.id).forEach(function (l) {
+        if (thangSau.indexOf(normalizeMonth_(l.forecast_month)) < 0) return;
+        if (!Number(l.quantity)) return;
+        duocHien[normalizeSku_(l.sku_code)] = true;
+      });
+    });
+  }
+
+  // Mã có số thực hiện nhưng KHÔNG thuộc danh mục của kênh vẫn phải hiện —
+  // giấu đi là giấu một con số đang được tính vào phần đối chiếu.
+  var cuaKenh = getProducts_(bu, null, null);
+  var daCo = {};
+  var sanPham = [];
+  cuaKenh.forEach(function (pr) {
+    var sku = normalizeSku_(pr.sku_code);
+    if (!duocHien[sku]) return;
+    daCo[sku] = true;
+    sanPham.push(pr);
+  });
+  var danhMuc = productMap_();
+  Object.keys(duocHien).forEach(function (sku) {
+    if (daCo[sku]) return;
+    var pr = danhMuc[sku];
+    sanPham.push(pr || { sku_code: sku, name: '(không có trong danh mục)' });
+  });
+  sanPham.sort(function (a, b) { return String(a.sku_code).localeCompare(String(b.sku_code)); });
 
   return {
     businessUnitCode: bu,
@@ -176,10 +244,15 @@ function getActualsWorkspace_(session, p) {
     sapSoldTo: String(donVi.sap_sold_to || '').trim(),
     sapVkorg: String(donVi.sap_vkorg || '').trim(),
     sapVtweg: String(donVi.sap_vtweg || '').trim(),
-    regions: mien,
-    products: getProducts_(bu, null, null),
-    actuals: soLieu,
-    comparison: getFcVsActual_(bu, month)
+    // Miền để ghi, và các miền cũ đang còn giữ số của tháng này. Màn hình cần
+    // cả hai: ghi vào cái đầu, và đặt 0 cho các cái sau để tổng đúng bằng số
+    // vừa gõ.
+    regionCode: mienGhi.code,
+    legacyRegions: Object.keys(mienCoSo).sort(),
+    totals: tongTheoSku,
+    products: sanPham,
+    fallbackMonths: laySauNay ? thangSau : [],
+    comparison: sanh
   };
 }
 

@@ -21,7 +21,10 @@ function previousMonthISO() {
 export default function Actuals({ currentBU, user }) {
   const [month, setMonth] = useState(previousMonthISO());
   const [products, setProducts] = useState([]);
-  const [regions, setRegions] = useState([]);
+  // Mien de GHI (TQ), va cac mien cu con giu so cua thang nay. Luc luu phai
+  // dat 0 cho cac mien cu, neu khong tong se khac han so vua go.
+  const [regionCode, setRegionCode] = useState('');
+  const [legacyRegions, setLegacyRegions] = useState([]);
   const [actualsMap, setActualsMap] = useState({});
   const [dirtyKeys, setDirtyKeys] = useState(() => new Set());
   const [search, setSearch] = useState('');
@@ -38,14 +41,12 @@ export default function Actuals({ currentBU, user }) {
   const [comparison, setComparison] = useState(null);
   const [comparisonLoading, setComparisonLoading] = useState(false);
   const [sapSoldTo, setSapSoldTo] = useState('');
+  const [fallbackMonths, setFallbackMonths] = useState([]);
   const [sapLoc, setSapLoc] = useState({ vkorg: '', vtweg: '' });
   const [showImport, setShowImport] = useState(false);
 
   const isEditor = user?.role === 'bu_editor' || user?.role === 'central_admin';
-  const regionCodes = regions.map((r) => r.code);
-  // Sản lượng thực hiện không tách miền nữa (chỉ còn TQ). MB/MN chỉ còn hiện
-  // ở những tháng đã trót nhập tay theo miền trước đây.
-  const nhieuMien = regionCodes.length > 1;
+  const tongTatCa = products.reduce((s, p) => s + (actualsMap[p.sku_code] || 0), 0);
 
   /**
    * Một lượt gọi thay cho getProducts + getRegions + getActuals +
@@ -59,15 +60,15 @@ export default function Actuals({ currentBU, user }) {
     try {
       const ws = await api.getActualsWorkspace({ bu: currentBU, month });
       setProducts(ws.products || []);
-      setRegions(ws.regions || []);
+      setRegionCode(ws.regionCode || '');
+      setLegacyRegions(ws.legacyRegions || []);
+      setFallbackMonths(ws.fallbackMonths || []);
       setSapSoldTo(ws.sapSoldTo || '');
       setSapLoc({ vkorg: ws.sapVkorg || '', vtweg: ws.sapVtweg || '' });
 
-      const map = {};
-      (ws.actuals || []).forEach((a) => {
-        map[`${a.sku_code}_${a.region_code}`] = Number(a.quantity) || 0;
-      });
-      setActualsMap(map);
+      // May chu da cong san tong cua moi mien theo tung ma — luoi chi co mot
+      // cot nen khong can biet so nam o mien nao.
+      setActualsMap({ ...(ws.totals || {}) });
       setDirtyKeys(new Set());
       setComparison(ws.comparison || null);
     } catch (err) {
@@ -98,12 +99,11 @@ export default function Actuals({ currentBU, user }) {
   // Không còn effect riêng cho phần so sánh — loadGrid đã lấy sẵn trong cùng
   // lượt gọi. loadComparison chỉ dùng để làm mới sau khi lưu.
 
-  const handleCellChange = (skuCode, regionCode, value) => {
-    const key = `${skuCode}_${regionCode}`;
+  const handleCellChange = (skuCode, value) => {
     const parsed = value === '' ? 0 : Number(value);
     const qty = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-    setActualsMap((prev) => ({ ...prev, [key]: qty }));
-    setDirtyKeys((prev) => new Set(prev).add(key));
+    setActualsMap((prev) => ({ ...prev, [skuCode]: qty }));
+    setDirtyKeys((prev) => new Set(prev).add(skuCode));
   };
 
   const handleSave = async () => {
@@ -114,15 +114,24 @@ export default function Actuals({ currentBU, user }) {
     setSaving(true);
     setMessage(null);
     try {
-      const rows = [...dirtyKeys].map((key) => {
-        const at = key.lastIndexOf('_');
-        return {
+      // Ghi toan bo so vao mien TQ. Ma nao con so cu o MB/MN thi dat 0 cho
+      // chung — khong lam vay thi tong se la (so vua go + so cu), tuc bang
+      // duoi hien mot dang con phan doi chieu cong ra mot dang khac.
+      const rows = [];
+      [...dirtyKeys].forEach((sku) => {
+        rows.push({
           businessUnitCode: currentBU,
-          skuCode: key.slice(0, at),
-          regionCode: key.slice(at + 1),
+          skuCode: sku,
+          regionCode,
           actualMonth: month,
-          quantity: actualsMap[key] || 0
-        };
+          quantity: actualsMap[sku] || 0
+        });
+        legacyRegions.forEach((r) => {
+          rows.push({
+            businessUnitCode: currentBU, skuCode: sku, regionCode: r,
+            actualMonth: month, quantity: 0
+          });
+        });
       });
       const res = await api.saveActuals(rows);
       setDirtyKeys(new Set());
@@ -142,11 +151,6 @@ export default function Actuals({ currentBU, user }) {
       || String(p.name).toLowerCase().includes(s);
   });
 
-  const getSkuTotal = (sku) => regionCodes.reduce((sum, r) => sum + (actualsMap[`${sku}_${r}`] || 0), 0);
-
-  // Miền để ghi số từ SAP vào. Không chọn bừa miền đầu tiên: ghi nhầm vào MB
-  // thì toàn bộ sản lượng dồn lệch hẳn một bên mà bảng nhìn vẫn bình thường.
-  const regionNhap = regions.find((r) => String(r.scope || '').toLowerCase() === 'actual')?.code || '';
   const knownSkus = new Set(products.map((p) => String(p.sku_code).trim()));
 
   const scrollParentRef = useRef(null);
@@ -171,6 +175,18 @@ export default function Actuals({ currentBU, user }) {
             <strong className="text-slate-800">{monthLabel(month)}</strong>
             {dirtyKeys.size > 0 && <span className="ml-2 text-amber-700 font-semibold">• {dirtyKeys.size} ô chưa lưu</span>}
           </p>
+          {/* Lưới chỉ hiện mã CÓ số thực hiện hoặc CÓ trong kế hoạch — nói ra để
+              không ai tưởng danh mục bị mất mã. */}
+          <p className="text-[11px] text-slate-500 mt-1">
+            {products.length} mã (có thực hiện hoặc có trong kế hoạch)
+            {' · tổng '}<strong className="text-slate-800 font-mono">{tongTatCa.toLocaleString('vi-VN')}</strong>
+            {fallbackMonths.length > 0 && (
+              <span className="text-amber-700">
+                {' · '}tháng này chưa có kế hoạch, lấy danh sách mã theo kế hoạch{' '}
+                {fallbackMonths.map(monthLabel).join(', ')}
+              </span>
+            )}
+          </p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -184,9 +200,9 @@ export default function Actuals({ currentBU, user }) {
               miền nên số từ SAP vào đúng một miền này, không chia bừa vào MB/MN. */}
           <button
             onClick={() => setShowImport(true)}
-            disabled={!isEditor || !regionNhap}
-            title={regionNhap
-              ? `Đọc file ZSD450 và ghi vào miền ${regionNhap}`
+            disabled={!isEditor || !regionCode}
+            title={regionCode
+              ? `Đọc file ZSD450 và ghi vào miền ${regionCode}`
               : 'Chưa có miền dành cho sản lượng thực hiện — chạy setupDatabase() để thêm miền TQ'}
             className="flex items-center gap-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3.5 py-2 rounded-lg text-xs font-semibold shadow-sm transition disabled:opacity-50"
           >
@@ -336,19 +352,16 @@ export default function Actuals({ currentBU, user }) {
               <tr>
                 <th className="py-2.5 px-3 border-r border-slate-700 w-28">Mã SKU</th>
                 <th className="py-2.5 px-3 border-r border-slate-700 min-w-[200px]">Tên sản phẩm</th>
-                {regionCodes.map((r) => (
-                  <th key={r} className="py-2.5 px-3 border-r border-slate-700 text-right w-28 bg-blue-900/60">{r}</th>
-                ))}
-                {/* Một miền thì cột Tổng lặp lại đúng cột bên cạnh — hai cột giống hệt
-                    nhau làm người đọc tưởng chúng đo hai thứ khác nhau. */}
-                {nhieuMien && <th className="py-2.5 px-3 text-right w-28 bg-cyan-900/60">Tổng</th>}
+                {/* MỘT cột. Sản lượng thực hiện không tách miền: nguồn ZSD450 không
+                    có cột miền, và phần đối chiếu cũng chỉ so tổng. */}
+                <th className="py-2.5 px-3 text-right w-32 bg-cyan-900/60">Tổng</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 font-mono">
               {loading ? (
-                <tr><td colSpan={2 + regionCodes.length + (nhieuMien ? 1 : 0)} className="py-8 text-center text-slate-400 font-sans">Đang tải dữ liệu...</td></tr>
+                <tr><td colSpan={3} className="py-8 text-center text-slate-400 font-sans">Đang tải dữ liệu...</td></tr>
               ) : filteredProducts.length === 0 ? (
-                <tr><td colSpan={2 + regionCodes.length + (nhieuMien ? 1 : 0)} className="py-8 text-center text-slate-400 font-sans">Không tìm thấy SKU phù hợp</td></tr>
+                <tr><td colSpan={3} className="py-8 text-center text-slate-400 font-sans">Không tìm thấy SKU phù hợp</td></tr>
               ) : (
                 <>
                   {topPad > 0 && <tr style={{ height: topPad }} aria-hidden="true" />}
@@ -358,32 +371,21 @@ export default function Actuals({ currentBU, user }) {
                       <tr key={p.sku_code} className="hover:bg-blue-50/50 transition">
                         <td className="py-2 px-3 border-r border-slate-200 font-bold text-slate-800">{p.sku_code}</td>
                         <td className="py-2 px-3 border-r border-slate-200 font-sans font-medium text-slate-900 truncate max-w-xs">{p.name}</td>
-                        {regionCodes.map((r) => {
-                          const key = `${p.sku_code}_${r}`;
-                          const isDirty = dirtyKeys.has(key);
-                          return (
-                            <td key={r} className="p-1 border-r border-slate-200 text-right">
-                              <input
-                                type="number"
-                                min="0"
-                                step="1"
-                                disabled={!isEditor}
-                                value={actualsMap[key] ?? 0}
-                                onChange={(e) => handleCellChange(p.sku_code, r, e.target.value)}
-                                className={`w-full text-right px-2 py-1 rounded font-semibold outline-none transition disabled:text-slate-500 disabled:cursor-not-allowed ${
-                                  isDirty
-                                    ? 'bg-amber-50 ring-1 ring-amber-300 text-amber-900'
-                                    : 'bg-transparent hover:bg-white focus:bg-white focus:ring-2 focus:ring-blue-500 text-slate-900'
-                                }`}
-                              />
-                            </td>
-                          );
-                        })}
-                        {nhieuMien && (
-                          <td className="py-2 px-3 text-right font-bold text-blue-700 bg-slate-50">
-                            {getSkuTotal(p.sku_code).toLocaleString('vi-VN')}
-                          </td>
-                        )}
+                        <td className="p-1 text-right">
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            disabled={!isEditor}
+                            value={actualsMap[p.sku_code] ?? 0}
+                            onChange={(e) => handleCellChange(p.sku_code, e.target.value)}
+                            className={`w-full text-right px-2 py-1 rounded font-semibold outline-none transition disabled:text-slate-500 disabled:cursor-not-allowed ${
+                              dirtyKeys.has(p.sku_code)
+                                ? 'bg-amber-50 ring-1 ring-amber-300 text-amber-900'
+                                : 'bg-transparent hover:bg-white focus:bg-white focus:ring-2 focus:ring-blue-500 text-slate-900'
+                            }`}
+                          />
+                        </td>
                       </tr>
                     );
                   })}
@@ -402,7 +404,7 @@ export default function Actuals({ currentBU, user }) {
           sapVkorg={sapLoc.vkorg}
           sapVtweg={sapLoc.vtweg}
           month={month}
-          regionCode={regionNhap}
+          regionCode={regionCode}
           knownSkus={knownSkus}
           onClose={() => setShowImport(false)}
           onImported={loadGrid}
