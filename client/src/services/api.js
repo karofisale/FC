@@ -133,6 +133,9 @@ export const api = {
 
   // ----- sản lượng thực hiện (actuals) -----
   getActuals: (params = {}) => callGAS('getActuals', auth(params)),
+  // KHONG cache: panel "Cao tu SAP" hoi vong dong nay de biet luot chay xong
+  // chua — voi mot ban cache thi moc thoi gian dung yen dung cai no can theo doi.
+  getNhipTim: () => callGAS('getNhipTim', auth()),
   getFcVsActual: (bu, month) => callGAS('getFcVsActual', auth({ bu, month })),
   saveActuals: (rows) => callGAS('saveActuals', auth({ rows })),
 

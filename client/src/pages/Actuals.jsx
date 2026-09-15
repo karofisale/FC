@@ -7,6 +7,7 @@ import {
 import { monthLabel } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
 import ImportActualsModal from '../components/ImportActualsModal';
+import CaoSapPanel from '../components/CaoSapPanel';
 
 const ROW_HEIGHT_PX = 37;
 
@@ -306,6 +307,13 @@ export default function Actuals({ currentBU, user }) {
           </div>
         )}
       </div>
+
+      <CaoSapPanel
+        businessUnitCode={currentBU}
+        month={month}
+        isEditor={isEditor}
+        onImported={loadGrid}
+      />
 
       {/* Lưới nhập sản lượng thực hiện */}
       <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">

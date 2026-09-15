@@ -80,7 +80,7 @@ const READ_ACTIONS = [
   'getMonthlyWorkspace', 'getWeeklyWorkspace', 'getDashboardWorkspace',
   'getActualsWorkspace', 'getApprovalsWorkspace',
   // Xuất báo cáo
-  'getB0SumExport', 'getSapGt2Weekly', 'getSapExport',
+  'getB0SumExport', 'getSapGt2Weekly', 'getSapExport', 'getNhipTim',
   // Nhập từ Google Sheet ngoài
   'readExternalSheet',
   // Số tổng quan cho cổng VHKD (xem PortalStats.gs)
@@ -140,6 +140,8 @@ const ACTION_TABLES = {
   getWeeklyWorkspace:  [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.REGIONS, SHEETS.MONTHLY_LINES, SHEETS.WEEKLY_SPLITS],
   getDashboardWorkspace: [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES],
   getActualsWorkspace: [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.REGIONS, SHEETS.MONTHLY_LINES, SHEETS.ACTUALS, SHEETS.BUSINESS_UNITS, SHEETS.APPROVALS],
+  sapFilters:          [SHEETS.BUSINESS_UNITS],
+  sapImportActuals:    [SHEETS.ACTUALS, SHEETS.PRODUCTS, SHEETS.BUSINESS_UNITS, SHEETS.REGIONS],
   getApprovalsWorkspace: [SHEETS.APPROVALS, SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.USERS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES, SHEETS.WEEKLY_SPLITS],
   // Hợp của getCycles_ + getB0Summary_ + getApprovals_ + tên kênh.
   getPortalStats:      [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES, SHEETS.APPROVALS, SHEETS.USERS, SHEETS.BUSINESS_UNITS],

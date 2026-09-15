@@ -53,6 +53,25 @@ function doPost(e) {
       result = login_(payload.userId, payload.pin);
     } else if (action === 'logout') {
       result = logout_(payload.token);
+
+    // 1b. Cửa cho bộ script cào SAP trên máy người dùng: xác thực bằng SECRET
+    //     chứ không phải PIN, vì bộ điều phối chạy không có người ngồi trước
+    //     máy. Xem SapBridge.gs cho phép tính thiệt hại.
+    //
+    //     importActuals phải nằm trong runExclusive_ như mọi action ghi khác:
+    //     upsertRows_ ghi đè CẢ BẢNG dựa trên bản chụp, nên hai lượt chạy chồng
+    //     nhau là một bên biến mất mà không báo gì.
+    } else if (action === 'sapHeartbeat') {
+      result = sapBridgeHeartbeat_(payload);
+    } else if (action === 'sapFilters') {
+      prefetchForAction_('sapFilters');
+      result = sapBridgeFilters_(payload);
+    } else if (action === 'sapImportActuals') {
+      result = runExclusive_(function () {
+        resetTableCache_();
+        prefetchForAction_('sapImportActuals');
+        return sapBridgeImportActuals_(payload);
+      });
     } else {
       // 2. Mọi action còn lại bắt buộc có token hợp lệ
       var session = requireSession_(payload.token);
@@ -102,6 +121,10 @@ function dispatch_(action, p, session) {
   switch (action) {
     // ----- đọc -----
     case 'getBootstrap':    return getBootstrap_(session);
+    // KHÔNG lọc theo vai: dòng nhịp tim chỉ có tên việc, mốc thời gian và số
+    // dòng — không tên khách, không tiền, không mã nào. Ai vào được app cũng
+    // nên biết số họ đang đọc cũ bao lâu.
+    case 'getNhipTim':      return getNhipTim_();
     case 'getProducts':     return getProducts_(p.bu, p.group, p.search);
     case 'getCycles':       return getCycles_(session, p.bu, p.status);
     // Các action dưới đây nhận versionId/cycleId/bu THẲNG TỪ CLIENT. Trước

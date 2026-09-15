@@ -257,3 +257,34 @@ function run_baoCao_nguonXK() {
 function run_baoCao_taiKhoan() {
   return adminReportAccounts();
 }
+
+
+/* ==================================================================
+ * CẦU CÀO SAP
+ * ================================================================== */
+
+/**
+ * Đặt secret cho cầu cào SAP. Sửa hằng số, bấm Run, RỒI XOÁ giá trị khỏi file
+ * này và push lại — kho FC là kho CÔNG KHAI.
+ *
+ * Chuỗi này phải trùng với `secret` trong
+ * D:\Operation\Claude\Scripts\karofi-fc-protocol\config.json
+ */
+function run_datSapBridgeSecret() {
+  var SECRET = '';   // <-- dán chuỗi bí mật vào đây rồi Run, xong xoá đi
+
+  if (!SECRET || SECRET.length < 24) {
+    throw new Error('Đặt SECRET dài ít nhất 24 ký tự trước khi chạy.');
+  }
+  PropertiesService.getScriptProperties().setProperty('SAP_BRIDGE_SECRET', SECRET);
+  Logger.log('Đã đặt SAP_BRIDGE_SECRET (độ dài ' + SECRET.length + '). '
+    + 'XOÁ giá trị khỏi mã nguồn ngay bây giờ.');
+  return 'OK';
+}
+
+/** Đã đặt secret chưa — in CÓ/KHÔNG, KHÔNG in giá trị. */
+function run_kiemSapBridgeSecret() {
+  var v = PropertiesService.getScriptProperties().getProperty('SAP_BRIDGE_SECRET');
+  Logger.log('SAP_BRIDGE_SECRET: ' + (v ? 'CÓ (độ dài ' + v.length + ')' : 'CHƯA ĐẶT'));
+  return !!v;
+}
