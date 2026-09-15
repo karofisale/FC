@@ -21,18 +21,52 @@
 function setupDatabase() {
   getOrCreatePepper_();
 
+  var bc = [];
+  var canhBao = [];
+  function ghi(d) { bc.push(d); }
+
   Object.keys(SCHEMA).forEach(function (name) {
     var sheet = getOrCreateSheet_(name);
     var headers = SCHEMA[name];
     var current = sheet.getLastColumn() ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0] : [];
-    if (current.join('|') !== headers.join('|')) {
-      sheet.getRange(1, 1, 1, headers.length).setValues([headers])
-        .setFontWeight('bold').setBackground('#0284c7').setFontColor('#ffffff');
-      sheet.setFrozenRows(1);
+    current = current.map(function (h) { return String(h === null || h === undefined ? '' : h).trim(); });
+    if (current.join('|') === headers.join('|')) return;
+
+    var them = headers.filter(function (h) { return current.indexOf(h) < 0; });
+    var thua = current.filter(function (h) { return h && headers.indexOf(h) < 0; });
+    // Cột đã có mà ĐỔI CHỖ: hàm này chỉ ghi lại DÒNG TIÊU ĐỀ, dữ liệu bên
+    // dưới đứng yên — nên đổi chỗ một cột là mọi giá trị của nó nằm dưới
+    // tên cột khác. Không tự sửa (sửa sai còn tệ hơn), nhưng phải nói to.
+    var doiCho = headers.filter(function (h, i) {
+      var j = current.indexOf(h);
+      return j >= 0 && j !== i;
+    });
+
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+      .setFontWeight('bold').setBackground('#0284c7').setFontColor('#ffffff');
+    sheet.setFrozenRows(1);
+
+    if (!current.length) {
+      ghi('  ' + name + ': tạo mới, ' + headers.length + ' cột');
+    } else {
+      var phan = [];
+      if (them.length) phan.push('thêm cột ' + them.join(', '));
+      if (thua.length) phan.push('còn cột lạ ' + thua.join(', '));
+      if (doiCho.length) phan.push('ĐỔI CHỖ ' + doiCho.join(', '));
+      ghi('  ' + name + ': ' + (phan.join(' · ') || 'chỉnh lại tiêu đề'));
+      if (doiCho.length) {
+        canhBao.push(name + ': cột ' + doiCho.join(', ') + ' đã ĐỔI CHỖ. Dữ liệu bên dưới '
+          + 'KHÔNG di chuyển theo, nên giờ đang nằm dưới tên cột khác. Kiểm tay sheet này.');
+      }
+      if (thua.length) {
+        canhBao.push(name + ': có cột "' + thua.join('", "') + '" không nằm trong SCHEMA — '
+          + 'app không đọc tới. Xoá tay nếu không dùng.');
+      }
     }
   });
+  if (!bc.length) ghi('  (mọi sheet đã đúng cột, không phải sửa gì)');
 
-  upsertRows_(SHEETS.BUSINESS_UNITS, ['code'], [
+  var buWritten = upsertRows_(SHEETS.BUSINESS_UNITS, ['code'], [
     { code: 'GT2', name: 'Kênh GT2 (General Trade 2)', is_active: 1, sap_channel: 'GT2', sap_sold_to: '1009062' },
     // 2026-09: bỏ phần sale Brand ra khỏi Xuất khẩu thì phần còn lại chính là
     // hàng OEM xuất khẩu — đổi tên cho đúng bản chất. Mã GIỮ NGUYÊN 'XK' vì
@@ -63,7 +97,7 @@ function setupDatabase() {
     { code: 'GT1', name: 'Kênh GT1', is_active: 0, sap_channel: 'GT2' }
   ]);
 
-  upsertRows_(SHEETS.REGIONS, ['code'], [
+  var regionWritten = upsertRows_(SHEETS.REGIONS, ['code'], [
     { code: 'MB', name: 'Miền Bắc', is_active: 1, scope: 'both' },
     { code: 'MN', name: 'Miền Nam', is_active: 1, scope: 'both' },
     // 2026-09: báo cáo ZSD450 không có cột miền (ô Tỉnh và Khu vực trống toàn
@@ -73,7 +107,7 @@ function setupDatabase() {
     { code: 'TQ', name: 'Toàn quốc', is_active: 1, scope: 'actual' }
   ]);
 
-  upsertRows_(SHEETS.PRODUCT_GROUPS, ['code'], [
+  var groupWritten = upsertRows_(SHEETS.PRODUCT_GROUPS, ['code'], [
     { code: 'NHOM_1', name: 'Máy TCM sx' },
     { code: 'NHOM_2', name: 'Máy nhập khẩu' },
     { code: 'NHOM_3', name: 'Mockup' },
@@ -94,12 +128,56 @@ function setupDatabase() {
       { id: 'oemadmin', full_name: 'Approver OEM', email: 'approver.oem@karofi.com', role: 'bu_approver', business_unit_code: 'OEM', is_active: 1, failed_attempts: 0 },
       { id: 'viewer', full_name: 'Người xem Báo cáo', email: 'viewer@karofi.com', role: 'viewer', business_unit_code: '', is_active: 1, failed_attempts: 0 }
     ]);
-  } else {
-    Logger.log('Sheet Users đã có dữ liệu — bỏ qua gieo tài khoản mẫu để không ghi đè tuỳ chỉnh hiện tại.');
   }
 
-  Logger.log('Đã khởi tạo xong. Bước tiếp theo: adminSetPin("gt2", "246810") cho từng tài khoản.');
-  return 'OK';
+  // --- Báo cáo ---------------------------------------------------------
+  // Trước đây hàm này làm mọi việc trong im lặng: chạy xong chỉ thấy đúng hai
+  // dòng về sheet Users, không cách nào biết cột mới và đơn vị mới đã vào hay
+  // chưa. Một hàm cài đặt không nói gì là một hàm không kiểm chứng được.
+  var out = [];
+  out.push('=== setupDatabase — ĐÃ XONG ===');
+  out.push('');
+  out.push('CỘT (tiêu đề sheet):');
+  bc.forEach(function (d) { out.push(d); });
+  out.push('');
+  out.push('DANH MỤC (gieo lại, an toàn khi chạy nhiều lần):');
+  out.push('  Đơn vị kinh doanh : thêm ' + buWritten.inserted + ', cập nhật ' + buWritten.updated);
+  out.push('  Miền            : thêm ' + regionWritten.inserted + ', cập nhật ' + regionWritten.updated);
+  out.push('  Nhóm sản phẩm    : thêm ' + groupWritten.inserted + ', cập nhật ' + groupWritten.updated);
+  out.push('');
+
+  out.push('TRẠNG THÁI SAU KHI CHẠY:');
+  resetTableCache_();
+  var bus = readObjects_(SHEETS.BUSINESS_UNITS);
+  var bat = bus.filter(function (b) { return String(b.is_active) === '1' || b.is_active === true; });
+  out.push('  Đơn vị đang bật (' + bat.length + '/' + bus.length + '):');
+  bat.forEach(function (b) {
+    out.push('     ' + b.code + '  — file SAP: ' + (b.sap_channel || '(chưa khai)')
+      + '  · mã khách ZSD450: ' + (b.sap_sold_to || '(chưa khai)'));
+  });
+  var rs = readObjects_(SHEETS.REGIONS).filter(function (r) {
+    return String(r.is_active) === '1' || r.is_active === true;
+  });
+  out.push('  Miền đang bật: ' + rs.map(function (r) {
+    return r.code + ' (' + (r.scope || 'mọi màn') + ')';
+  }).join(', '));
+
+  out.push('');
+  out.push('Bước tiếp theo: run_baoCao_taiKhoan() để biết tài khoản nào chưa có PIN.');
+
+  if (canhBao.length) {
+    out.push('');
+    out.push('*** CẦN XEM LẠI ***');
+    canhBao.forEach(function (c) { out.push('  ' + c); });
+  }
+
+  Logger.log(out.join('\n'));
+  return {
+    businessUnits: buWritten,
+    regions: regionWritten,
+    productGroups: groupWritten,
+    canhBao: canhBao
+  };
 }
 
 /**
