@@ -173,6 +173,13 @@ const ACTION_TABLES = {
  * mới. Quyết định này đã có ở màn Kế hoạch tháng từ trước — xem chú thích đầu
  * `client/src/pages/MonthlyForecast.jsx`, nơi có `NHOM_MAY` cùng giá trị.
  *
+ * NHOM_3 (Mockup) NẰM TRONG danh sách này — cố ý, không phải sót. Mockup vẫn
+ * là mã bắt đầu bằng 1 và người dùng vẫn hiểu/đếm nó là MÁY khi lập kế hoạch,
+ * chỉ khác Máy TCM sx (NHOM_1) ở việc KHÔNG do TCM tự sản xuất. Bỏ NHOM_3 khỏi
+ * đây sẽ làm "số máy" hụt so với con số người dùng tự nhẩm, và `tqDemLechPhanLoai_`
+ * (PortalStats.gs) sẽ báo NHẦM các mã Mockup là "gán nhóm sai" — trong khi
+ * chúng đang được gán đúng, chỉ là NHOM_MAY (danh sách này) từng thiếu NHOM_3.
+ *
  * HAI BẢN SAO, cố ý: client là bản build riêng, không import được hằng số của
  * backend. Sửa một bên thì phải sửa bên kia, nếu không màn Kế hoạch tháng và
  * số tổng quan trên cổng VHKD sẽ nói hai con số "số máy" khác nhau.
@@ -180,7 +187,7 @@ const ACTION_TABLES = {
  * `getPortalStats_` báo ra số mã mà hai cách phân loại KHÔNG khớp nhau, để chỗ
  * lệch hiện thành một dòng cảnh báo chứ không thành một con số sai im lặng.
  */
-const NHOM_MAY = ['NHOM_1', 'NHOM_2'];   // Máy TCM sx, Máy nhập khẩu
+const NHOM_MAY = ['NHOM_1', 'NHOM_2', 'NHOM_3'];   // Máy TCM sx, Máy nhập khẩu, Mockup
 
 const WRITE_ACTIONS = [
   'createCycle', 'createVersion', 'saveMonthlyLines', 'saveWeeklySplits',

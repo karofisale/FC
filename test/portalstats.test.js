@@ -170,6 +170,7 @@ check('cổng chỉ nhận 2 cột tháng', duAn.TQ_SO_THANG_ === 2, duAn.TQ_SO_
 console.log('\n2. Nhóm nào được đếm là máy');
 check('NHOM_1 là máy', duAn.tqLaNhomMay_('NHOM_1') === true);
 check('NHOM_2 là máy', duAn.tqLaNhomMay_('NHOM_2') === true);
+check('NHOM_3 (Mockup) vẫn là máy — không phải gán nhóm sai', duAn.tqLaNhomMay_('NHOM_3') === true);
 check('NHOM_4 (lõi) KHÔNG phải máy', duAn.tqLaNhomMay_('NHOM_4') === false);
 check('nhóm rỗng KHÔNG phải máy', duAn.tqLaNhomMay_('') === false);
 /**
@@ -197,8 +198,8 @@ function docMangNhomMay(duongDan) {
   check('đọc được NHOM_MAY ở cả hai file', !!banBackend && !!banClient, [banBackend, banClient]);
   check('hai bản chép tay khớp nhau',
     JSON.stringify(banBackend) === JSON.stringify(banClient), [banBackend, banClient]);
-  check('và đúng là NHOM_1 + NHOM_2',
-    JSON.stringify(banBackend) === JSON.stringify(['NHOM_1', 'NHOM_2']), banBackend);
+  check('và đúng là NHOM_1 + NHOM_2 + NHOM_3 (Mockup vẫn được đếm là máy)',
+    JSON.stringify(banBackend) === JSON.stringify(['NHOM_1', 'NHOM_2', 'NHOM_3']), banBackend);
 }
 
 console.log('\n3. Tên kế hoạch chờ duyệt nói đủ kênh / chu kỳ / lần cập nhật');

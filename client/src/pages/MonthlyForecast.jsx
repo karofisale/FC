@@ -19,7 +19,11 @@ const SOURCE_BUS = ['OEM', 'XK'];
 // người dùng sửa được, còn tiền tố mã là quy ước ngầm dễ sai khi có mã mới.
 // SKU chưa gắn nhóm rơi vào "chưa phân loại" và ĐƯỢC HIỆN RIÊNG — nếu giấu đi
 // thì hai dòng máy/lõi cộng lại không bằng tổng mà không ai biết vì sao.
-const NHOM_MAY = ['NHOM_1', 'NHOM_2'];   // Máy TCM sx, Máy nhập khẩu
+//
+// NHOM_3 (Mockup) NẰM TRONG danh sách — cố ý, không phải sót: Mockup vẫn được
+// người dùng hiểu là MÁY khi lập kế hoạch, chỉ khác Máy TCM sx ở việc không
+// do TCM tự sản xuất. Đồng bộ với gas/Config.gs, xem chú thích ở đó.
+const NHOM_MAY = ['NHOM_1', 'NHOM_2', 'NHOM_3'];   // Máy TCM sx, Máy nhập khẩu, Mockup
 const NHOM_LOI = ['NHOM_4'];             // Lõi
 import { useGridEditing, parsePastedNumber } from '../utils/useGridEditing';
 
