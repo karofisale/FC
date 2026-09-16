@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { KeyRound, User, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
+import { KeyRound, User, ShieldCheck, AlertCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 import { login } from '../services/auth';
 import { onRetry } from '../services/gasClient';
 import KarofiMark from '../components/KarofiMark';
@@ -10,6 +10,7 @@ export default function Login({ onSuccess }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [hienPin, setHienPin] = useState(false);
 
   // Lần đăng nhập đầu tiên sau khi backend "ngủ" hoặc vừa deploy có thể
   // dính cold-start của Apps Script — gasClient tự thử lại, chỉ báo cho
@@ -94,15 +95,24 @@ export default function Login({ onSuccess }) {
               <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
               <input
                 id="fc-pin"
-                type="password"
+                type={hienPin ? 'text' : 'password'}
                 inputMode="numeric"
                 autoComplete="current-password"
                 value={pin}
                 onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
                 placeholder="••••••"
                 maxLength={12}
-                className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm tracking-[0.3em] font-mono outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                className="w-full pl-9 pr-9 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm tracking-[0.3em] font-mono outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={() => setHienPin((v) => !v)}
+                aria-label={hienPin ? 'Ẩn mã PIN' : 'Hiện mã PIN'}
+                className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 p-1"
+              >
+                {hienPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
             </div>
           </div>
 
