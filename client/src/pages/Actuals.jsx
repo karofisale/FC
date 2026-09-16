@@ -6,8 +6,9 @@ import {
 } from 'lucide-react';
 import { monthLabel } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
-import ImportActualsModal from '../components/ImportActualsModal';
 import CaoSapPanel from '../components/CaoSapPanel';
+
+const ImportActualsModal = React.lazy(() => import('../components/ImportActualsModal'));
 
 const ROW_HEIGHT_PX = 37;
 
@@ -398,17 +399,19 @@ export default function Actuals({ currentBU, user }) {
       </div>
 
       {showImport && (
-        <ImportActualsModal
-          businessUnitCode={currentBU}
-          sapSoldTo={sapSoldTo}
-          sapVkorg={sapLoc.vkorg}
-          sapVtweg={sapLoc.vtweg}
-          month={month}
-          regionCode={regionCode}
-          knownSkus={knownSkus}
-          onClose={() => setShowImport(false)}
-          onImported={loadGrid}
-        />
+        <React.Suspense fallback={null}>
+          <ImportActualsModal
+            businessUnitCode={currentBU}
+            sapSoldTo={sapSoldTo}
+            sapVkorg={sapLoc.vkorg}
+            sapVtweg={sapLoc.vtweg}
+            month={month}
+            regionCode={regionCode}
+            knownSkus={knownSkus}
+            onClose={() => setShowImport(false)}
+            onImported={loadGrid}
+          />
+        </React.Suspense>
       )}
 
     </div>

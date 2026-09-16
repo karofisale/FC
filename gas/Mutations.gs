@@ -673,8 +673,9 @@ function updateProduct_(session, p) {
 
   // writeRowPatch_ ghi lại CẢ DÒNG, nên ô mã cũng đi qua setValues. Không ép
   // định dạng văn bản trước thì Sheets đổi "2013050022" thành số, và mã có
-  // số 0 đứng đầu mất số 0 đó không lấy lại được.
-  giuCotMaDangChu_();
+  // số 0 đứng đầu mất số 0 đó không lấy lại được. Chỉ đúng DÒNG này bị ghi
+  // đè nên chỉ cần định dạng đúng dòng đó, không phải cả cột.
+  giuCotMaDangChu_({ hang: i + 2 });
   t = readTable_(SHEETS.PRODUCTS);
   i = findRowIndex_(t, 'sku_code', skuCode);
 
@@ -795,8 +796,9 @@ function upsertProducts_(session, products) {
   }
 
   // upsertRows_ ghi lại CẢ BẢNG, nên một lượt dán đổi kiểu dữ liệu của mọi mã
-  // chứ không riêng mã được dán. Ép định dạng văn bản trước.
-  giuCotMaDangChu_();
+  // chứ không riêng mã được dán. Ép định dạng văn bản trước — kể cả các dòng
+  // MỚI sắp được nối thêm (themMoi.length), không chỉ số dòng đang có.
+  giuCotMaDangChu_({ themToiDa: themMoi.length });
   upsertRows_(SHEETS.PRODUCTS, ['sku_code'], records);
   logAuth_(session.userId, 'products_upserted', themMoi.length + ' thêm / ' + capNhat.length + ' sửa');
 

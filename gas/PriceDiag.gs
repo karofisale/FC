@@ -238,13 +238,29 @@ function adminReportReadPath() {
  * khôi phục được từ chính bảng đó.
  *
  * Đặt định dạng '@' TRƯỚC khi ghi thì chuỗi ở lại là chuỗi.
+ *
+ * Chỉ cần định đúng phần Sheets thực sự sắp bị ghi đè, không phải cả cột tới
+ * `getMaxRows()` (thường vài trăm dòng trống dư ra) — một khi ô đã là '@' thì
+ * ghi giá trị vào đó không làm nó quay lại "Tự động".
+ *
+ * @param {Object} [tuyChon]
+ * @param {number} [tuyChon.hang] Số dòng THẬT trên Sheet (đã +2) — dùng khi
+ *     writeRowPatch_ sắp ghi đúng MỘT dòng, chỉ định dạng đúng ô đó.
+ * @param {number} [tuyChon.themToiDa] Số dòng MỚI có thể được nối thêm ngay
+ *     sau lệnh này (upsertRows_ ghi lại cả bảng) — cộng vào số dòng hiện có để
+ *     dòng mới cũng nằm trong vùng đã định dạng, không chỉ dòng đang có.
  */
-function giuCotMaDangChu_() {
+function giuCotMaDangChu_(tuyChon) {
   var t = readTable_(SHEETS.PRODUCTS);
   var cot = t.idx.sku_code;
   if (cot === undefined) return;
   var sheet = t.sheet || getOrCreateSheet_(SHEETS.PRODUCTS);
-  var soDong = Math.max(sheet.getMaxRows() - 1, 1);
+  tuyChon = tuyChon || {};
+  if (tuyChon.hang) {
+    sheet.getRange(tuyChon.hang, cot + 1, 1, 1).setNumberFormat('@');
+    return;
+  }
+  var soDong = Math.max(t.rows.length + (tuyChon.themToiDa || 0), 1);
   sheet.getRange(2, cot + 1, soDong, 1).setNumberFormat('@');
 }
 

@@ -76,6 +76,10 @@ export default function Approvals({ currentBU, user, onCountChange }) {
 
   const handleDecision = async (decision) => {
     if (!selectedApproval) return;
+    const loiXacNhan = decision === 'approved'
+      ? 'Duyệt kế hoạch này? Không thể hoàn tác sau khi duyệt.'
+      : 'Từ chối kế hoạch này? Đơn vị sẽ phải sửa và gửi lại.';
+    if (!window.confirm(loiXacNhan)) return;
     setProcessing(true);
     setError(null);
     try {
