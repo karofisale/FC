@@ -41,6 +41,14 @@ export default function ImportFromSourceModal({ businessUnitCode, defaultBaseMon
 
   useEffect(() => { xemTruoc(baseMonth); }, [xemTruoc, baseMonth]);
 
+  // Esc đóng modal — ô chọn tháng là input[type=month] gốc trình duyệt,
+  // không có dropdown gợi ý riêng nào cần chặn Esc trước, nên đóng thẳng.
+  useEffect(() => {
+    const onKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
   async function nhap() {
     setImporting(true);
     setError('');

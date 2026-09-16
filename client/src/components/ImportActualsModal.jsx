@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Loader2, AlertTriangle, ArrowDownToLine, CheckCircle2, Info, Upload } from 'lucide-react';
 import { api } from '../services/api';
 import { parseExcelFile } from '../utils/importParsing';
@@ -37,6 +37,14 @@ export default function ImportActualsModal({
   const [error, setError] = useState('');
   const [ket, setKet] = useState(null);
   const [done, setDone] = useState(null);
+
+  // Esc đóng modal — không có ô nào ở đây tự xử lý Esc riêng (input file,
+  // không phải dropdown gợi ý), nên đóng thẳng.
+  useEffect(() => {
+    const onKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
 
   const chonFile = async (e) => {
     const file = e.target.files?.[0];

@@ -225,9 +225,22 @@ export default function Products({ currentBU, user }) {
             setThemMoi(false);
             setDangSua(null);
             setThongBao(message || ('Đã lưu SKU ' + (sp?.sku_code || '') + '.'));
-            // Doc lai tu server thay vi va vao mang trong bo nho: danh muc la
-            // du lieu dung chung, giua luc mo trang co the co nguoi khac vua ghi.
-            loadData();
+            // Vá thẳng vào mảng products bằng object addProduct_/updateProduct_ đã
+            // trả về, thay vì loadData() cả getProducts+getGroups+getBUs chỉ để
+            // đổi ĐÚNG MỘT dòng (~1.141+ SKU tải lại một cách vô ích). Ngừng dùng
+            // (is_active = 0) thì bỏ khỏi mảng luôn — getProducts_ lọc activeOnly_
+            // nên tải lại trang cũng sẽ không còn thấy nó nữa.
+            if (sp) {
+              setProducts((prev) => {
+                const conHoatDong = String(sp.is_active) !== '0';
+                const idx = prev.findIndex((p) => String(p.sku_code) === String(sp.sku_code));
+                if (!conHoatDong) return idx >= 0 ? prev.filter((p) => String(p.sku_code) !== String(sp.sku_code)) : prev;
+                if (idx < 0) return [...prev, sp];
+                const next = prev.slice();
+                next[idx] = sp;
+                return next;
+              });
+            }
           }}
         />
       )}

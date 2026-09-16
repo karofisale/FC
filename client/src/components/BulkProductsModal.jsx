@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ClipboardPaste, X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { api } from '../services/api';
 import { parseDanBang, COT_MAC_DINH } from '../utils/productPaste';
@@ -31,6 +31,14 @@ export default function BulkProductsModal({ groups, bus, existingProducts, onClo
   const [ghiDe, setGhiDe] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+
+  // Esc đóng modal — vùng dán chỉ là textarea thường, không có dropdown gợi ý
+  // nào tự bắt phím Esc riêng, nên đóng thẳng.
+  useEffect(() => {
+    const onKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
 
   const maDangCo = useMemo(() => {
     const m = new Map();

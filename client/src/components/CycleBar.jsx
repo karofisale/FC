@@ -51,6 +51,10 @@ export default function CycleBar({
 
   const createVersion = async () => {
     if (!selectedCycle) return;
+    // Tạo bản mới là nhân bản toàn bộ số từ bản gần nhất (copyFromPrevious) —
+    // bấm nhầm là có ngay một bản cập nhật thừa phải dọn tay, nên hỏi lại
+    // giống mẫu Duyệt/Từ chối ở Approvals.jsx.
+    if (!window.confirm('Tạo bản cập nhật tuần mới, kế thừa số của bản gần nhất?')) return;
     setError(null);
     setCreating('version');
     try {

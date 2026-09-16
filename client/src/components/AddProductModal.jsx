@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { PackagePlus, PencilLine, X, Loader2, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 import { parseGiaNhap } from '../utils/productPaste';
@@ -48,6 +48,14 @@ export default function AddProductModal({ groups, bus, defaultChannel, product, 
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+
+  // Esc đóng modal — không có ô nào trong form này tự bắt phím Esc riêng
+  // (chỉ input/select thường) nên đóng thẳng, không cần kiểm tra gì thêm.
+  useEffect(() => {
+    const onKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
 
   const set = (field) => (e) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
 

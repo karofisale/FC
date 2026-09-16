@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   X, Upload, Sheet, Loader2, AlertCircle, ArrowLeft, ArrowRight,
   CheckCircle2, FileSpreadsheet, PackagePlus
@@ -101,6 +101,15 @@ export default function ImportForecastModal({
   const [bulkChannel, setBulkChannel] = useState(currentBU || bus[0]?.code || '');
   const [result, setResult] = useState(null);
   const [resultCounts, setResultCounts] = useState({ monthly: 0, weekly: 0 });
+
+  // Esc đóng modal — mọi bước của luồng chỉ dùng input/select thường, không
+  // có dropdown gợi ý riêng nào cần chặn Esc trước, nên đóng thẳng dù đang
+  // ở bước nào của wizard.
+  useEffect(() => {
+    const onKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
 
   const aoa = activeSheet && sheets ? sheets[activeSheet] : null;
   const rawRows = aoa || [];
