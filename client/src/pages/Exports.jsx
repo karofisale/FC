@@ -1,53 +1,53 @@
 import React, { useState } from 'react';
 import { FileSpreadsheet, Download, Loader2, AlertCircle, AlertTriangle } from 'lucide-react';
 import { api } from '../services/api';
-import { monthLabel, currentMonth, weeksOfMonth } from '../utils/period';
-import { downloadWorkbook, buildB0SumSheet, buildB1SumSheet } from '../utils/excelExport';
+import { monthLabel, currentMonth } from '../utils/period';
+import { buildFcReport, downloadWorkbook, CHANNEL_TABS, busOfChannel } from '../utils/fcReportWorkbook';
 import { buildSapRows, SAP_CHANNELS, sapChannelOfBU } from '../utils/sapExport';
 import { downloadZpp702 } from '../utils/zpp702Workbook';
 
 export default function Exports({ user }) {
   const [baseMonth, setBaseMonth] = useState(currentMonth().slice(0, 7));
-  const [busy, setBusy] = useState(null); // 'b0' | 'b1' | 'sap' | null
+  const [busy, setBusy] = useState(null); // 'fc' | 'sap' | null
   const [message, setMessage] = useState(null);
 
   const canExport = user?.role === 'central_admin' || user?.role === 'viewer';
 
   const monthValue = `${baseMonth}-01`;
 
-  const handleExportB0 = async () => {
-    setBusy('b0');
+  /**
+   * Form báo cáo FC — MỘT file, mười tab.
+   *
+   * Trước đây là hai lượt xuất rời (B0.SUM và B1.SUM), mỗi lượt một file một
+   * sheet, và người dùng phải tự dán vào file làm tay. Giờ xuất thẳng đúng
+   * khuôn của file đó: B0.SUM + bốn tab kênh theo tháng, B1.SUM + bốn tab
+   * kênh theo tuần.
+   */
+  const handleExportFcReport = async () => {
+    setBusy('fc');
     setMessage(null);
     try {
-      const data = await api.getB0SumExport(monthValue);
+      const data = await api.getFcReportExport(monthValue);
       if (!data.rows.length) {
         setMessage({ type: 'error', text: `Không có dữ liệu forecast cho ${monthLabel(monthValue)}.` });
         return;
       }
-      const aoa = buildB0SumSheet(data);
-      downloadWorkbook([['B0.SUM', aoa]], `B0.SUM_${baseMonth}.xlsx`);
-      setMessage({ type: 'success', text: `Đã xuất B0.SUM: ${data.rows.length} SKU, ${data.businessUnits.length} đơn vị.` });
-    } catch (err) {
-      setMessage({ type: 'error', text: err.message });
-    } finally {
-      setBusy(null);
-    }
-  };
+      const { sheets, weeks, canhBao } = buildFcReport(data);
+      downloadWorkbook(sheets, `XK_OEM_GT2_Online_Sales FC_${baseMonth}.xlsx`);
 
-  const handleExportB1 = async () => {
-    setBusy('b1');
-    setMessage(null);
-    try {
-      const rows = await api.getB1Summary(monthValue);
-      if (!rows.length) {
-        setMessage({ type: 'error', text: `Không có dữ liệu tuần/miền cho ${monthLabel(monthValue)}.` });
-        return;
-      }
-      const weeks = weeksOfMonth(monthValue);
-      const regions = [...new Set(rows.map((r) => r.region_code))].sort();
-      const aoa = buildB1SumSheet(rows, weeks, regions);
-      downloadWorkbook([['B1.SUM', aoa]], `B1.SUM_${baseMonth}.xlsx`);
-      setMessage({ type: 'success', text: `Đã xuất B1.SUM: ${weeks.length} tuần, ${regions.length} miền.` });
+      // Nói rõ tab nào rỗng. Một tab kênh không có dòng nào trông y hệt một
+      // tab kênh mà đơn vị chưa nhập — và lý do thì khác hẳn nhau.
+      const rong = CHANNEL_TABS
+        .filter((t) => !busOfChannel(t.channel, data.businessUnits, data.reportChannels).length)
+        .map((t) => t.channel);
+
+      setMessage({
+        type: canhBao.length ? 'error' : 'success',
+        text: `Đã xuất ${sheets.length} tab: ${data.rows.length} mã, `
+          + `${data.businessUnits.length} đơn vị, ${weeks.length} tuần.`
+          + (rong.length ? `  Kênh chưa có đơn vị nào lập kế hoạch: ${rong.join(', ')} (tab để trống).` : '')
+          + (canhBao.length ? `  LƯU Ý — ${canhBao.join(' ')}` : '')
+      });
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
     } finally {
@@ -180,20 +180,13 @@ export default function Exports({ user }) {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         <ExportCard
-          title="B0.SUM"
-          description="Sản lượng theo SKU × đơn vị kinh doanh × 4 tháng. Khuôn cột khớp file XK_OEM_GT2_Online_Sales FC gốc để đối chiếu song song hai hệ."
-          busy={busy === 'b0'}
-          onClick={handleExportB0}
-        />
-
-        <ExportCard
-          title="B1.SUM"
-          description="Tổng theo Nhóm hàng × Tuần × Miền, gộp mọi đơn vị. Bản GỌN — không tách theo từng kênh và không có cột chênh lệch giữa các lần cập nhật như file gốc (272 cột); dùng màn Phê duyệt để xem chênh lệch."
-          busy={busy === 'b1'}
-          onClick={handleExportB1}
+          title="Form báo cáo FC (10 tab)"
+          description="Đúng khuôn file XK_OEM_GT2_Online_Sales FC: B0.SUM + B0.3.XK / B0.4.OEM / B0.5.GT2 / B0.8.Online theo tháng, B1.SUM + bốn tab tương ứng theo tuần. 3T và NSKX nhập vào kênh Online; bốn thị trường KRF-* nhập vào Xuất khẩu."
+          busy={busy === 'fc'}
+          onClick={handleExportFcReport}
         />
 
         <ExportCard
@@ -212,6 +205,9 @@ export default function Exports({ user }) {
           Khác biệt so với file anh đang làm tay
         </div>
         <ul className="list-disc list-inside space-y-1 text-amber-800">
+          <li><strong>Hai khối Miền Bắc / Miền Nam của các tab B0 chỉ có tháng gốc.</strong> App chỉ tách miền ở bảng chia tuần, mà bảng đó chỉ có cho tháng đầu chu kỳ — ba tháng sau để TRỐNG chứ không ghi 0, vì 0 là khẳng định &ldquo;miền này không bán gì&rdquo;.</li>
+          <li><strong>Không có định dạng màu/viền, công thức và ba tab tài liệu</strong> (TOC, B5.Quy trình, SUM2) của file làm tay. Giá trị và thứ tự cột thì khớp.</li>
+          <li><strong>Khối nhóm hàng có một dòng cho mỗi nhóm trong danh mục</strong> — hiện là 6 nhóm, file làm tay có 5, nên dòng dữ liệu bắt đầu thấp hơn một dòng.</li>
           <li><strong>Không còn dòng toàn số 0.</strong> File làm tay xuất trọn danh mục (492/756 dòng XK tháng 7 là số 0); app chỉ xuất SKU có số. Nếu SAP không xoá kế hoạch cũ trước khi nạp, SKU tụt về 0 sẽ giữ nguyên số cũ trên SAP.</li>
           <li><strong>File chỉ có sheet ZPP702</strong>, không kèm 6 sheet tài liệu và không có định dạng màu/viền của form gốc. Giá trị, kiểu ô và công thức dòng 2 giống hệt.</li>
           <li><strong>VSE/VSF</strong> theo quy tắc mã đầu 1, trừ khi danh mục Products có ghi sẵn cột <code>requirements_type</code> — 6 mã Lõi/Màng đầu 2 của XK cần điền VSE ở đó.</li>

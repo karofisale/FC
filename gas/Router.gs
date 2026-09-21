@@ -160,7 +160,7 @@ function dispatch_(action, p, session) {
     case 'getDashboardWorkspace': return getDashboardWorkspace_(session, p);
     case 'getActualsWorkspace':   return getActualsWorkspace_(session, p);
     case 'getApprovalsWorkspace': return getApprovalsWorkspace_(session, p);
-    case 'getB0SumExport':  return getB0SumExport_(session, p.baseMonth);
+    case 'getFcReportExport': return getFcReportExport_(session, p.baseMonth);
     case 'getSapGt2Weekly': return getSapGt2Weekly_(session, p.baseMonth);
     case 'getSapExport':    return getSapExport_(session, p.baseMonth);
     case 'readExternalSheet': return readExternalSheet_(session, p.spreadsheetId, p.sheetName);

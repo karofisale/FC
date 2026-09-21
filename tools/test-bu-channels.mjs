@@ -17,7 +17,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { buildSapRows, sapChannelOfBU } from '../client/src/utils/sapExport.js';
-import { buildB0SumSheet } from '../client/src/utils/excelExport.js';
+import { buildFcReport, buildB0SumSheet, REPORT_CHANNELS } from '../client/src/utils/fcReportWorkbook.js';
 
 const GAS = process.argv[2] || fileURLToPath(new URL('../gas', import.meta.url));
 const BASE = '2026-09-01';
@@ -154,21 +154,26 @@ const cu2001 = xkCu.find((r) => String(r[1]) === '2001');
 say(cu2001 && cu2001[W3] === 200, `va KH_XK chi con 200 (thieu 50 cua KRF-Phil)`);
 
 console.log('\n5. B0.SUM gop bon thi truong vao mot cot XK');
-const b0 = req('getB0SumExport', { baseMonth: BASE });
-const aoa = buildB0SumSheet(b0);
+const b0 = req('getFcReportExport', { baseMonth: BASE });
+const bao = buildFcReport(b0);
+const aoa = buildB0SumSheet({ ...b0, weeks: bao.weeks, regions: b0.regions });
 const cot = aoa[1];
 console.log(`      don vi co chu ky: ${b0.businessUnits.join(', ')}`);
-console.log(`      dong tieu de 2  : ${cot.slice(7, 7 + 1 + b0.businessUnits.length).join(' | ')}`);
+console.log(`      khoi thang 1    : ${cot.slice(8, 16).join(' | ')}`);
 say(!cot.includes('KRF-Phil'), 'khong co cot rieng cho KRF-Phil');
 say(cot.includes('XK'), 'co cot XK');
-say(cot.filter((c) => c === 'GT2').length > 0, 'GT2 van giu cot rieng');
+say(cot.includes('GT2'), 'GT2 van giu cot rieng');
 
-// Thang 10 la thang thu hai trong bon thang → khoi cot thu hai
-const cols = cot.slice(7).filter((c, i, a) => a.indexOf(c) === i && c !== 'Tổng');
-const nCol = 1 + cols.length;
-const iXK = cot.indexOf('XK', 7 + nCol);
+// Thang 10 la thang thu hai trong bon thang → khoi cot thu hai (Q..X)
+const KHOI = 1 + REPORT_CHANNELS.length;
+const iXK = 8 + KHOI + 1 + REPORT_CHANNELS.indexOf('XK');
 const r2001 = aoa.find((r) => r[0] === '2001');
 say(r2001 && r2001[iXK] === 250, `2001 thang 10 cot XK = ${r2001?.[iXK]} (200 + 50)`);
+
+// Bo so lieu khong khai report_channel: form van ra, nhung PHAI noi ra la
+// dang tam xep theo kenh SAP — im lang o day la dung cai bay o muc 4.
+say(bao.canhBao.some((c) => c.includes('report_channel')),
+  `chua khai report_channel thi co canh bao: ${bao.canhBao[0] || '(khong)'}`);
 
 console.log('\n6. sapChannelOfBU du dung mot minh');
 say(sapChannelOfBU('KRF-US', { 'KRF-US': 'XK' }) === 'XK', 'co ban do');

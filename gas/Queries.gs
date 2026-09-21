@@ -666,8 +666,9 @@ function approvedVersionByCycle_() {
  * để phía client từ chối xuất đúng kênh đó và nói rõ lý do — một file SAP
  * thiếu hẳn một kênh trông vẫn bình thường, rất dễ upload rồi mới phát hiện.
  *
- * B0.SUM vẫn dùng getB0SumExport_ (theo is_final) vì đó là báo cáo để đối
- * chiếu trong lúc đang lập kế hoạch, khi chưa có gì được duyệt cả.
+ * Báo cáo FC 10 tab vẫn dùng getFcReportExport_ (theo is_final) vì đó là
+ * báo cáo để đối chiếu trong lúc đang lập kế hoạch, khi chưa có gì được
+ * duyệt cả.
  */
 function getSapExport_(session, baseMonth) {
   assertRole_(session, ['central_admin', 'viewer']);
@@ -767,71 +768,6 @@ function getSapExport_(session, baseMonth) {
     buChannels: buChannels,
     hasRequirementsTypeColumn: hasTypeColumn,
     requirementsTypeOverrides: typeOverrides
-  };
-}
-
-function getB0SumExport_(session, baseMonth) {
-  assertRole_(session, ['central_admin', 'viewer']);
-  var month0 = normalizeMonth_(baseMonth);
-  if (!month0) throw new Error('Thiếu tháng cần xuất.');
-
-  var parts = month0.split('-').map(Number);
-  var months = [];
-  for (var i = 0; i < 4; i++) {
-    var d = new Date(Date.UTC(parts[0], parts[1] - 1 + i, 1));
-    months.push(d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-01');
-  }
-
-  var products = productMap_();
-  var cycles = readObjects_(SHEETS.CYCLES).filter(function (c) {
-    return normalizeMonth_(c.base_month) === month0;
-  });
-
-  var versions = readObjects_(SHEETS.VERSIONS);
-  var buByVersionId = {};
-  cycles.forEach(function (c) {
-    var v = versions.filter(function (vv) {
-      return String(vv.cycle_id) === String(c.id) && (String(vv.is_final) === '1' || vv.is_final === true);
-    })[0];
-    if (v) buByVersionId[v.id] = c.business_unit_code;
-  });
-
-  var rowsMap = {};
-  readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', function (v) {
-    return buByVersionId[v] !== undefined;
-  }).forEach(function (l) {
-    var bu = buByVersionId[l.version_id];
-    var m = normalizeMonth_(l.forecast_month);
-    if (months.indexOf(m) < 0) return;
-
-    var sku = l.sku_code;
-    if (!rowsMap[sku]) {
-      var p = products[sku] || {};
-      rowsMap[sku] = {
-        sku_code: sku,
-        name: p.name || sku,
-        short_name: p.short_name || '',
-        product_group_code: p.product_group_code || '',
-        product_group_name: p.product_group_name || '',
-        technology: p.technology || '',
-        default_channel: p.default_channel || '',
-        avg_price: Number(p.avg_price) || 0,
-        monthly: {}
-      };
-    }
-    if (!rowsMap[sku].monthly[m]) rowsMap[sku].monthly[m] = {};
-    rowsMap[sku].monthly[m][bu] = (rowsMap[sku].monthly[m][bu] || 0) + (Number(l.quantity) || 0);
-  });
-
-  var businessUnits = {};
-  cycles.forEach(function (c) { businessUnits[c.business_unit_code] = true; });
-
-  return {
-    baseMonth: month0,
-    months: months,
-    businessUnits: Object.keys(businessUnits).sort(),
-    buChannels: sapChannelByBU_(),
-    rows: Object.keys(rowsMap).map(function (k) { return rowsMap[k]; })
   };
 }
 

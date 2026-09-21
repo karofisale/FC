@@ -79,6 +79,34 @@ export function weekLabel(month, weekNumber) {
   return `Tuần ${weekNumber} (${startDay}–${endDay}/${m})`;
 }
 
+/**
+ * Nhãn tuần ISO của tuần thứ N trong tháng — 'W37', 'W38'...
+ *
+ * Form báo cáo FC đặt tên các khối tuần theo tuần ISO chứ không theo số thứ
+ * tự trong tháng, vì nhà máy xếp lịch sản xuất theo lịch ISO. Tuần 1 của
+ * tháng thường bắt đầu từ thứ Hai của THÁNG TRƯỚC, nên phải tính từ ngày
+ * thật rồi mới lấy tuần ISO, không suy ra được từ số thứ tự.
+ *
+ * Tính hoàn toàn bằng UTC: dựng ngày bằng giờ địa phương rồi đọc bằng UTC
+ * (hay ngược lại) sẽ lệch một ngày ở múi giờ +07, và một ngày lệch quanh
+ * thứ Hai là lệch hẳn một số tuần.
+ */
+export function weekIsoLabel(month, weekNumber) {
+  const base = normalizeMonth(month);
+  if (!base) return `W${weekNumber}`;
+
+  const [year, m] = base.split('-').map(Number);
+  const first = new Date(Date.UTC(year, m - 1, 1));
+  const offset = (first.getUTCDay() + 6) % 7;          // thứ Hai = 0
+  const d = new Date(Date.UTC(year, m - 1, (weekNumber - 1) * 7 + 1 - offset));
+
+  // Tuần ISO: tuần chứa thứ Năm quyết định năm và số tuần.
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  const yearStart = Date.UTC(t.getUTCFullYear(), 0, 1);
+  return `W${Math.ceil(((t - yearStart) / 86400000 + 1) / 7)}`;
+}
+
 /** Tuần ISO của một ngày, dùng đặt nhãn cho bản cập nhật tuần. */
 export function isoWeekLabel(date = new Date()) {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));

@@ -43,7 +43,13 @@ const SCHEMA = {
   // lọc VKORG 0401 + VTWEG 02). Khác hẳn với để TRỐNG = chưa khai — hai thứ
   // này mà lẫn nhau thì hoặc chặn nhầm đơn vị hợp lệ, hoặc nhận cả file của
   // đơn vị khác mà không ai biết.
-  [SHEETS.BUSINESS_UNITS]: ['code', 'name', 'is_active', 'sap_channel', 'sap_vkorg', 'sap_vtweg', 'sap_sold_to'],
+  //
+  // report_channel: đơn vị này nằm ở CỘT NÀO của form báo cáo FC (file
+  // XK_OEM_GT2_Online). KHÁC sap_channel: 3T và NSKX cùng lên file SAP GT2
+  // (nhà máy 0200) nhưng trong báo cáo thì thuộc cột Online. Trộn hai khái
+  // niệm này lại là sản lượng của 3T/NSKX chảy vào cột GT2 — form vẫn đủ
+  // cột, đủ dòng, tổng công ty vẫn đúng, chỉ có hai kênh sai số.
+  [SHEETS.BUSINESS_UNITS]: ['code', 'name', 'is_active', 'sap_channel', 'report_channel', 'sap_vkorg', 'sap_vtweg', 'sap_sold_to'],
   // scope: miền này dùng ở màn nào — 'weekly' (lưới chia tuần), 'actual'
   // (sản lượng thực hiện), hoặc 'both'. Để trống = dùng ở mọi nơi, để dữ
   // liệu cũ chưa có cột này vẫn chạy y như trước.
@@ -80,7 +86,7 @@ const READ_ACTIONS = [
   'getMonthlyWorkspace', 'getWeeklyWorkspace', 'getDashboardWorkspace',
   'getActualsWorkspace', 'getApprovalsWorkspace',
   // Xuất báo cáo
-  'getB0SumExport', 'getSapGt2Weekly', 'getSapExport', 'getNhipTim',
+  'getFcReportExport', 'getSapGt2Weekly', 'getSapExport', 'getNhipTim',
   // Nhập từ Google Sheet ngoài
   'readExternalSheet',
   // Số tổng quan cho cổng VHKD (xem PortalStats.gs)
@@ -132,7 +138,10 @@ const ACTION_TABLES = {
   getActuals:         [SHEETS.ACTUALS, SHEETS.PRODUCTS, SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.MONTHLY_LINES],
   getFcVsActual:      [SHEETS.ACTUALS, SHEETS.PRODUCTS, SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.MONTHLY_LINES],
   readExternalSheet:  [SHEETS.AUDIT],
-  getB0SumExport:     [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES, SHEETS.BUSINESS_UNITS],
+  // Báo cáo FC 10 tab đọc gần như mọi bảng: bốn tháng (MONTHLY_LINES), các
+  // tuần chia miền (WEEKLY_SPLITS) và mọi lần cập nhật của chu kỳ (VERSIONS).
+  getFcReportExport:  [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.PRODUCT_GROUPS,
+                       SHEETS.MONTHLY_LINES, SHEETS.WEEKLY_SPLITS, SHEETS.REGIONS, SHEETS.BUSINESS_UNITS],
   getSapExport:       [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.PRODUCTS, SHEETS.MONTHLY_LINES, SHEETS.WEEKLY_SPLITS, SHEETS.APPROVALS, SHEETS.BUSINESS_UNITS],
   getSapGt2Weekly:    [SHEETS.CYCLES, SHEETS.VERSIONS, SHEETS.WEEKLY_SPLITS],
 
