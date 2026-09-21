@@ -113,6 +113,25 @@ say(/không phải sửa gì/.test(lai.log), 'bao la moi sheet da dung cot');
 say(lai.ket.businessUnits.inserted === 0, `khong chen them don vi nao (${lai.ket.businessUnits.inserted})`);
 say(lai.ket.canhBao.length === 0, 'khong canh bao gi');
 
+console.log('\n3b. Them report_channel phai la NOI VAO CUOI, khong day lech gi ca');
+// setupDatabase chi ghi lai DONG TIEU DE, du lieu ben duoi dung yen. Neu
+// report_channel duoc dat giua SCHEMA (canh sap_channel cho dung nghia) thi
+// "0200" se nam duoi tieu de report_channel, "13" duoi sap_vkorg, va
+// sap_sold_to rong — dung cai bay muc 4b, chi khac la no tu minh gay ra.
+const themCot = chay({
+  BusinessUnits: [['code','name','is_active','sap_channel','sap_vkorg','sap_vtweg','sap_sold_to'],
+                  ['GT2','Kênh GT2','1','GT2','0200','13','1009062'],
+                  // don vi tu them tay: dong duy nhat ma buoc gieo KHONG va lai
+                  ['TUTHEM','Đơn vị tự thêm','1','GT2','0200','13','9999999']],
+  Regions: [['code','name','is_active','scope'], ['MB','Miền Bắc','1','weekly']]
+});
+say(/BusinessUnits: thêm cột report_channel$/m.test(themCot.log),
+  `chi them cot, khong doi cho: "${(themCot.log.match(/BusinessUnits: .*/) || [])[0]}"`);
+say(themCot.ket.canhBao.length === 0, `khong canh bao (${themCot.ket.canhBao.join('; ')})`);
+const tuThem = themCot.S.BusinessUnits.slice(1).find((r) => r[0] === 'TUTHEM');
+say(String(tuThem[4]) === '0200' && String(tuThem[6]) === '9999999',
+  `dong them tay khong bi day lech: sap_vkorg=${tuThem[4]} sap_sold_to=${tuThem[6]}`);
+
 console.log('\n4a. Cot DOI CHO nhung moi dong deu nam trong danh muc gieo');
 // Buoc gieo ghi de nguyen dong nen no TU VA lai nhung dong do. Bao dong
 // "kiem tay sheet nay" o day la keu oan — keu mai thi khong ai doc nua.

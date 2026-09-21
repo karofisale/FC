@@ -42,15 +42,16 @@ const sp = (sku, ten, nhom) => [sku, ten, ten, nhom, nhom === 'NHOM_1' ? 'Máy T
 const S = {
   Users: [['id','full_name','email','role','business_unit_code','pin_hash','is_active','failed_attempts','locked_until','last_login'],
           ['u1','Admin','a@k.vn','central_admin','','h','1','0','','']],
-  BusinessUnits: [['code','name','is_active','sap_channel','report_channel','sap_vkorg','sap_vtweg','sap_sold_to'],
-    ['GT2','GT2','1','GT2','GT2','0200','13','1009062'],
-    ['XK','Export OEM','1','XK','XK','0401','02','*'],
-    ['OEM','Domestic OEM','1','OEM','OEM','0400','01','*'],
-    ['KRF-Phil','KRF Philippines','1','XK','XK','0202','02','2000562'],
+  // report_channel nam CUOI, dung thu tu SCHEMA — xem chu thich o Config.gs.
+  BusinessUnits: [['code','name','is_active','sap_channel','sap_vkorg','sap_vtweg','sap_sold_to','report_channel'],
+    ['GT2','GT2','1','GT2','0200','13','1009062','GT2'],
+    ['XK','Export OEM','1','XK','0401','02','*','XK'],
+    ['OEM','Domestic OEM','1','OEM','0400','01','*','OEM'],
+    ['KRF-Phil','KRF Philippines','1','XK','0202','02','2000562','XK'],
     // Day la hai dong quan trong nhat cua bai kiem: sap_channel GT2 nhung
     // report_channel Online.
-    ['3T','Kênh 3T','1','GT2','Online','0200','13','1008903'],
-    ['NSKX','Nước Sạch Khí Xanh','1','GT2','Online','0200','13','1011827']],
+    ['3T','Kênh 3T','1','GT2','0200','13','1008903','Online'],
+    ['NSKX','Nước Sạch Khí Xanh','1','GT2','0200','13','1011827','Online']],
   Regions: [['code','name','is_active','scope'],
     ['MB','Miền Bắc','1','weekly'],
     ['MN','Miền Nam','1','weekly'],
@@ -247,7 +248,7 @@ console.log(`     nhan: ${weeks.map((w) => b1[0][18 + (w - 1) * (rong + 1)]).joi
 say(b1[0][18] === 'W36', `tuan 1 cua thang 9/2026 = ${b1[0][18]} (bat dau thu Hai 31/08)`);
 
 console.log('\n8. Don vi chua khai report_channel thi phai BAO, khong im lang');
-S.BusinessUnits[5][4] = '';   // 3T bo trong report_channel
+S.BusinessUnits[5][7] = '';   // 3T bo trong report_channel (cot cuoi)
 const data2 = req('getFcReportExport', { baseMonth: BASE });
 const r2 = buildFcReport(data2);
 console.log(`     ${r2.canhBao.join(' / ')}`);
@@ -257,7 +258,7 @@ say(r2.canhBao.some((c) => c.includes('3T') && c.includes('setupDatabase')),
 const b0x = buildB0SumSheet({ ...data2, weeks, regions: data2.regions });
 say(dong(b0x, '3001')[iGT2] === 150,
   'va tai hien dung cai bay: khong co cot thi 3T roi vao GT2 (150 cai)');
-S.BusinessUnits[5][4] = 'Online';
+S.BusinessUnits[5][7] = 'Online';
 
 // Xuat file that de soi bang mat:
 //   FC_REPORT_XLSX=thu.xlsx node tools/test-fc-report.mjs

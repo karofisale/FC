@@ -49,7 +49,14 @@ const SCHEMA = {
   // (nhà máy 0200) nhưng trong báo cáo thì thuộc cột Online. Trộn hai khái
   // niệm này lại là sản lượng của 3T/NSKX chảy vào cột GT2 — form vẫn đủ
   // cột, đủ dòng, tổng công ty vẫn đúng, chỉ có hai kênh sai số.
-  [SHEETS.BUSINESS_UNITS]: ['code', 'name', 'is_active', 'sap_channel', 'report_channel', 'sap_vkorg', 'sap_vtweg', 'sap_sold_to'],
+  //
+  // report_channel nằm CUỐI dù về nghĩa nó đứng cạnh sap_channel: setupDatabase
+  // chỉ ghi lại DÒNG TIÊU ĐỀ, dữ liệu bên dưới đứng yên. Chèn cột vào giữa là
+  // mọi giá trị từ đó trở đi tụt sang phải một ô — "0200" nằm dưới tiêu đề
+  // report_channel, "13" nằm dưới sap_vkorg, và sap_sold_to rỗng. Bước gieo
+  // danh mục sẽ vá lại các dòng có trong seed, nhưng dòng thêm tay thì không.
+  // Nối vào cuối thì không có gì phải dịch chỗ cả.
+  [SHEETS.BUSINESS_UNITS]: ['code', 'name', 'is_active', 'sap_channel', 'sap_vkorg', 'sap_vtweg', 'sap_sold_to', 'report_channel'],
   // scope: miền này dùng ở màn nào — 'weekly' (lưới chia tuần), 'actual'
   // (sản lượng thực hiện), hoặc 'both'. Để trống = dùng ở mọi nơi, để dữ
   // liệu cũ chưa có cột này vẫn chạy y như trước.
