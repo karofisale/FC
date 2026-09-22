@@ -41,8 +41,34 @@ export const CHANNEL_TABS = [
 export const TAB_B0_SUM = 'B0.SUM (tuần 0)';
 export const TAB_B1_SUM = 'B1.SUM (tuần 4)';
 
+/**
+ * ===== CỘT ẨN =====
+ * Ẩn khác hẳn bỏ: cột ẩn vẫn còn đó, vẫn đúng địa chỉ, công thức trỏ sang
+ * vẫn chạy — chỉ là không hiện ra cho đỡ rối mắt. Đúng ba chỗ file làm tay
+ * đang ẩn, và ẩn theo QUY TẮC chứ không theo danh sách cố định, để hôm nào
+ * MT bật lại thì cột của nó tự hiện:
+ *   - B0.SUM   : cột Đ.quyền, và kênh nào không có số ở cả bốn tháng.
+ *   - B1.SUM   : cả khối so sánh các lần cập nhật (I..R), và cặp MB/MN của
+ *                kênh nào không chia tuần (XK, OEM không lập kế hoạch tuần).
+ *   - B1 kênh : khối so sánh các lần cập nhật (I..O).
+ * Các tab B0 kênh không ẩn gì, cũng giống file làm tay.
+ */
+
 /** Tám cột đầu (A..H) giống nhau ở mọi tab. */
 const PROD_COLS = 8;
+/**
+ * Nhóm gộp — không có dòng riêng trong khối tóm tắt đầu sheet.
+ *
+ * File làm tay cũng vậy: khối tóm tắt chỉ có năm nhóm chính, còn linh kiện
+ * thì không — tháng 09/2026 năm dòng nhóm cộng lại được 93.840 trong khi dòng
+ * tổng là 839.152. Dòng tổng vẫn cộng đủ mọi dòng dữ liệu, nên phần chênh
+ * không biến mất khỏi file; buildFcReport báo số đó ra màn hình để không ai
+ * phải tự trừ hai con số mới biết.
+ */
+const NHOM_GOP = 'KHAC';
+/** Các nhóm có dòng riêng trong khối tóm tắt. */
+const nhomBaoCao = (productGroups) =>
+  (productGroups || []).filter((g) => String(g.code).trim().toUpperCase() !== NHOM_GOP);
 /** Sáu cột "Số FC Tuần 0..Tuần 5" của các tab B1 (I..N). */
 const SO_VONG = 6;
 
@@ -123,6 +149,20 @@ const oSanPham = (row, kenh, docQuyen) => [
   row.technology, kenh, docQuyen, row.avg_price
 ];
 
+/**
+ * Gắn danh sách cột cần ẩn lên chính mảng aoa.
+ *
+ * Đi kèm aoa thay vì trả riêng, để không ai dựng được một sheet mà quên mất
+ * phần ẩn của nó — cùng cách `buildSapRows` mang theo `foldedWeeks`.
+ */
+function an(aoa, cacCot) {
+  aoa.hidden = cacCot.filter((i, k, a) => a.indexOf(i) === k).sort((x, y) => x - y);
+  return aoa;
+}
+
+/** Dãy chỉ số cột liên tiếp [tu, den]. */
+const khoang = (tu, den) => Array.from({ length: den - tu + 1 }, (_, i) => tu + i);
+
 /** Sản lượng một miền của THÁNG GỐC = cộng mọi tuần của bảng chia tuần. */
 const tongMienThangGoc = (row, regionCode, weeks, bus) =>
   weeks.reduce((s, w) => s + soTuan(row, w, regionCode, bus), 0);
@@ -176,7 +216,7 @@ export function buildB0ChannelSheet(data, tab) {
 
   // --- các dòng nhóm hàng --------------------------------------------------
   const theoNhom = gomNhom(rows);
-  const dongNhom = (productGroups || []).map((g, i) => {
+  const dongNhom = nhomBaoCao(productGroups).map((g, i) => {
     const line = [];
     dat(line, 6, `NHÓM ${i + 1}`);
     dat(line, 7, g.name);
@@ -217,6 +257,9 @@ export function buildB0ChannelSheet(data, tab) {
   });
 
   const aoa = [r1, r2, ...dongNhom, rDt, rTong, rHdr];
+
+  // Tab B0 kênh không ẩn cột nào — giống file làm tay.
+  an(aoa, []);
 
   rows.forEach((r) => {
     const line = oSanPham(r, tab.channel, donViDocQuyen(r, months, bus));
@@ -285,7 +328,7 @@ export function buildB0SumSheet(data) {
   };
 
   const theoNhom = gomNhom(rows);
-  const dongNhom = (productGroups || []).map((g, i) => {
+  const dongNhom = nhomBaoCao(productGroups).map((g, i) => {
     const line = [];
     dat(line, 6, `NHÓM ${i + 1}`);
     dat(line, 7, g.name);
@@ -312,6 +355,17 @@ export function buildB0SumSheet(data) {
   const rTong = oKhoi([], (m, bus) => rows.reduce((s, r) => s + soThang(r, m, bus), 0));
 
   const aoa = [r1, r2, ...dongNhom, rDt, rHdr, rTong];
+
+  // Ẩn cột Đ.quyền, và kênh nào không có số ở cả bốn tháng — hiện là MT,
+  // MLT, Retail. Ẩn theo SỐ chứ không theo tên, để bật lại một kênh là cột
+  // của nó tự hiện mà không phải sửa code.
+  const cotAn = [6];
+  REPORT_CHANNELS.forEach((c, i) => {
+    const bus = buTheoKenh[c];
+    const coSoNao = months.some((m) => rows.some((r) => soThang(r, m, bus)));
+    if (!coSoNao) months.forEach((m, k) => cotAn.push(iThang(k) + 1 + i));
+  });
+  an(aoa, cotAn);
 
   rows.forEach((r) => {
     const line = oSanPham(r, r.default_channel, donViDocQuyen(r, months, moiBU));
@@ -395,7 +449,7 @@ export function buildB1ChannelSheet(data, tab) {
   };
 
   const theoNhom = gomNhom(rows);
-  const dongNhom = (productGroups || []).map((g, i) => {
+  const dongNhom = nhomBaoCao(productGroups).map((g, i) => {
     const line = [];
     dat(line, 6, `NHÓM ${i + 1}`);
     dat(line, 7, g.name);
@@ -419,6 +473,10 @@ export function buildB1ChannelSheet(data, tab) {
   khoi.forEach((kh, k) => dat(rHdr, iKhoi(k), kh.ten));
 
   const aoa = [r1, r2, r3, r4, r5, ...dongNhom, rTong, rHdr];
+
+  // Ẩn cả khối so sánh các lần cập nhật (I..O) — file làm tay ẩn ở cả bốn tab.
+  // Số vẫn nằm đó cho ai cần bỏ ẩn để xem kế hoạch đã thay đổi thế nào.
+  an(aoa, khoang(iVong, iChenh));
 
   rows.forEach((r) => {
     const line = oSanPham(r, tab.channel, donViDocQuyen(r, months, bus));
@@ -503,7 +561,7 @@ export function buildB1SumSheet(data) {
   };
 
   const theoNhom = gomNhom(rows);
-  const dongNhom = (productGroups || []).map((g, i) => {
+  const dongNhom = nhomBaoCao(productGroups).map((g, i) => {
     const line = [];
     dat(line, 6, `NHÓM ${i + 1}`);
     dat(line, 7, g.name);
@@ -529,7 +587,24 @@ export function buildB1SumSheet(data) {
   CHENH.forEach((c, i) => dat(rHdr, iChenh + i, `Chênh lệch\n(FC tuần ${c[0]} vs.\nFC tuần ${c[1]})`));
   weeks.forEach((w, k) => dat(rHdr, iKhoi(k), weekIsoLabel(months[0], w)));
 
-  const aoa = [r1, r2, r3, ...dongNhom, rTong, rHdr];
+  // Một dòng TRỐNG giữa khối nhóm và dòng tổng — file làm tay có, và chỉ
+  // riêng tab này có. Bỏ đi thì dòng tiêu đề và mọi dòng dữ liệu của B1.SUM
+  // trượt lên một dòng so với file cũ, mà đây lại là tab hay bị trỏ công
+  // thức sang nhất. Giữ dòng trống rẻ hơn nhiều so với đi sửa các file trỏ.
+  const aoa = [r1, r2, r3, ...dongNhom, [], rTong, rHdr];
+
+  // Ẩn khối so sánh các lần cập nhật (I..R), và cặp MB/MN của kênh nào
+  // không có dòng chia tuần nào. XK và OEM có đơn vị và có kế hoạch tháng
+  // nhưng không lập kế hoạch tuần, nên ở ĐÂY cột của họ rỗng thật — căn cứ
+  // phải là có số chia tuần hay không, không phải có đơn vị hay không.
+  const cotAn = khoang(iVong, iChenh + CHENH.length - 1);
+  REPORT_CHANNELS.forEach((c, i) => {
+    const bus = buTheoKenh[c];
+    const coSoNao = weeks.some((w) => regions.some((rg) =>
+      rows.some((r) => soTuan(r, w, rg.code, bus))));
+    if (!coSoNao) weeks.forEach((w, k) => regions.forEach((rg, j) => cotAn.push(iKenh(k, i, j))));
+  });
+  an(aoa, cotAn);
 
   rows.forEach((r) => {
     const line = oSanPham(r, r.default_channel, donViDocQuyen(r, months, moiBU));
@@ -552,6 +627,11 @@ export function buildB1SumSheet(data) {
  *   - đơn vị chưa khai report_channel (đang tạm rơi về kênh SAP),
  *   - lần cập nhật thứ 6 trở đi, vì form chỉ có sáu cột Tuần 0..5.
  * Cả ba đều cho ra một file trông hoàn toàn bình thường.
+ *
+ * Và `ghiChu` — việc bình thường nhưng cần nói một lần: sản lượng của nhóm
+ * gộp không có dòng riêng trong khối tóm tắt, nên khối đó cộng lại ÍT HƠN
+ * dòng tổng. Đây là cách file làm tay vẫn làm, không phải lỗi — nhưng người
+ * đọc mà tự trừ hai con số rồi đi tìm phần chênh thì mất cả buổi.
  */
 export function buildFcReport(data) {
   // Hợp số tuần theo lịch với số tuần CÓ SỐ THẬT: tháng 5 tuần mà bảng chia
@@ -583,12 +663,29 @@ export function buildFcReport(data) {
       + 'Tuần 0..5 nên các lần này không hiện.');
   }
 
+  // Nhóm gộp không có dòng riêng trong khối tóm tắt (giống file làm tay), nên
+  // nói thẳng ra nó đang cầm bao nhiêu — thay vì để người đọc tự trừ khối
+  // nhóm với dòng tổng rồi đi tìm phần chênh.
+  const ghiChu = [];
+  const buMoi = REPORT_CHANNELS.reduce(
+    (a, c) => a.concat(busOfChannel(c, data.businessUnits, data.reportChannels)), []);
+  const soGop = (data.rows || [])
+    .filter((r) => String(r.product_group_code || NHOM_GOP).trim().toUpperCase() === NHOM_GOP)
+    .reduce((s, r) => s + tongThang(r, data.months, buMoi), 0);
+  if (soGop) {
+    const ten = ((data.productGroups || []).find(
+      (g) => String(g.code).trim().toUpperCase() === NHOM_GOP) || {}).name || NHOM_GOP;
+    ghiChu.push(`${soGop.toLocaleString('vi-VN')} cái thuộc nhóm "${ten}" nằm trong các dòng `
+      + 'dữ liệu và trong dòng tổng, nhưng KHÔNG có dòng riêng ở khối nhóm đầu sheet — '
+      + 'giống file làm tay.');
+  }
+
   const sheets = [[TAB_B0_SUM, buildB0SumSheet(day)]];
   CHANNEL_TABS.forEach((tab) => sheets.push([tab.b0, buildB0ChannelSheet(day, tab)]));
   sheets.push([TAB_B1_SUM, buildB1SumSheet(day)]);
   CHANNEL_TABS.forEach((tab) => sheets.push([tab.b1, buildB1ChannelSheet(day, tab)]));
 
-  return { sheets, weeks, canhBao };
+  return { sheets, weeks, canhBao, ghiChu };
 }
 
 /** Tải một workbook gồm nhiều sheet, mỗi phần tử là [tênSheet, aoa]. */
@@ -596,6 +693,14 @@ export function downloadWorkbook(sheets, filename) {
   const wb = XLSX.utils.book_new();
   sheets.forEach(([name, aoa]) => {
     const ws = XLSX.utils.aoa_to_sheet(aoa);
+    if (aoa.hidden && aoa.hidden.length) {
+      // !cols là mảng theo CHỈ SỐ cột, nên phải lấp đủ tới cột ẩn xa nhất;
+      // bỏ trống một ô giữa chừng là SheetJS đẩy lệch mọi cột sau đó.
+      const n = Math.max(...aoa.hidden) + 1;
+      const cols = Array.from({ length: n }, () => ({}));
+      aoa.hidden.forEach((i) => { cols[i] = { hidden: true }; });
+      ws['!cols'] = cols;
+    }
     XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31)); // Excel giới hạn 31 ký tự/tên sheet
   });
   XLSX.writeFile(wb, filename);

@@ -25,7 +25,7 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import {
   buildFcReport, buildB0SumSheet, buildB0ChannelSheet, buildB1SumSheet,
-  buildB1ChannelSheet, busOfChannel, REPORT_CHANNELS, CHANNEL_TABS
+  buildB1ChannelSheet, busOfChannel, downloadWorkbook, REPORT_CHANNELS, CHANNEL_TABS
 } from '../client/src/utils/fcReportWorkbook.js';
 
 const GAS = process.argv[2] || fileURLToPath(new URL('../gas', import.meta.url));
@@ -62,7 +62,9 @@ const S = {
     ['NHOM_4','Lõi'], ['NHOM_5','Màng'], ['KHAC','Linh kiện / Khác']],
   Products: [['sku_code','name','short_name','product_group_code','product_group_name','technology','default_channel','avg_price','is_active'],
     sp('1001','Máy GT2','NHOM_1'), sp('2001','Máy XK','NHOM_1'),
-    sp('3001','Máy Online','NHOM_1'), sp('4001','Lõi OEM','NHOM_4')],
+    sp('3001','Máy Online','NHOM_1'), sp('4001','Lõi OEM','NHOM_4'),
+    // Nhom gop: co so that, nhung KHONG duoc co dong rieng o khoi tom tat
+    sp('5001','Linh kiện lẻ','KHAC')],
   ForecastCycles: [['id','business_unit_code','base_month','horizon_months','status','created_by','created_at'],
     cycle('c_gt2','GT2'), cycle('c_xk','XK'), cycle('c_phi','KRF-Phil'),
     cycle('c_3t','3T'), cycle('c_nskx','NSKX'), cycle('c_oem','OEM')],
@@ -81,7 +83,8 @@ const S = {
     line('m6','v_oem','4001','2026-09-01', 26280),
     // 3T: ban tuan 0 dat 200, ban chot (tuan 2) ha xuong 150
     line('m7','v_3t_0','3001','2026-09-01', 200),
-    line('m8','v_3t_2','3001','2026-09-01', 150)],
+    line('m8','v_3t_2','3001','2026-09-01', 150),
+    line('m9','v_gt2','5001','2026-09-01', 7000)],
   WeeklyRegionSplits: [['id','version_id','sku_code','week_number','region_code','quantity','updated_at','updated_by'],
     tuan('w1','v_gt2','1001', 1, 'MB', 180),
     tuan('w2','v_gt2','1001', 2, 'MN', 200),
@@ -135,7 +138,7 @@ const C = (i) => {
 const dong = (aoa, sku) => aoa.find((r) => String(r[0]) === sku);
 
 const data = req('getFcReportExport', { baseMonth: BASE });
-const { sheets, weeks, canhBao } = buildFcReport(data);
+const { sheets, weeks, canhBao, ghiChu } = buildFcReport(data);
 const day = { ...data, weeks, regions: data.regions };
 
 console.log('1. Mot file, muoi tab, dung ten');
@@ -260,15 +263,89 @@ say(dong(b0x, '3001')[iGT2] === 150,
   'va tai hien dung cai bay: khong co cot thi 3T roi vao GT2 (150 cai)');
 S.BusinessUnits[5][7] = 'Online';
 
+console.log('\n9. Khoi tom tat KHONG co dong cho nhom gop (giong file lam tay)');
+const nhomTrenSheet = b0.filter((r) => String(r[6] || '').startsWith('NHÓM')).map((r) => r[7]);
+console.log(`     ${nhomTrenSheet.join(' | ')}`);
+say(nhomTrenSheet.length === 5, `${nhomTrenSheet.length} dong nhom (danh muc co 6)`);
+say(!nhomTrenSheet.includes('Linh kiện / Khác'), 'khong co dong cho nhom gop');
+// ...nhung so cua no KHONG duoc bien mat: van co dong du lieu va van vao dong tong.
+say(!!dong(b0, '5001'), 'ma 5001 (nhom gop) van co dong du lieu rieng');
+const iTongT9 = 8;
+const tongKhoiNhom = b0.filter((r) => String(r[6] || '').startsWith('NHÓM'))
+  .reduce((s, r) => s + (r[iTongT9] || 0), 0);
+const rTongSheet = b0[b0.length - (b0.filter((r) => String(r[0] || '').match(/^\d/)).length) - 1];
+console.log(`     khoi nhom = ${tongKhoiNhom} | dong tong = ${rTongSheet[iTongT9]}`);
+say(rTongSheet[iTongT9] - tongKhoiNhom === 7000,
+  'dong tong lon hon khoi nhom dung 7000 — phan cua nhom gop');
+console.log(`     ghi chu: ${ghiChu.join(' ')}`);
+say(ghiChu.some((g) => g.includes('7.000') && g.includes('Linh kiện / Khác')),
+  'man hinh noi thang so do ra, khong bat ai tu tru hai con so');
+
+console.log('\n10. An cot dung ba cho file lam tay dang an');
+const anCua = {};
+sheets.forEach(([n, aoa]) => { anCua[n] = (aoa.hidden || []).map(C); });
+Object.entries(anCua).forEach(([n, a]) => console.log(`     ${n.padEnd(16)} ${a.join(' ') || '(khong an)'}`));
+// B0.SUM: cot D.quyen + ba kenh khong co so nao (MT, MLT, Retail) o ca bon khoi
+const mong = ['G'];
+['MT', 'MLT', 'Retail'].forEach((c) => {
+  const i = REPORT_CHANNELS.indexOf(c);
+  for (let k = 0; k < data.months.length; k++) mong.push(C(8 + k * 8 + 1 + i));
+});
+say(anCua['B0.SUM (tuần 0)'].join(',') === mong.sort((a, b) =>
+  (a.length - b.length) || a.localeCompare(b)).join(','),
+  `B0.SUM an G + MT/MLT/Retail cua ca bon khoi (${anCua['B0.SUM (tuần 0)'].length} cot)`);
+say(!anCua['B0.SUM (tuần 0)'].includes('K'), 'KHONG an cot XK (thang 1) — kenh nay co so');
+say(CHANNEL_TABS.every((t) => !anCua[t.b0].length), 'bon tab B0 kenh khong an gi');
+say(CHANNEL_TABS.every((t) => anCua[t.b1].join(',') === 'I,J,K,L,M,N,O'),
+  'bon tab B1 kenh an khoi so sanh cac lan cap nhat I..O');
+say(anCua['B1.SUM (tuần 4)'].slice(0, 10).join(',') === 'I,J,K,L,M,N,O,P,Q,R',
+  'B1.SUM an I..R');
+// XK va OEM co don vi va co ke hoach thang, nhung khong chia tuan -> an cap MB/MN
+const iXkMB = 18 + 1 + 2 + REPORT_CHANNELS.indexOf('XK') * 2;
+const iOnMB2 = 18 + 1 + 2 + REPORT_CHANNELS.indexOf('Online') * 2;
+say(anCua['B1.SUM (tuần 4)'].includes(C(iXkMB)),
+  `an cap MB/MN cua XK (${C(iXkMB)}) — XK khong lap ke hoach tuan`);
+say(!anCua['B1.SUM (tuần 4)'].includes(C(iOnMB2)),
+  `KHONG an cap cua Online (${C(iOnMB2)}) — kenh nay co chia tuan that`);
+
+console.log('\n11. Dong tieu de nam dung dong nhu file lam tay');
+// Bo dong NHOM 6 chinh la de cho dung dong nay. Them mot nhom vao danh muc,
+// hay bot mot dong tieu de, deu lam truot het moi dong du lieu — ma file nay
+// bi cac bang ke hoach san xuat tro cong thuc sang.
+//
+// So duoi day DO THANG tu file XK_OEM_GT2_Online_Sales FC_2026.xlsx (ky
+// 09/2026), khong phai tu suy ra. Chin tab khop tuyet doi. Rieng B1.3.XK cua
+// file tay o dong 13 vi no co them MOT DONG TRONG o dau sheet ma ba tab anh
+// em (OEM, GT2, Online) khong co — mot cho lam tay khong deu. App cho ca bon
+// tab B1 kenh o dong 12, theo so dong.
+const dongTieuDe = (aoa, dau) => aoa.findIndex((r) => String(r[0] || '').trim() === dau) + 1;
+const MONG_DONG = {
+  'B0.SUM (tuần 0)': ['Mã sp', 9, 9],
+  'B0.3.XK': ['Mã sản phẩm', 10, 10], 'B0.4.OEM': ['Mã sản phẩm', 10, 10],
+  'B0.5.GT2': ['Mã sản phẩm', 10, 10], 'B0.8.Online': ['Mã sản phẩm', 10, 10],
+  'B1.SUM (tuần 4)': ['Mã sản phẩm', 11, 11],
+  'B1.3.XK': ['Mã sản phẩm', 12, 13],   // file tay lech 1, xem chu thich tren
+  'B1.4.OEM': ['Mã sản phẩm', 12, 12],
+  'B1.5.GT2': ['Mã sản phẩm', 12, 12], 'B1.8.Online': ['Mã sản phẩm', 12, 12]
+};
+let khopDong = 0;
+sheets.forEach(([n, aoa]) => {
+  const [dau, mong, tay] = MONG_DONG[n];
+  const that = dongTieuDe(aoa, dau);
+  if (that === tay) khopDong++;
+  say(that === mong, `${n.padEnd(16)} dong ${that}`
+    + (tay === mong ? ` — khop file tay` : ` — file tay o dong ${tay} (tab le loi cua file tay)`));
+});
+say(khopDong === 9, `${khopDong}/10 tab trung dong voi file tay`);
+
 // Xuat file that de soi bang mat:
 //   FC_REPORT_XLSX=thu.xlsx node tools/test-fc-report.mjs
 if (process.env.FC_REPORT_XLSX) {
-  const XLSX = await import('../client/node_modules/xlsx/xlsx.mjs');
   // Ban ESM cua xlsx khong tu noi vao fs (trong trinh duyet khong co fs).
+  const XLSX = await import('../client/node_modules/xlsx/xlsx.mjs');
   XLSX.set_fs(await import('node:fs'));
-  const wb = XLSX.utils.book_new();
-  sheets.forEach(([n, aoa]) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), n));
-  XLSX.writeFile(wb, process.env.FC_REPORT_XLSX);
+  // Di qua CHINH downloadWorkbook de kiem ca phan ghi !cols, khong chep lai.
+  downloadWorkbook(sheets, process.env.FC_REPORT_XLSX);
   console.log(`\n(da ghi ${process.env.FC_REPORT_XLSX})`);
 }
 

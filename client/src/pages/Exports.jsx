@@ -32,7 +32,7 @@ export default function Exports({ user }) {
         setMessage({ type: 'error', text: `Không có dữ liệu forecast cho ${monthLabel(monthValue)}.` });
         return;
       }
-      const { sheets, weeks, canhBao } = buildFcReport(data);
+      const { sheets, weeks, canhBao, ghiChu } = buildFcReport(data);
       downloadWorkbook(sheets, `XK_OEM_GT2_Online_Sales FC_${baseMonth}.xlsx`);
 
       // Nói rõ tab nào rỗng. Một tab kênh không có dòng nào trông y hệt một
@@ -46,6 +46,7 @@ export default function Exports({ user }) {
         text: `Đã xuất ${sheets.length} tab: ${data.rows.length} mã, `
           + `${data.businessUnits.length} đơn vị, ${weeks.length} tuần.`
           + (rong.length ? `  Kênh chưa có đơn vị nào lập kế hoạch: ${rong.join(', ')} (tab để trống).` : '')
+          + (ghiChu.length ? `  ${ghiChu.join(' ')}` : '')
           + (canhBao.length ? `  LƯU Ý — ${canhBao.join(' ')}` : '')
       });
     } catch (err) {
