@@ -121,9 +121,12 @@ function impKenhKhach_() {
  */
 function impGomOEM_(thang) {
   var theoMa = {}, phiChuan = {}, soDong = 0, ghiChu = [];
+  // SOP_Plan không có cột tên hàng (chỉ Kỳ, Sale, Mã SKU, SL T+1..T+3...),
+  // nên không có tên gợi ý nào để trả — khác impGomXK_ luôn đọc kèm cột tên.
+  var tenGoi = {};
   var sh = SpreadsheetApp.openById(IMP_OEM_SHEET_ID).getSheetByName('SOP_Plan');
   if (!sh) throw new Error('Không thấy tab SOP_Plan trong Sheet OEM.');
-  if (sh.getLastRow() < 2) return { theoMa: theoMa, phiChuan: phiChuan, soDong: 0, ghiChu: ghiChu };
+  if (sh.getLastRow() < 2) return { theoMa: theoMa, phiChuan: phiChuan, soDong: 0, ghiChu: ghiChu, tenGoi: tenGoi };
 
   var ky = thang[0];
   var coKyKhac = {};
@@ -147,20 +150,25 @@ function impGomOEM_(thang) {
     ghiChu.push('Không có dòng "Đã duyệt" nào cho kỳ ' + ky
       + (Object.keys(coKyKhac).length ? '. Các kỳ đang có: ' + Object.keys(coKyKhac).sort().join(', ') : ''));
   }
-  return { theoMa: theoMa, phiChuan: phiChuan, soDong: soDong, ghiChu: ghiChu };
+  return { theoMa: theoMa, phiChuan: phiChuan, soDong: soDong, ghiChu: ghiChu, tenGoi: tenGoi };
 }
 
 function impGomXK_(thang) {
   var theoMa = {}, phiChuan = {}, soDong = 0, ghiChu = [];
+  // Tên gợi ý cho mã LẠ — lấy từ chính dòng đơn/PI đang cộng số, vì nguồn XK
+  // (khác OEM) có cột tên hàng đi kèm. Chỉ có giá trị THAM KHẢO khi thêm vào
+  // danh mục: giữ tên ĐẦU TIÊN gặp, không ưu tiên nguồn nào hơn nguồn nào.
+  var tenGoi = {};
   var viTri = {};
   thang.forEach(function (t, i) { viTri[t] = i; });
 
-  function cong(ma, idx, q) {
+  function cong(ma, idx, q, ten) {
     if (!q) return;
     if (!impChuan_(ma)) { phiChuan[ma] = (phiChuan[ma] || 0) + 1; return; }
     if (!theoMa[ma]) theoMa[ma] = [0, 0, 0, 0];
     theoMa[ma][idx] += q;
     soDong++;
+    if (ten && !tenGoi[ma]) tenGoi[ma] = String(ten).trim();
   }
 
   // --- Lọc khách Brand ---------------------------------------------------
@@ -206,7 +214,7 @@ function impGomXK_(thang) {
       if (viTri[k] === undefined) return;
       var sl = impSo_(r[6]);                       // G = Ship Qty
       if (!giuKhach(r[2], sl)) return;             // C = Client
-      cong(ma, viTri[k], sl);
+      cong(ma, viTri[k], sl, r[4]);                // E = Product
     });
   }
 
@@ -237,7 +245,7 @@ function impGomXK_(thang) {
       if (viTri[k] === undefined) return;
       var sl = impSo_(r[5]);                       // G = Qty
       if (!giuKhach(r[0], sl)) return;             // B = Client
-      cong(ma, viTri[k], sl);
+      cong(ma, viTri[k], sl, r[4]);                // F = Product_description
     });
   }
   if (thieuNgay) {
@@ -262,7 +270,7 @@ function impGomXK_(thang) {
       + '. Nếu có khách Brand trong danh sách này, khai kênh cho họ ở tab Clients rồi nhập lại.');
   }
 
-  return { theoMa: theoMa, phiChuan: phiChuan, soDong: soDong, ghiChu: ghiChu };
+  return { theoMa: theoMa, phiChuan: phiChuan, soDong: soDong, ghiChu: ghiChu, tenGoi: tenGoi };
 }
 
 // ---------------------------------------------------------------------
@@ -318,6 +326,14 @@ function importSopFromSource_(session, p) {
     }
   });
 
+  // Tên gợi ý cho các mã lạ, chỉ những mã THẬT SỰ lạ (không phải mọi mã gom
+  // được) — để màn hình điền sẵn thay vì bắt gõ tay từng mã. OEM luôn rỗng
+  // (xem chú thích impGomOEM_); người dùng vẫn phải tự gõ tên cho các mã đó.
+  var tenLa = {};
+  maLa.forEach(function (ma) {
+    if (gom.tenGoi && gom.tenGoi[ma]) tenLa[ma] = gom.tenGoi[ma];
+  });
+
   var tomTat = {
     businessUnitCode: bu,
     baseMonth: ky,
@@ -325,6 +341,7 @@ function importSopFromSource_(session, p) {
     skuCount: soSku,
     monthTotals: tongThang,
     unknownSkus: maLa,
+    unknownSkuNames: tenLa,
     nonStandardCodes: Object.keys(gom.phiChuan),
     sourceRows: gom.soDong,
     notes: gom.ghiChu.slice()

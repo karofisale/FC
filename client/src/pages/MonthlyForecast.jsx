@@ -604,7 +604,12 @@ export default function MonthlyForecast({ currentBU, user }) {
           <ImportFromSourceModal
             businessUnitCode={currentBU}
             defaultBaseMonth={String(selectedCycle?.base_month || '').slice(0, 7)}
+            groups={groups}
+            bus={bus}
             onClose={() => setShowImportSource(false)}
+            onProductsAdded={(newProducts) => {
+              setProducts((prev) => [...prev, ...newProducts]);
+            }}
             onImported={async (res) => {
               // Nhập tạo chu kỳ/bản mới nên phải nạp lại và nhảy đúng vào bản
               // vừa tạo, nếu không người dùng vẫn đang nhìn bản cũ.

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   X, Upload, Sheet, Loader2, AlertCircle, ArrowLeft, ArrowRight,
-  CheckCircle2, FileSpreadsheet, PackagePlus
+  CheckCircle2, FileSpreadsheet
 } from 'lucide-react';
 import { api } from '../services/api';
 import { parsePastedNumber } from '../utils/useGridEditing';
@@ -9,6 +9,7 @@ import { parseExcelFile, extractSpreadsheetId } from '../utils/importParsing';
 import {
   aggregateRegionBlocks, detectStackedBlocks, findTotalsRow, readTotalsRow, guessRegionSheets
 } from '../utils/importAggregate';
+import MissingSkusPanel from './MissingSkusPanel';
 
 const NONE = '__none__';
 
@@ -964,83 +965,27 @@ export default function ImportForecastModal({
           )}
 
           {step === 'missing' && (
-            <div className="space-y-4">
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900 flex items-start gap-2">
-                <PackagePlus className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                <span>
+            <MissingSkusPanel
+              rows={missingSkus}
+              groups={groups}
+              bus={bus}
+              bulkGroup={bulkGroup}
+              setBulkGroup={setBulkGroup}
+              bulkChannel={bulkChannel}
+              setBulkChannel={setBulkChannel}
+              onApplyBulk={applyBulkToAllMissing}
+              onUpdateRow={updateMissingRow}
+              onConfirm={handleConfirmMissing}
+              onBack={() => setStep('mapping')}
+              busy={busy}
+              confirmLabel={`Thêm ${missingSkus.length} SKU & áp số liệu`}
+              intro={(
+                <>
                   Phát hiện <strong>{missingSkus.length} mã SKU</strong> chưa có trong danh mục Products.
                   Điền đủ thông tin bên dưới để thêm hàng loạt trước khi áp số lượng.
-                </span>
-              </div>
-
-              <div className="flex items-end gap-2 bg-slate-50 border border-slate-200 rounded-lg p-3">
-                <div className="flex-1">
-                  <label className="text-[11px] font-semibold text-slate-600 block mb-1">Nhóm hàng áp cho tất cả</label>
-                  <select value={bulkGroup} onChange={(e) => setBulkGroup(e.target.value)} className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded text-xs">
-                    {groups.map((g) => <option key={g.code} value={g.code}>{g.name}</option>)}
-                  </select>
-                </div>
-                <div className="flex-1">
-                  <label className="text-[11px] font-semibold text-slate-600 block mb-1">Kênh áp cho tất cả</label>
-                  <select value={bulkChannel} onChange={(e) => setBulkChannel(e.target.value)} className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded text-xs">
-                    {bus.map((b) => <option key={b.code} value={b.code}>{b.code}</option>)}
-                  </select>
-                </div>
-                <button onClick={applyBulkToAllMissing} className="border border-slate-300 hover:bg-slate-100 px-3 py-1.5 rounded text-xs font-semibold whitespace-nowrap">
-                  Áp cho tất cả
-                </button>
-              </div>
-
-              <div className="border border-slate-200 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
-                <table className="w-full text-xs">
-                  <thead className="bg-slate-50 sticky top-0">
-                    <tr>
-                      <th className="text-left p-2 font-semibold text-slate-600">Mã SKU</th>
-                      <th className="text-left p-2 font-semibold text-slate-600">Tên sản phẩm *</th>
-                      <th className="text-left p-2 font-semibold text-slate-600">Nhóm</th>
-                      <th className="text-left p-2 font-semibold text-slate-600">Kênh</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {missingSkus.map((p) => (
-                      <tr key={p.skuCode}>
-                        <td className="p-2 font-bold font-mono">{p.skuCode}</td>
-                        <td className="p-1.5">
-                          <input value={p.name} onChange={(e) => updateMissingRow(p.skuCode, 'name', e.target.value)}
-                            className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs" placeholder="Bắt buộc" />
-                        </td>
-                        <td className="p-1.5">
-                          <select value={p.productGroupCode} onChange={(e) => updateMissingRow(p.skuCode, 'productGroupCode', e.target.value)}
-                            className="w-full px-1 py-1 border border-slate-200 rounded text-xs">
-                            {groups.map((g) => <option key={g.code} value={g.code}>{g.name}</option>)}
-                          </select>
-                        </td>
-                        <td className="p-1.5">
-                          <select value={p.defaultChannel} onChange={(e) => updateMissingRow(p.skuCode, 'defaultChannel', e.target.value)}
-                            className="w-full px-1 py-1 border border-slate-200 rounded text-xs">
-                            {bus.map((b) => <option key={b.code} value={b.code}>{b.code}</option>)}
-                          </select>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="flex justify-between pt-2">
-                <button onClick={() => setStep('mapping')} className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700">
-                  <ArrowLeft className="w-3.5 h-3.5" /> Quay lại
-                </button>
-                <button
-                  onClick={handleConfirmMissing}
-                  disabled={busy}
-                  className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-1.5 rounded-lg text-xs font-semibold"
-                >
-                  {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PackagePlus className="w-3.5 h-3.5" />}
-                  Thêm {missingSkus.length} SKU &amp; áp số liệu
-                </button>
-              </div>
-            </div>
+                </>
+              )}
+            />
           )}
 
           {step === 'done' && (
