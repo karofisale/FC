@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CalendarPlus, GitBranch, Loader2, AlertCircle, Unlock, X } from 'lucide-react';
 import StatusBadge from './StatusBadge';
 import { api } from '../services/api';
@@ -31,6 +31,13 @@ export default function CycleBar({
   const [showReopen, setShowReopen] = useState(false);
 
   const cycleApproved = selectedCycle?.status === 'approved' || selectedCycle?.status === 'locked';
+
+  // Đổi đơn vị không unmount component này (cùng 1 CycleBar, chỉ đổi props)
+  // nên lỗi "đã tồn tại" của đơn vị vừa rời đi cứ treo mãi trên đơn vị mới,
+  // trông như app báo nhầm đơn vị đang chọn.
+  useEffect(() => {
+    setError(null);
+  }, [currentBU]);
 
   const createCycle = async () => {
     setError(null);

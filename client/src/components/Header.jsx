@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Building2, ShieldCheck, LogOut, KeyRound, X, Loader2, CheckCircle2, AlertCircle, ArrowLeft } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Building2, ShieldCheck, LogOut, KeyRound, X, Loader2, CheckCircle2, AlertCircle, ArrowLeft, ChevronDown } from 'lucide-react';
 import { api } from '../services/api';
 import { ROLE_LABELS } from '../services/auth';
 import KarofiMark from './KarofiMark';
@@ -12,10 +12,10 @@ export default function Header({ user, currentBU, setCurrentBU, bus, onLogout })
 
   return (
     <header className="bg-gradient-to-r from-blue-900 via-blue-800 to-blue-950 text-white shadow-md border-b border-blue-700 sticky top-0 z-30">
-      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-4">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-between gap-4">
 
-        {/* Logo & Title */}
-        <div className="flex items-center space-x-3">
+        {/* Logo & Title — 1 dòng duy nhất */}
+        <div className="flex items-center space-x-3 min-w-0">
           {/* Đường về cổng. Cần thiết vì khi chạy như ứng dụng đã cài, cửa sổ
               không có nút back của trình duyệt. */}
           <a
@@ -39,18 +39,12 @@ export default function Header({ user, currentBU, setCurrentBU, bus, onLogout })
               {a.nhan}
             </a>
           ))}
-          <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-inner">
-            <KarofiMark className="w-6 h-6 text-blue-300" />
+          <div className="w-8 h-8 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-inner flex-shrink-0">
+            <KarofiMark className="w-5 h-5 text-blue-300" />
           </div>
-          <div>
-            <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-              KAROFI SALES FORECAST
-              <span className="bg-blue-500/20 text-blue-200 border border-blue-400/30 text-[10px] px-2 py-0.5 rounded font-mono uppercase">
-                v3.0 2026
-              </span>
-            </h1>
-            <p className="text-xs text-blue-200">Hệ thống Lập &amp; Thẩm định Kế hoạch Kinh doanh Karofi</p>
-          </div>
+          <h1 className="text-base font-bold tracking-tight text-white whitespace-nowrap truncate">
+            Karofi FC <span className="font-normal text-blue-300">- SOP Plan</span>
+          </h1>
         </div>
 
         <div className="flex items-center space-x-3">
@@ -79,36 +73,61 @@ export default function Header({ user, currentBU, setCurrentBU, bus, onLogout })
             </div>
           )}
 
-          {/* Người đang đăng nhập — lấy từ phiên, không cho tự chọn */}
-          <div className="flex items-center bg-blue-950/40 border border-blue-600/40 rounded-lg px-3 py-1.5 shadow-inner">
-            <ShieldCheck className="w-4 h-4 text-emerald-400 mr-2" />
-            <div className="leading-tight">
-              <div className="text-sm font-semibold text-white">{user?.full_name}</div>
-              <div className="text-[10px] text-blue-200">{ROLE_LABELS[user?.role] || user?.role}</div>
-            </div>
-          </div>
-
-          <button
-            onClick={() => setShowPinDialog(true)}
-            title="Đổi mã PIN"
-            className="p-2 rounded-lg bg-blue-950/40 border border-blue-600/40 hover:bg-blue-800/60 transition"
-          >
-            <KeyRound className="w-4 h-4 text-blue-300" />
-          </button>
-
-          <button
-            onClick={onLogout}
-            title="Đăng xuất"
-            className="p-2 rounded-lg bg-blue-950/40 border border-blue-600/40 hover:bg-rose-900/60 transition"
-          >
-            <LogOut className="w-4 h-4 text-blue-200" />
-          </button>
+          {/* Người đang đăng nhập + Đổi PIN + Đăng xuất — gộp 1 nhóm menu */}
+          <UserMenu user={user} onOpenPin={() => setShowPinDialog(true)} onLogout={onLogout} />
 
         </div>
       </div>
 
       {showPinDialog && <ChangePinDialog onClose={() => setShowPinDialog(false)} />}
     </header>
+  );
+}
+
+function UserMenu({ user, onOpenPin, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClickFora(e) {
+      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onClickFora);
+    return () => document.removeEventListener('mousedown', onClickFora);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={boxRef}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 bg-blue-950/40 border border-blue-600/40 rounded-lg pl-3 pr-2 py-1.5 shadow-inner hover:bg-blue-800/60 transition"
+      >
+        <ShieldCheck className="w-4 h-4 text-emerald-400" />
+        <div className="leading-tight text-left">
+          <div className="text-sm font-semibold text-white">{user?.full_name}</div>
+          <div className="text-[10px] text-blue-200">{ROLE_LABELS[user?.role] || user?.role}</div>
+        </div>
+        <ChevronDown className={`w-3.5 h-3.5 text-blue-300 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 mt-1.5 w-48 bg-white rounded-lg shadow-2xl border border-slate-200 py-1 z-40 text-slate-800 overflow-hidden">
+          <button
+            onClick={() => { setOpen(false); onOpenPin(); }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-50"
+          >
+            <KeyRound className="w-3.5 h-3.5 text-blue-600" /> Đổi mã PIN
+          </button>
+          <button
+            onClick={() => { setOpen(false); onLogout(); }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-rose-50 text-rose-700"
+          >
+            <LogOut className="w-3.5 h-3.5" /> Đăng xuất
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

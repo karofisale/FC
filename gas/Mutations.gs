@@ -8,6 +8,19 @@
 // GHI DỮ LIỆU
 // ---------------------------------------------------------------------
 
+function updateCycleStatus_(cycleId, status) {
+  patchByKey_(SHEETS.CYCLES, 'id', cycleId, { status: status });
+}
+
+/** Tra version + chu kỳ chứa nó theo versionId. Ném lỗi nếu 1 trong 2 không có. */
+function versionContext_(versionId) {
+  var version = findOne_(SHEETS.VERSIONS, 'id', versionId);
+  if (!version) throw new Error('Không tìm thấy bản cập nhật: ' + versionId);
+  var cycle = findOne_(SHEETS.CYCLES, 'id', version.cycle_id);
+  if (!cycle) throw new Error('Không tìm thấy chu kỳ của bản cập nhật: ' + versionId);
+  return { version: version, cycle: cycle };
+}
+
 function createCycle_(session, p) {
   assertRole_(session, ['bu_editor', 'central_admin']);
   var bu = p.businessUnitCode || session.bu;
@@ -33,7 +46,38 @@ function createCycle_(session, p) {
   var existing = readObjects_(SHEETS.CYCLES).filter(function (c) {
     return String(c.business_unit_code) === String(bu) && normalizeMonth_(c.base_month) === baseMonth;
   })[0];
-  if (existing) throw new Error('Chu kỳ ' + bu + ' tháng ' + baseMonth + ' đã tồn tại.');
+
+  // Chu kỳ "mồ côi": dòng ForecastCycles đã ghi nhưng ForecastVersions ban
+  // đầu (week 0) thì không — từng xảy ra thật (26-27/09/2026) khi lỗi ghi
+  // Postgres xảy ra GIỮA 2 lệnh appendObjects_ dưới đây (không phải 1 giao
+  // dịch). Kết quả: "đã tồn tại" khi tạo lại, nhưng mở ra thì rỗng, không
+  // sửa được nữa vì không có version nào để thao tác. Tự vá thay vì chặn
+  // cứng — an toàn vì chỉ THÊM version còn thiếu, không đụng gì đã có.
+  if (existing) {
+    var coVersion = getVersions_(existing.id).length > 0;
+    if (coVersion) {
+      throw new Error('Chu kỳ ' + bu + ' tháng ' + baseMonth + ' đã tồn tại.');
+    }
+    var versionIdVa_ = newVersionId_(bu, 0);
+    var nowVa_ = new Date().toISOString();
+    appendObjects_(SHEETS.VERSIONS, [{
+      id: versionIdVa_,
+      cycle_id: existing.id,
+      update_week: 0,
+      update_date: baseMonth,
+      iso_week_label: 'W0',
+      submitted_by: '',
+      submitted_at: null,
+      is_final: 1,
+      created_at: nowVa_
+    }]);
+    logAuth_(session.userId, 'cycle_repaired_missing_version',
+      existing.id + ': tạo lại version W0 còn thiếu (chu kỳ mồ côi do lỗi ghi trước đó)');
+    return {
+      cycle: existing,
+      initialVersionId: versionIdVa_
+    };
+  }
 
   var cycleId = 'c-' + String(bu).toLowerCase() + '-' + baseMonth.replace(/-/g, '').slice(0, 6);
   var now = new Date().toISOString();
