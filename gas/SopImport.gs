@@ -274,6 +274,69 @@ function impGomXK_(thang) {
 }
 
 // ---------------------------------------------------------------------
+// CẦU NỐI CHO fc-api (Edge Function) — CHỈ GOM SỐ TỪ NGUỒN
+// ---------------------------------------------------------------------
+
+/**
+ * FC App đã chuyển backend sang Supabase Edge Function (fc-api, Giai đoạn
+ * 1+2, 28/09/2026), nhưng OEM/Export vẫn còn giữ dữ liệu ở Google Sheet nên
+ * "nhập SOP" vẫn cần đọc Sheet — thứ Edge Function (Deno) không gọi được.
+ *
+ * QUYẾT ĐỊNH (giống hệt lý do `lanToaPin` ở lanToaPin của Karofi ID vẫn ở
+ * lại Apps Script): dựng lại xác thực Google (service account/OAuth) trong
+ * Deno chỉ để đọc 3 Sheet này là công sức lớn cho một việc CHẠY THEO KỲ (vài
+ * lần một tháng), không nằm trên đường nóng — không đáng. Thay vào đó, giữ
+ * NGUYÊN phần đọc Sheet ở đây, chỉ lộ ra qua secret (như SapBridge.gs), và
+ * fc-api gọi HTTP sang action này khi cần.
+ *
+ * CỐ Ý CHỈ LỘ RA BƯỚC GOM SỐ (impGomOEM_/impGomXK_), KHÔNG lộ cả
+ * importSopFromSource_: phần đối chiếu danh mục/tạo chu kỳ/lưu Bảng 0-1 đã
+ * port sang `mutations.js` (dùng lại createCycle/createVersion/
+ * saveMonthlyLines/saveWeeklySplits có sẵn) và chạy thẳng trên Postgres,
+ * không cần bắc cầu. Khi OEM/Export chuyển dữ liệu sang Postgres, CHỈ cần
+ * đổi cách "gom số" ở phía fc-api (đọc thẳng bảng Postgres của họ thay vì
+ * gọi cầu này) — không đụng gì ở đây hay ở phần còn lại của luồng nhập.
+ *
+ * Xác thực bằng secret (Script Property `EDGE_BRIDGE_SECRET`), không qua
+ * PIN/session — fc-api tự kiểm quyền `bu_editor`/`central_admin` của người
+ * dùng TRƯỚC khi gọi sang đây, cầu này chỉ tin secret đúng.
+ */
+function edgeGomSopSource_(p) {
+  var secret = PropertiesService.getScriptProperties().getProperty('EDGE_BRIDGE_SECRET');
+  if (!secret) {
+    throw new Error('Chưa đặt Script Property EDGE_BRIDGE_SECRET. Đặt bằng setup_datEdgeBridgeSecret().');
+  }
+  var guiLen = String(p.secret || '');
+  if (guiLen.length !== secret.length) throw new Error('Sai secret.');
+  var lech = 0;
+  for (var i = 0; i < guiLen.length; i++) lech |= (guiLen.charCodeAt(i) ^ secret.charCodeAt(i));
+  if (lech !== 0) throw new Error('Sai secret.');
+
+  var bu = String(p.businessUnitCode || '').trim();
+  if (bu !== 'OEM' && bu !== 'XK') {
+    throw new Error('Hiện chỉ gom được cho đơn vị OEM và XK. Đơn vị "' + bu + '" chưa có nguồn dữ liệu.');
+  }
+  var baseMonth = normalizeMonth_(p.baseMonth);
+  if (!baseMonth) throw new Error('Thiếu tháng đầu kỳ.');
+  var ky = baseMonth.slice(0, 7);
+  var thang = [0, 1, 2, 3].map(function (i) { return impThang_(ky, i); });
+
+  var gom = (bu === 'OEM') ? impGomOEM_(thang) : impGomXK_(thang);
+  return { months: thang, gom: gom };
+}
+
+/** Đặt secret dùng cho edgeGomSopSource_ — chạy 1 lần trong editor:
+ *  setup_datEdgeBridgeSecret('<chuỗi ngẫu nhiên dài>'). Giá trị GIỐNG HỆT
+ *  phải đặt ở Supabase (secret EDGE_BRIDGE_SECRET của fc-api). */
+function setup_datEdgeBridgeSecret(giaTri) {
+  var s = String(giaTri || '').trim();
+  if (s.length < 20) throw new Error('Secret nên dài ít nhất 20 ký tự — đang nhận ' + s.length + '.');
+  PropertiesService.getScriptProperties().setProperty('EDGE_BRIDGE_SECRET', s);
+  Logger.log('Đã đặt EDGE_BRIDGE_SECRET (' + s.length + ' ký tự). Dán ĐÚNG chuỗi này vào '
+    + 'Supabase > fc-api > Secrets, tên EDGE_BRIDGE_SECRET.');
+}
+
+// ---------------------------------------------------------------------
 // NHẬP
 // ---------------------------------------------------------------------
 

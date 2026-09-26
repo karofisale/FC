@@ -69,6 +69,12 @@ function doPost(e) {
         resetTableCache_();
         return sapBridgeImportActuals_(payload);
       });
+
+    // 1c. Cầu cho fc-api (Edge Function) gọi lại khi cần đọc Google Sheet của
+    //     OEM/Export — xác thực bằng SECRET riêng (EDGE_BRIDGE_SECRET), xem
+    //     chú thích đầy đủ ở edgeGomSopSource_ (SopImport.gs).
+    } else if (action === 'edgeGomSopSource') {
+      result = edgeGomSopSource_(payload);
     } else {
       // 2. Mọi action còn lại bắt buộc có token hợp lệ
       var session = requireSession_(payload.token);
