@@ -696,9 +696,23 @@ export function downloadWorkbook(sheets, filename) {
     if (aoa.hidden && aoa.hidden.length) {
       // !cols là mảng theo CHỈ SỐ cột, nên phải lấp đủ tới cột ẩn xa nhất;
       // bỏ trống một ô giữa chừng là SheetJS đẩy lệch mọi cột sau đó.
+      //
+      // BUG THẬT (28/09/2026): các ô "lấp chỗ trống" từng là `{}` (không có
+      // `wch`) — SheetJS ghi `<col min max/>` KHÔNG có thuộc tính `width`,
+      // và Excel/Google Sheets hiển thị cột đó với độ rộng 0, TRÔNG Y HỆT
+      // cột bị ẩn dù `hidden` chưa hề được đặt true. Kết quả: mọi cột từ đầu
+      // sheet tới tận cột ẩn XA NHẤT nhìn như bị ẩn hết, không phải chỉ đúng
+      // các cột kênh không active. Đã kiểm bằng cách bung file .xlsx thật ra
+      // xem XML — `<col min="1" max="1"/>` (thiếu width) so với
+      // `<col min="1" max="1" width="..." customWidth="1"/>` (đúng).
+      //
+      // Cho CẢ cột ẩn một độ rộng thật (không chỉ cột hiện) — nếu sau này ai
+      // tự bật lại một kênh (bỏ tick Hidden trong Excel, đúng ý thiết kế ở
+      // đầu file), cột đó hiện ra với độ rộng bình thường thay vì độ rộng 0.
       const n = Math.max(...aoa.hidden) + 1;
-      const cols = Array.from({ length: n }, () => ({}));
-      aoa.hidden.forEach((i) => { cols[i] = { hidden: true }; });
+      const DO_RONG_MAC_DINH = 12; // ký tự — đủ đọc số/tên kênh, không cần chính xác tuyệt đối
+      const cols = Array.from({ length: n }, () => ({ wch: DO_RONG_MAC_DINH }));
+      aoa.hidden.forEach((i) => { cols[i] = { wch: DO_RONG_MAC_DINH, hidden: true }; });
       ws['!cols'] = cols;
     }
     XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31)); // Excel giới hạn 31 ký tự/tên sheet
