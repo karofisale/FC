@@ -75,6 +75,8 @@ function doPost(e) {
     //     chú thích đầy đủ ở edgeGomSopSource_ (SopImport.gs).
     } else if (action === 'edgeGomSopSource') {
       result = edgeGomSopSource_(payload);
+    } else if (action === 'edgeReadExternalSheet') {
+      result = edgeReadExternalSheet_(payload);
     } else {
       // 2. Mọi action còn lại bắt buộc có token hợp lệ
       var session = requireSession_(payload.token);

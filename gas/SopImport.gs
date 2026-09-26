@@ -301,16 +301,22 @@ function impGomXK_(thang) {
  * PIN/session — fc-api tự kiểm quyền `bu_editor`/`central_admin` của người
  * dùng TRƯỚC khi gọi sang đây, cầu này chỉ tin secret đúng.
  */
-function edgeGomSopSource_(p) {
+/** Kiểm secret CỦA CẦU fc-api — dùng chung cho mọi action edge*, KHÔNG lẫn
+ *  với sapSecretKhop_ (SapBridge.gs, secret khác, người gọi khác). */
+function edgeSecretKhop_(gui) {
   var secret = PropertiesService.getScriptProperties().getProperty('EDGE_BRIDGE_SECRET');
   if (!secret) {
     throw new Error('Chưa đặt Script Property EDGE_BRIDGE_SECRET. Đặt bằng setup_datEdgeBridgeSecret().');
   }
-  var guiLen = String(p.secret || '');
-  if (guiLen.length !== secret.length) throw new Error('Sai secret.');
+  var guiLen = String(gui || '');
+  if (guiLen.length !== secret.length) return false;
   var lech = 0;
   for (var i = 0; i < guiLen.length; i++) lech |= (guiLen.charCodeAt(i) ^ secret.charCodeAt(i));
-  if (lech !== 0) throw new Error('Sai secret.');
+  return lech === 0;
+}
+
+function edgeGomSopSource_(p) {
+  if (!edgeSecretKhop_(p.secret)) throw new Error('Sai secret.');
 
   var bu = String(p.businessUnitCode || '').trim();
   if (bu !== 'OEM' && bu !== 'XK') {
@@ -323,6 +329,69 @@ function edgeGomSopSource_(p) {
 
   var gom = (bu === 'OEM') ? impGomOEM_(thang) : impGomXK_(thang);
   return { months: thang, gom: gom };
+}
+
+/**
+ * Cầu cho `readExternalSheet` — màn "Nhập từ file" (ImportForecastModal.jsx)
+ * dùng action này để đọc TRỰC TIẾP một Google Sheet bất kỳ mà sale đang dùng
+ * làm nguồn (khác Giai đoạn 3 SOP: ở đây spreadsheetId/sheetName do CLIENT
+ * gõ vào, không phải 3 Sheet cố định biết trước). Y hệt `readExternalSheet_`
+ * (gas/Queries.gs) — chỉ đổi cách xác thực (secret thay vì session, vì
+ * người gọi THẬT SỰ là fc-api chứ không phải trình duyệt của sale).
+ *
+ * fc-api tự kiểm quyền `bu_editor`/`central_admin` của người dùng TRƯỚC khi
+ * gọi sang đây (xem `readExternalSheet` ở mutations.js) — cầu này chỉ tin
+ * secret đúng, không kiểm lại vai trò. `userId` chỉ để ghi log cho đúng
+ * người, không dùng để phân quyền.
+ */
+function edgeReadExternalSheet_(p) {
+  if (!edgeSecretKhop_(p.secret)) throw new Error('Sai secret.');
+
+  var spreadsheetId = String(p.spreadsheetId || '');
+  var sheetName = p.sheetName;
+  var userId = String(p.userId || '(không rõ)');
+  if (!spreadsheetId) throw new Error('Thiếu ID hoặc URL Google Sheet.');
+
+  // Hàm này chạy dưới quyền tài khoản deploy ("Execute as: Me") và trả về
+  // TOÀN BỘ nội dung sheet được yêu cầu. Chặn đọc chính file dữ liệu hệ
+  // thống — gồm tab Users chứa pin_hash, email và vai trò của mọi người.
+  if (String(spreadsheetId) === String(SPREADSHEET_ID)) {
+    logAuth_(userId, 'external_sheet_denied', 'Cố đọc chính file dữ liệu hệ thống');
+    throw new Error('Không được phép đọc chính file dữ liệu của hệ thống qua chức năng này.');
+  }
+
+  var allowRaw = PropertiesService.getScriptProperties().getProperty('EXTERNAL_SHEET_ALLOWLIST');
+  if (allowRaw && allowRaw.trim()) {
+    var allowed = allowRaw.split(',').map(function (s) { return s.trim(); }).filter(String);
+    if (allowed.indexOf(String(spreadsheetId)) < 0) {
+      logAuth_(userId, 'external_sheet_denied', spreadsheetId);
+      throw new Error('File Google Sheet này chưa nằm trong danh sách được phép nhập. Liên hệ quản trị hệ thống để bổ sung.');
+    }
+  }
+
+  logAuth_(userId, 'external_sheet_read', spreadsheetId + (sheetName ? (' / ' + sheetName) : ''));
+
+  var ss;
+  try {
+    ss = SpreadsheetApp.openById(spreadsheetId);
+  } catch (err) {
+    throw new Error('Không mở được Google Sheet. Kiểm tra lại ID/URL, và chắc chắn Sheet đã được chia sẻ cho tài khoản chạy hệ thống.');
+  }
+
+  var sheet = sheetName ? ss.getSheetByName(sheetName) : ss.getSheets()[0];
+  if (!sheet) throw new Error('Không tìm thấy tab "' + sheetName + '" trong Sheet này.');
+
+  var values = sheet.getDataRange().getValues().map(function (row) {
+    return row.map(function (cell) { return cell instanceof Date ? cell.toISOString() : cell; });
+  });
+  if (!values.length) throw new Error('Tab "' + sheet.getName() + '" không có dữ liệu.');
+
+  return {
+    spreadsheetName: ss.getName(),
+    sheetName: sheet.getName(),
+    availableSheets: ss.getSheets().map(function (s) { return s.getName(); }),
+    values: values
+  };
 }
 
 /** Đặt secret dùng cho edgeGomSopSource_ — chạy 1 lần trong editor:
