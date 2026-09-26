@@ -10,11 +10,18 @@
  *    nghiệp vụ (PIN sai, hết quyền...).
  */
 
-// URL Web App. Sau mỗi lần "Triển khai bản mới" trong Apps Script, dán URL
-// mới vào đây (hoặc đặt biến môi trường VITE_GAS_URL khi build).
+// CẮT LUỒNG 28/09/2026: chuyển từ Google Apps Script sang Supabase Edge
+// Function (fc-api) — xem project-supabase-migration.md. Giao thức HTTP giữ
+// NGUYÊN VĂN (POST, { action, token, ... } -> { ... }/{ error }), nên không
+// đổi gì khác trong file này.
+//
+// LÙI LẠI: đổi dòng URL bên dưới về
+//   'https://script.google.com/macros/s/AKfycbyyzw_uTdteqLobl6TB1DvcBxqE4BiorHFksXLx4Zc5jItQJD943vjXSynAecurccmS/exec'
+// rồi push — cả hai backend đọc/ghi CÙNG một Postgres nên lùi lại không mất
+// dữ liệu (khác đợt cắt Sheets→Postgres, vốn phải chấp nhận Sheet đứng yên).
 export const GAS_WEB_APP_URL =
   import.meta.env?.VITE_GAS_URL ||
-  'https://script.google.com/macros/s/AKfycbyyzw_uTdteqLobl6TB1DvcBxqE4BiorHFksXLx4Zc5jItQJD943vjXSynAecurccmS/exec';
+  'https://zzbnxyvjpiuhxauagbgh.supabase.co/functions/v1/fc-api';
 
 /**
  * Apps Script Web App "ngủ" khi không có request nào một lúc, hoặc reset
