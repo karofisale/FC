@@ -268,5 +268,33 @@ console.log('\n7. adminBackfillSeedThangDau_ — vá ngược version tạo TRƯ
   check('vẫn đúng 2 dòng, không nhân đôi', sauLanHai.length === 2, sauLanHai);
 }
 
+console.log('\n8. adminBackfillSeedThangDau_ — KHÔNG tự vá chu kỳ đã DUYỆT/KHOÁ (sửa số đã ký mà không qua Mở lại chu kỳ)');
+{
+  const g = nap(duLieuGoc());
+
+  const thang9 = g.createCycle_(bienTap, { businessUnitCode: 'GT2', baseMonth: '2026-09' });
+  g.saveMonthlyLines_(bienTap, thang9.initialVersionId, [
+    { skuCode: '1001', forecastMonth: '2026-10', quantity: 99 }
+  ], false);
+
+  const thang10 = g.createCycle_(bienTap, { businessUnitCode: 'GT2', baseMonth: '2026-10' });
+  // Xoá sạch để mô phỏng version rỗng (tạo trước khi có tính năng tự nạp),
+  // rồi giả lập chu kỳ này ĐÃ ĐƯỢC DUYỆT (patch thẳng status, không qua luồng
+  // gửi duyệt thật — chỉ cần đúng giá trị cột để kiểm tra nhánh bỏ qua).
+  const cu = g.readObjectsWhere_('MonthlyForecastLines', 'version_id', thang10.initialVersionId);
+  g.deleteRowsByKeys_('MonthlyForecastLines', ['version_id', 'sku_code', 'forecast_month'],
+    cu.map((l) => ({ version_id: l.version_id, sku_code: l.sku_code, forecast_month: l.forecast_month })));
+  g.patchByKey_('ForecastCycles', 'id', thang10.cycle.id, { status: 'approved' });
+
+  const thu = g.adminBackfillSeedThangDau_();
+  check('chạy thử: KHÔNG tính vào rows cần vá', thu.rows === 0, thu);
+  check('báo đúng 1 chu kỳ bị bỏ qua vì đã duyệt', thu.boQuaDaDuyet.length === 1, thu.boQuaDaDuyet);
+
+  const that = g.adminBackfillSeedThangDau_(true);
+  check('ghi thật cũng không vá gì cho chu kỳ đã duyệt', that.rows === 0, that);
+  const sauCung = g.readObjectsWhere_('MonthlyForecastLines', 'version_id', thang10.initialVersionId);
+  check('version của chu kỳ đã duyệt vẫn rỗng — không bị sửa qua mặt bước duyệt', sauCung.length === 0, sauCung);
+}
+
 console.log('\n' + pass + ' đạt, ' + fail + ' hỏng');
 process.exit(fail ? 1 : 0);

@@ -60,9 +60,28 @@ function run_vaSeedThangDau_xemTruoc() {
   return adminBackfillSeedThangDau_();
 }
 
-/** Ghi thật. */
-function run_vaSeedThangDau_ghiThat() {
-  return adminBackfillSeedThangDau_(true);
+/**
+ * Báo cáo những dòng ĐÃ VÁ ở lần chạy TRƯỚC (nhận diện bằng updated_by =
+ * 'admin-backfill'), tách riêng nhóm thuộc chu kỳ đã DUYỆT/KHOÁ — chạy hàm
+ * này để soát lại trước khi quyết định có cần lùi lại gì không. Xem log
+ * (View > Execution log) để đọc chi tiết.
+ */
+function run_vaSeedThangDau_baoCao() {
+  return adminReportBackfillSeedThangDau_();
+}
+
+/**
+ * Lùi lại (xoá) TOÀN BỘ dòng đã vá bởi adminBackfillSeedThangDau_. Muốn chỉ
+ * lùi RIÊNG các version thuộc chu kỳ đã duyệt (danh sách in ra ở
+ * run_vaSeedThangDau_baoCao) — gõ thẳng trong editor, không qua Run.gs:
+ *   adminRollbackBackfillSeedThangDau_(true, ["<versionId1>", "<versionId2>"])
+ */
+function run_vaSeedThangDau_luiLai_xemTruoc() {
+  return adminRollbackBackfillSeedThangDau_();
+}
+
+function run_vaSeedThangDau_luiLai_ghiThat() {
+  return adminRollbackBackfillSeedThangDau_(true);
 }
 
 

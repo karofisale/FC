@@ -350,6 +350,14 @@ function adminMoveProductChannel(fromChannel, toChannel, apply) {
  * lần, và an toàn với version đã có người nhập tay một phần (chỉ bù đúng
  * phần còn thiếu, không ghi đè số đã nhập).
  *
+ * BỎ QUA chu kỳ đã DUYỆT/KHOÁ (status 'approved'/'locked') — cùng ranh giới
+ * assertCanEdit_ áp cho mọi đường ghi bình thường. Số đã duyệt là số đã có
+ * người ký xác nhận (có thể đã lên file SAP); vá thêm vào đó là sửa số đã
+ * duyệt mà không qua "Mở lại chu kỳ" (không ai nêu lý do, không ghi log).
+ * Chu kỳ nào rơi vào nhóm này được liệt kê riêng trong kết quả để người
+ * chạy tự quyết: mở lại chu kỳ đó (có lý do, có nhật ký) rồi chạy lại hàm
+ * này, thay vì để nó âm thầm vá qua mặt bước duyệt.
+ *
  * Mặc định CHẠY THỬ — in ra sẽ vá bao nhiêu dòng ở bao nhiêu version mà
  * không ghi gì. Ghi thật: adminBackfillSeedThangDau_(true)
  */
@@ -357,6 +365,7 @@ function adminBackfillSeedThangDau_(apply) {
   var cycles = readObjects_(SHEETS.CYCLES);
   var toInsert = [];
   var affectedVersions = {};
+  var boQuaDaDuyet = [];
   var now = new Date().toISOString();
 
   cycles.forEach(function (cycle) {
@@ -393,6 +402,12 @@ function adminBackfillSeedThangDau_(apply) {
     });
     if (!thieu.length) return;
 
+    if (cycle.status === 'approved' || cycle.status === 'locked') {
+      boQuaDaDuyet.push(cycle.business_unit_code + ' tháng ' + baseMonth
+        + ' (' + cycle.status + ', thiếu ' + thieu.length + ' dòng)');
+      return;
+    }
+
     affectedVersions[w0.id] = (affectedVersions[w0.id] || 0) + thieu.length;
     thieu.forEach(function (l) {
       toInsert.push({
@@ -409,10 +424,14 @@ function adminBackfillSeedThangDau_(apply) {
   });
 
   var soVersion = Object.keys(affectedVersions).length;
+  if (boQuaDaDuyet.length) {
+    Logger.log('BỎ QUA ' + boQuaDaDuyet.length + ' chu kỳ ĐÃ DUYỆT/KHOÁ (không tự vá, xem lý do ở trên):');
+    boQuaDaDuyet.forEach(function (dong) { Logger.log('  - ' + dong); });
+  }
   if (!apply) {
     Logger.log('CHẠY THỬ — sẽ vá ' + toInsert.length + ' dòng ở ' + soVersion + ' version. Chưa ghi gì.');
     Logger.log('Ghi thật: adminBackfillSeedThangDau_(true)');
-    return { versions: soVersion, rows: toInsert.length };
+    return { versions: soVersion, rows: toInsert.length, boQuaDaDuyet: boQuaDaDuyet };
   }
 
   var lock = LockService.getScriptLock();
@@ -423,7 +442,97 @@ function adminBackfillSeedThangDau_(apply) {
     lock.releaseLock();
   }
   Logger.log('Đã vá ' + toInsert.length + ' dòng ở ' + soVersion + ' version.');
-  return { versions: soVersion, rows: toInsert.length };
+  return { versions: soVersion, rows: toInsert.length, boQuaDaDuyet: boQuaDaDuyet };
+}
+
+/**
+ * Báo cáo những dòng `adminBackfillSeedThangDau_` đã ghi — nhận diện bằng
+ * đúng cột `updated_by = 'admin-backfill'`, không suy đoán bằng cách nào
+ * khác. Xếp chu kỳ ĐÃ DUYỆT/KHOÁ lên đầu vì đó là nhóm ĐÁNG XEM LẠI (bản vá
+ * đầu tiên của hàm này — trước khi có nhánh bỏ qua approved/locked — đã lỡ
+ * vá cả nhóm này). Chu kỳ còn ở draft/submitted/rejected thì vá là đúng ý
+ * muốn ban đầu, không cần xử lý gì thêm.
+ */
+function adminReportBackfillSeedThangDau_() {
+  var dong = readObjectsWhere_(SHEETS.MONTHLY_LINES, 'updated_by', 'admin-backfill');
+  var versions = {};
+  readObjects_(SHEETS.VERSIONS).forEach(function (v) { versions[v.id] = v; });
+  var cycles = {};
+  readObjects_(SHEETS.CYCLES).forEach(function (c) { cycles[c.id] = c; });
+
+  var theoVersion = {};
+  dong.forEach(function (l) {
+    var v = versions[l.version_id];
+    var c = v && cycles[v.cycle_id];
+    if (!theoVersion[l.version_id]) {
+      theoVersion[l.version_id] = {
+        versionId: l.version_id,
+        cycleId: v ? v.cycle_id : '',
+        bu: c ? c.business_unit_code : '(không rõ)',
+        baseMonth: c ? normalizeMonth_(c.base_month) : '',
+        status: c ? c.status : '(không rõ)',
+        rows: 0
+      };
+    }
+    theoVersion[l.version_id].rows++;
+  });
+
+  var ds = Object.keys(theoVersion).map(function (k) { return theoVersion[k]; });
+  var laDuyetHayKhoa = function (d) { return d.status === 'approved' || d.status === 'locked'; };
+  ds.sort(function (a, b) { return (laDuyetHayKhoa(b) ? 1 : 0) - (laDuyetHayKhoa(a) ? 1 : 0); });
+  var canXemLai = ds.filter(laDuyetHayKhoa);
+
+  Logger.log('Tổng ' + dong.length + ' dòng đã vá, ở ' + ds.length + ' version.');
+  Logger.log(canXemLai.length + ' version thuộc chu kỳ ĐÃ DUYỆT/KHOÁ — nên xem lại:');
+  canXemLai.forEach(function (d) {
+    Logger.log('  - ' + d.bu + ' tháng ' + d.baseMonth + ' (' + d.status + ') — '
+      + d.rows + ' dòng, version ' + d.versionId);
+  });
+  Logger.log((ds.length - canXemLai.length) + ' version còn lại thuộc chu kỳ CHƯA duyệt — không cần xử lý.');
+  Logger.log('Lùi lại TOÀN BỘ: adminRollbackBackfillSeedThangDau_(true)');
+  Logger.log('Lùi lại RIÊNG version đã duyệt: adminRollbackBackfillSeedThangDau_(true, [' +
+    canXemLai.map(function (d) { return '"' + d.versionId + '"'; }).join(', ') + '])');
+
+  return { tongDong: dong.length, tongVersion: ds.length, chiTiet: ds };
+}
+
+/**
+ * Lùi lại (xoá) dòng đã ghi bởi `adminBackfillSeedThangDau_`, nhận diện
+ * đúng bằng `updated_by = 'admin-backfill'` — không đụng bất kỳ dòng nào
+ * khác, kể cả dòng người dùng tự nhập ngay sau đó trùng SKU/tháng (dòng đó
+ * có `updated_by` là id người dùng, không phải 'admin-backfill').
+ *
+ * @param {boolean} apply         mặc định false — chỉ đếm, không xoá.
+ * @param {string[]} [chiVersionId]  bỏ trống = lùi TOÀN BỘ; truyền mảng
+ *     versionId (xem adminReportBackfillSeedThangDau_) để chỉ lùi ĐÚNG
+ *     những version đó — dùng khi chỉ muốn lùi phần thuộc chu kỳ đã duyệt.
+ */
+function adminRollbackBackfillSeedThangDau_(apply, chiVersionId) {
+  var dong = readObjectsWhere_(SHEETS.MONTHLY_LINES, 'updated_by', 'admin-backfill');
+  var muc = (chiVersionId && chiVersionId.length)
+    ? dong.filter(function (l) { return chiVersionId.indexOf(l.version_id) >= 0; })
+    : dong;
+
+  if (!apply) {
+    Logger.log('CHẠY THỬ — sẽ xoá ' + muc.length + ' dòng (trong tổng ' + dong.length
+      + ' dòng đã vá bởi admin-backfill). Chưa xoá gì.');
+    return { rows: muc.length };
+  }
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    if (muc.length) {
+      deleteRowsByKeys_(SHEETS.MONTHLY_LINES, ['version_id', 'sku_code', 'forecast_month'],
+        muc.map(function (l) {
+          return { version_id: l.version_id, sku_code: l.sku_code, forecast_month: l.forecast_month };
+        }));
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  Logger.log('Đã xoá ' + muc.length + ' dòng.');
+  return { rows: muc.length };
 }
 
 /**

@@ -91,8 +91,18 @@ function isoDate_(d) {
   return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
 }
 
+/**
+ * Chỉ dùng Date.now() làm phần phân biệt CHÍNH từng là đủ trong thực tế (con
+ * người bấm tay, cách nhau nhiều giây), nhưng đó là điểm yếu thật: 2 lệnh tạo
+ * version cho CÙNG đơn vị chạy liên tiếp trong cùng 1 mili-giây (vd một script
+ * tạo hàng loạt chu kỳ, hoặc — đã bắt được thật khi viết test cho
+ * adminBackfillSeedThangDau_ — 2 lệnh createCycle_ đồng bộ chạy sát nhau) sẽ
+ * ra CÙNG MỘT id, đè lên nhau. Thêm hậu tố ngẫu nhiên để không phụ thuộc vào
+ * độ phân giải mili-giây của đồng hồ nữa.
+ */
 function newVersionId_(bu, week) {
-  return 'v-' + String(bu).toLowerCase() + '-w' + week + '-' + Date.now();
+  return 'v-' + String(bu).toLowerCase() + '-w' + week + '-' + Date.now()
+    + '-' + Math.random().toString(36).slice(2, 8);
 }
 
 function publicUser_(user) {
