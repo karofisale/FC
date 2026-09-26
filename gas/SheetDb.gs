@@ -348,6 +348,38 @@ function pgExistingKeySet_(table, keyFields, records) {
 }
 
 /**
+ * Chia nhỏ theo lô rồi xoá bằng 1 filter tổ hợp `or=(and(...),and(...))` cho
+ * mỗi lô — thay vì 1 lượt gọi HTTP cho MỖI DÒNG cần xoá.
+ *
+ * PostgREST không có cú pháp "WHERE (a,b,c) IN ((1,2,3),(4,5,6))" cho khoá
+ * tổ hợp, nhưng gộp nhiều điều kiện AND vào một OR thì làm được
+ * (`or=(and(f1.eq.x,f2.eq.y),and(f1.eq.a,f2.eq.b))`).
+ *
+ * Bug thật (28/09/2026): `adminRollbackBackfillSeedThangDau_` xoá 1027 dòng
+ * bằng vòng lặp cũ (1 dòng/lượt gọi) — chạy được nhưng suýt chạm giới hạn 6
+ * phút của Apps Script, thứ đáng lẽ chỉ cần vài lượt gọi. Lô nhỏ hơn hẳn
+ * `PG_CO_LON_IN_` (dùng cho `in.()` đơn giản) vì mỗi điều kiện `and(...)` ở
+ * đây dài hơn nhiều so với 1 giá trị `in.()`.
+ */
+var PG_CO_LON_XOA_TO_HOP_ = 15;
+
+function pgDeleteByCompositeKeys_(table, keyFields, records) {
+  var soDaXoa = 0;
+  for (var i = 0; i < records.length; i += PG_CO_LON_XOA_TO_HOP_) {
+    var lo = records.slice(i, i + PG_CO_LON_XOA_TO_HOP_);
+    var orFilter = lo.map(function (rec) {
+      var dieuKien = keyFields.map(function (f) {
+        return f + '.eq.' + pgEscapeInValue_(rec[f]);
+      }).join(',');
+      return 'and(' + dieuKien + ')';
+    }).join(',');
+    var res = pgFetch_('delete', table + '?or=(' + orFilter + ')', { prefer: 'return=representation' });
+    soDaXoa += (res || []).length;
+  }
+  return soDaXoa;
+}
+
+/**
  * Upsert + xoá theo khoá tổ hợp trong MỘT lượt — thay applyRowChanges_ cũ
  * (đọc cả bảng, dựng map, mutate, ghi lại 1 setValues). Postgres làm việc
  * này bằng chính cơ chế của nó: DELETE theo filter, INSERT với
@@ -365,14 +397,7 @@ function applyRowChanges_(name, keyFields, upserts, deletes, keyNormalizers) {
   invalidateCacheFor_(name);
   var table = pgTable_(name);
 
-  var deletedCount = 0;
-  deletes.forEach(function (rec) {
-    var filter = keyFields.map(function (f) {
-      return f + '=eq.' + encodeURIComponent(String(rec[f]));
-    }).join('&');
-    var res = pgFetch_('delete', table + '?' + filter, { prefer: 'return=representation' });
-    deletedCount += (res || []).length;
-  });
+  var deletedCount = deletes.length ? pgDeleteByCompositeKeys_(table, keyFields, deletes) : 0;
 
   var insertedCount = 0, updatedCount = 0;
   if (upserts.length) {

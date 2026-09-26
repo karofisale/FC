@@ -70,12 +70,45 @@ function apDieuKien_(hang, dk) {
   throw new Error('pg-shim: chưa hỗ trợ điều kiện "' + dk + '"');
 }
 
-/** or=(id.ilike.x,email.ilike.y) — mỗi vế "cot.op.giatri", cách nhau dấu phẩy. */
+/** Chia theo dấu phẩy Ở CẤP NGOÀI CÙNG — bỏ qua dấu phẩy nằm trong ngoặc
+ *  (dùng cho and(...) lồng trong or=(...), xem pgDeleteByCompositeKeys_). */
+function chiaTopLevel_(s) {
+  const out = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '(') depth++;
+    else if (c === ')') depth--;
+    else if (c === ',' && depth === 0) { out.push(s.slice(start, i)); start = i + 1; }
+  }
+  out.push(s.slice(start));
+  return out;
+}
+
+/** Một vế "cot.op.giatri" — giá trị có thể được bọc nháy kép rồi mã hoá
+ *  (pgEscapeInValue_, dùng bởi pgDeleteByCompositeKeys_) hoặc không bọc gì
+ *  (encodeURIComponent trần, dùng bởi pgFindUserByIdOrEmail_) — bóc nháy nếu
+ *  có, không có thì bóc không đổi gì. */
+function apVeDon_(hang, ve) {
+  const m = ve.match(/^([^.]+)\.(eq|ilike)\.(.*)$/);
+  if (!m) throw new Error('pg-shim: or-clause không hiểu: ' + ve);
+  const gia = decodeURIComponent(m[3]).replace(/^"|"$/g, '');
+  if (m[2] === 'ilike') return chuoi_(hang[m[1]]).toLowerCase() === gia.toLowerCase();
+  return chuoi_(hang[m[1]]) === gia;
+}
+
+/**
+ * or=(...) — hai dạng:
+ *   phẳng:  id.ilike.x,email.ilike.y            (khớp nếu BẤT KỲ vế nào đúng)
+ *   lồng:   and(f1.eq.a,f2.eq.b),and(f1.eq.c,..) (khớp nếu BẤT KỲ nhóm and nào
+ *           có ĐỦ mọi vế đúng) — dùng bởi pgDeleteByCompositeKeys_ để xoá
+ *           nhiều khoá tổ hợp trong 1 lượt gọi thay vì 1 lượt/dòng.
+ */
 function apOr_(hang, bieuThuc) {
-  return bieuThuc.split(',').some((ve) => {
-    const m = ve.match(/^([^.]+)\.(eq|ilike)\.(.*)$/);
-    if (!m) throw new Error('pg-shim: or-clause không hiểu: ' + ve);
-    return apDieuKien_(hang, m[1] + '=' + m[2] + '.' + m[3]);
+  return chiaTopLevel_(bieuThuc).some((phan) => {
+    const m = phan.match(/^and\((.*)\)$/);
+    if (m) return chiaTopLevel_(m[1]).every((ve) => apVeDon_(hang, ve));
+    return apVeDon_(hang, phan);
   });
 }
 
