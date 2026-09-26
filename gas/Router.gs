@@ -47,9 +47,6 @@ function doPost(e) {
     if (action === 'ping') {
       result = { ok: true };
     } else if (action === 'login') {
-      // login_ vẫn cần đọc sheet Users -> prefetch chung 1 lần cho gọn,
-      // rẻ hơn hẳn so với để nó tự mở round-trip riêng.
-      prefetchForAction_('login');
       result = login_(payload.userId, payload.pin);
     } else if (action === 'logout') {
       result = logout_(payload.token);
@@ -59,17 +56,17 @@ function doPost(e) {
     //     máy. Xem SapBridge.gs cho phép tính thiệt hại.
     //
     //     importActuals phải nằm trong runExclusive_ như mọi action ghi khác:
-    //     upsertRows_ ghi đè CẢ BẢNG dựa trên bản chụp, nên hai lượt chạy chồng
-    //     nhau là một bên biến mất mà không báo gì.
+    //     hai lượt ghi chồng lên nhau (upsert theo cùng khoá) không còn nguy
+    //     cơ "một bên biến mất" như bản Sheets (Postgres upsert là an toàn
+    //     với concurrent write ở cấp 1 dòng), nhưng vẫn cần lock để tránh 2
+    //     lượt nhập cùng kỳ tính toán số liệu diff dựa trên bản chưa có nhau.
     } else if (action === 'sapHeartbeat') {
       result = sapBridgeHeartbeat_(payload);
     } else if (action === 'sapFilters') {
-      prefetchForAction_('sapFilters');
       result = sapBridgeFilters_(payload);
     } else if (action === 'sapImportActuals') {
       result = runExclusive_(function () {
         resetTableCache_();
-        prefetchForAction_('sapImportActuals');
         return sapBridgeImportActuals_(payload);
       });
     } else {
@@ -84,22 +81,19 @@ function doPost(e) {
       // 3. Action ghi thì chạy trong LockService để hai người lưu cùng lúc
       //    không ghi đè nhau.
       //
-      //    QUAN TRỌNG: phải đọc dữ liệu bên TRONG lock. Bản cũ gọi
-      //    prefetchAllSheets_() ở ngoài, trước khi lấy lock — mà upsertRows_
-      //    ghi đè LẠI CẢ BẢNG dựa trên bản chụp đó. Hai người cùng mở trang,
-      //    A lưu xong rồi B lưu, thì B ghi đè bằng bản chụp chưa có thay đổi
-      //    của A -> toàn bộ số A vừa nhập biến mất, không báo lỗi. Lock khi
-      //    đó chỉ khiến hai request chạy nối tiếp chứ không bảo vệ dữ liệu.
+      //    Khác bản Sheets: applyRowChanges_ giờ là upsert THẬT của Postgres
+      //    (INSERT ... ON CONFLICT), không còn "đọc cả bảng rồi ghi đè cả
+      //    khối" — nên rủi ro "B ghi đè mất số A vừa nhập" giảm nhiều so với
+      //    trước. Vẫn giữ lock: replaceRowsForScope_ (nhập lại từ file) và
+      //    các phép tính diff nhiều bước (createVersion_ kế thừa version
+      //    trước, submitCycle_ kiểm rồi ghi) vẫn cần thấy một bức tranh nhất
+      //    quán trong khi chạy.
       if (WRITE_ACTIONS.indexOf(action) >= 0) {
         result = runExclusive_(function () {
           resetTableCache_();
-          prefetchForAction_(action);
           return dispatch_(action, payload, session);
         });
       } else {
-        // Gom các sheet action này cần trong 1 lần gọi Sheets API, thay vì
-        // để mỗi hàm nghiệp vụ tự mở round-trip riêng khi đọc tới.
-        prefetchForAction_(action);
         result = dispatch_(action, payload, session);
       }
     }

@@ -100,19 +100,15 @@ const READ_ACTIONS = [
   'getPortalStats'
 ];
 /**
- * Bảng nào cần đọc sẵn cho từng action.
+ * KHÔNG CÒN AI ĐỌC (kể từ khi chuyển CSDL sang Postgres, xem SheetDb.gs).
  *
- * Trước đây mọi request đều batchGet TOÀN BỘ 12 tab, kể cả getBootstrap chỉ
- * cần ba danh mục nhỏ. Vì MonthlyForecastLines/WeeklyRegionSplits phình dần
- * theo từng version, chi phí đó cộng vào MỌI lượt gọi — app chậm dần theo
- * thời gian kể cả với người chỉ mở xem tháng hiện tại.
- *
- * An toàn khi khai thiếu: readTable_ tự động đọc rời bảng chưa có trong
- * cache, nên khai sót chỉ tốn thêm một lượt đọc chứ không sai kết quả. Vì
- * vậy nên khai HƠI DƯ còn hơn thiếu — riêng bốn bảng lớn (PRODUCTS,
- * MONTHLY_LINES, WEEKLY_SPLITS, ACTUALS) thì cân nhắc kỹ, đó mới là chỗ tốn.
- *
- * Action không có trong bảng này sẽ đọc tất cả như cũ.
+ * Bảng này từng khai "action nào cần batchGet trước những sheet nào", để né
+ * chi phí ~1 giây cố định của mỗi round-trip SpreadsheetApp. PostgREST rẻ
+ * hơn nhiều lần nên không còn lý do "đọc trước cho gọn" — mỗi hàm nghiệp vụ
+ * tự readObjects_/readObjectsWhere_ đúng bảng nó cần, khi nó cần. Giữ hằng số
+ * này lại (không xoá) vì vẫn còn giá trị THAM KHẢO: nó liệt kê chính xác bảng
+ * nào action nào từng đụng tới — hữu ích khi cần tra cứu, dù không hàm nào
+ * còn gọi `ACTION_TABLES[...]` nữa.
  */
 /**
  * Cột phải giữ đúng dạng CHỮ.

@@ -28,6 +28,29 @@
 
 
 /* ==================================================================
+ * CHUYỂN CSDL SANG SUPABASE — nạp dữ liệu Sheet sang Postgres MỘT LẦN,
+ * trước khi cắt luồng. Chi tiết: xem đầu file MigrateToSupabase.gs.
+ * ================================================================== */
+
+/** Chỉ đọc Sheet + dựng thử record, KHÔNG ghi gì. Chạy TRƯỚC, soát log kỹ. */
+function run_supabase_xemTruoc() {
+  return migrateXemTruoc_();
+}
+
+/**
+ * Ghi thật — theo đúng thứ tự khoá ngoại, có đối chiếu số dòng sau mỗi bảng.
+ * Tự chặn nếu bảng đích đã có dữ liệu (tránh ghi trùng khi lỡ chạy 2 lần).
+ *
+ * Nếu THẬT SỰ cần chạy lại đè lên dữ liệu đã nạp (biết rõ hậu quả trùng
+ * khoá) — sửa dòng return bên dưới thành `migrateGhiThat_(true)`, chạy
+ * xong thì đổi lại `migrateGhiThat_()` rồi push lại, đừng để sót cờ true.
+ */
+function run_supabase_ghiThat() {
+  return migrateGhiThat_();
+}
+
+
+/* ==================================================================
  * GIÁ BÁN TRUNG BÌNH — đồng bộ từ số bán thật của OEM và Xuất khẩu
  * Chi tiết cách tính: xem đầu file PriceSync.gs
  * ================================================================== */

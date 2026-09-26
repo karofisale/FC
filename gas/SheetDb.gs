@@ -1,504 +1,430 @@
 /**
- * Lớp truy cập Google Sheets: đọc/ghi theo khối, bám theo tên cột
- * Một phần của backend FC App — clasp push gộp mọi file .gs vào cùng
- * một phạm vi toàn cục, nên các file gọi chéo hàm của nhau bình thường.
- */
-
-// ---------------------------------------------------------------------
-// LỚP TRUY CẬP GOOGLE SHEETS (đọc/ghi theo khối, đối chiếu theo tên cột)
-// ---------------------------------------------------------------------
-
-/**
- * Cache handle Spreadsheet trong phạm vi một lần thực thi (và thường
- * còn sống tiếp qua nhiều request nếu container Apps Script chưa bị thu
- * hồi). SpreadsheetApp.openById() là một round-trip mạng thật — một
- * action gộp như getApprovalsWorkspace từng gọi lại nó tới 9 lần trong
- * CÙNG một request (mỗi lần đọc sheet lại mở lại từ đầu), cộng dồn thành
- * hàng chục giây độ trễ thật ở server, chứ không chỉ là cold-start front-end.
- */
-var __ssCache_ = null;
-
-function getSpreadsheet_() {
-  if (!__ssCache_) {
-    __ssCache_ = SpreadsheetApp.openById(SPREADSHEET_ID);
-    diagMark_('openById (lần đầu)');
-  }
-  return __ssCache_;
-}
-
-function getOrCreateSheet_(name) {
-  var ss = getSpreadsheet_();
-  var sheet = ss.getSheetByName(name);
-  if (!sheet) {
-    sheet = ss.insertSheet(name);
-    if (SCHEMA[name]) {
-      sheet.appendRow(SCHEMA[name]);
-      sheet.getRange(1, 1, 1, SCHEMA[name].length)
-        .setFontWeight('bold').setBackground('#0284c7').setFontColor('#ffffff');
-      sheet.setFrozenRows(1);
-    }
-  }
-  return sheet;
-}
-
-/**
- * Cache theo tên sheet trong phạm vi MỘT request — một action gộp như
- * getApprovalsWorkspace đọc VERSIONS/CYCLES/PRODUCTS nhiều lần trong
- * cùng một lượt xử lý (getApprovals_ rồi lại getVersionSummary_), mỗi
- * lần đọc lại toàn bộ 1141 dòng Products là một round-trip mạng thật.
- * Router.gs gọi resetTableCache_() ở đầu mỗi request để không dính dữ
- * liệu cũ giữa các request khác nhau.
+ * Lớp truy cập Postgres (Supabase, schema `fc`) qua PostgREST — thay hoàn
+ * toàn cơ chế đọc/ghi Google Sheets cũ. Giữ TÊN các hàm cấp cao mà
+ * Queries.gs/Mutations.gs/Auth.gs/Admin.gs... đang gọi (`readObjects_`,
+ * `readObjectsWhere_`, `findOne_`, `appendObjects_`, `upsertRows_`,
+ * `deleteRowsByKeys_`, `replaceRowsForScope_`, `productMap_`,
+ * `assertKnownSkus_`, `activeOnly_`, `resetTableCache_`) để không phải sửa
+ * lại toàn bộ nghiệp vụ — chỉ tầng lưu trữ bên dưới đổi.
  *
- * Không cần invalidate thủ công: writeRowPatch_ và upsertRows_ (qua
- * writeTable_) đều sửa TRỰC TIẾP lên object đang cache (table.rows[i] =
- * ... hoặc t.rows = t.rows.concat(...)), nên cache tự động phản ánh đúng
- * dữ liệu vừa ghi. appendObjects_ cũng đẩy dòng mới vào t.rows sau khi
- * ghi sheet — xem hàm đó bên dưới. Quy tắc khi thêm hàm ghi mới: LUÔN
- * mutate object cache đang có (không tạo bản sao rời), nếu không cache
- * sẽ lệch với sheet thật trong phần còn lại của request.
+ * BỎ HẲN so với bản Sheets (không phải thiếu sót, là không còn cần nữa):
+ *   - readTable_/writeTable_/findRowIndex_/writeRowPatch_ (mô hình "mảng
+ *     dòng thô + bảng tên-cột→chỉ-số") — Postgres trả JSON object thật,
+ *     không cần mô phỏng lại hình dạng của Sheet.
+ *   - prefetchForAction_/prefetchAllSheets_/prefetchSheets_/ACTION_TABLES —
+ *     toàn bộ cơ chế "gộp nhiều sheet vào 1 lần batchGet" chỉ tồn tại vì mỗi
+ *     round-trip SpreadsheetApp tốn ~1 giây CỐ ĐỊNH. PostgREST rẻ hơn nhiều
+ *     lần (xem De-xuat-Supabase-4-App-2026-09.md mục 1) nên đọc rời từng
+ *     bảng lúc cần, không đọc trước những bảng không dùng tới, RẺ HƠN việc
+ *     luôn kéo cả 12 bảng về mỗi request.
+ * Xem Ke-hoach-Buoc2-FC-OEM-Export-Supabase.md để biết bối cảnh chung.
  */
-var __tableCache_ = {};
+
+// ---------------------------------------------------------------------
+// CẤU HÌNH KẾT NỐI
+// ---------------------------------------------------------------------
+
+/**
+ * Sheet tab name (SHEETS.*, khai ở Config.gs) -> tên bảng Postgres thật
+ * (schema `fc`, xem Karofi-ID/supabase/schema-fc.sql). Giữ nguyên toàn bộ
+ * chỗ gọi hiện có (chúng truyền SHEETS.PRODUCTS = 'Products' làm `name`)
+ * bằng cách dịch ở ĐÚNG MỘT chỗ này.
+ */
+var PG_TABLE_MAP_ = {
+  Users: 'users',
+  BusinessUnits: 'business_units',
+  Regions: 'regions',
+  ProductGroups: 'product_groups',
+  Products: 'products',
+  ForecastCycles: 'forecast_cycles',
+  ForecastVersions: 'forecast_versions',
+  MonthlyForecastLines: 'monthly_forecast_lines',
+  WeeklyRegionSplits: 'weekly_region_splits',
+  Approvals: 'approvals',
+  ActualSalesResults: 'actual_sales_results',
+  AuthLog: 'auth_log'
+};
+
+function pgTable_(name) {
+  var t = PG_TABLE_MAP_[name];
+  if (!t) throw new Error('Không biết bảng Postgres tương ứng với "' + name + '".');
+  return t;
+}
+
+function pgConfig_() {
+  var props = PropertiesService.getScriptProperties();
+  var url = props.getProperty('SUPABASE_URL');
+  var key = props.getProperty('SUPABASE_SERVICE_ROLE_KEY');
+  if (!url || !key) {
+    throw new Error('Thiếu Script Property SUPABASE_URL hoặc SUPABASE_SERVICE_ROLE_KEY — '
+      + 'xem Karofi-ID/supabase/schema-fc.sql mục 7.');
+  }
+  return { url: url, key: key };
+}
+
+/**
+ * Gọi PostgREST. `path` là phần sau /rest/v1/ (vd 'products?select=*').
+ * Luôn gửi Accept-Profile/Content-Profile: fc vì schema `fc` không phải
+ * schema mặc định của PostgREST (`public`) — thiếu 2 header này thì mọi
+ * bảng trong `fc` trả 404 dù đã bật Exposed schemas.
+ */
+function pgFetch_(method, path, opts) {
+  opts = opts || {};
+  var cfg = pgConfig_();
+  var headers = {
+    apikey: cfg.key,
+    Authorization: 'Bearer ' + cfg.key,
+    'Accept-Profile': 'fc',
+    'Content-Profile': 'fc'
+  };
+  if (opts.prefer) headers.Prefer = opts.prefer;
+
+  var params = { method: method, headers: headers, muteHttpExceptions: true };
+  if (opts.body !== undefined) {
+    params.contentType = 'application/json';
+    params.payload = JSON.stringify(opts.body);
+  }
+
+  var resp = UrlFetchApp.fetch(cfg.url + '/rest/v1/' + path, params);
+  var code = resp.getResponseCode();
+  var text = resp.getContentText();
+  var data = null;
+  if (text) {
+    try { data = JSON.parse(text); } catch (e) { data = text; }
+  }
+
+  if (code >= 400) {
+    var msg = (data && typeof data === 'object' && (data.message || data.hint)) || String(data) || ('HTTP ' + code);
+    throw new Error('Postgres lỗi (' + method.toUpperCase() + ' ' + path + '): ' + msg);
+  }
+  return data;
+}
+
+/**
+ * Tổng số dòng THẬT của 1 bảng — dùng `Prefer: count=exact`, đọc header
+ * `Content-Range` (dạng "0-0/5756") thay vì lấy cả mảng dữ liệu rồi đếm
+ * `.length`. KHÁC BIỆT QUAN TRỌNG: PostgREST giới hạn số dòng trả về mỗi
+ * lượt GET theo cấu hình `max-rows` của project (Settings > API) — nếu bảng
+ * có nhiều dòng hơn giới hạn đó, `.length` sẽ báo THIẾU dù dữ liệu ghi đủ.
+ * `Content-Range` không bị giới hạn này, luôn là tổng số dòng thật.
+ *
+ * Bug thật bắt được khi chạy migrateGhiThat_ trên MonthlyForecastLines
+ * (5.756 dòng thật, nhưng readObjects_().length báo 2.000 — đúng bằng
+ * max-rows của project, không phải ghi thiếu).
+ */
+function pgCount_(name) {
+  var table = pgTable_(name);
+  var cfg = pgConfig_();
+  var resp = UrlFetchApp.fetch(cfg.url + '/rest/v1/' + table + '?select=*&limit=1', {
+    method: 'get',
+    headers: {
+      apikey: cfg.key,
+      Authorization: 'Bearer ' + cfg.key,
+      'Accept-Profile': 'fc',
+      Prefer: 'count=exact'
+    },
+    muteHttpExceptions: true
+  });
+  if (resp.getResponseCode() >= 400) {
+    throw new Error('Postgres lỗi khi đếm ' + name + ': ' + resp.getContentText());
+  }
+  var headers = resp.getAllHeaders ? resp.getAllHeaders() : resp.getHeaders();
+  var range = headers['Content-Range'] || headers['content-range'];
+  if (!range) throw new Error('Không đọc được Content-Range khi đếm "' + name + '" — Prefer: count=exact có bị bỏ qua không?');
+  var m = String(range).match(/\/(\d+|\*)$/);
+  if (!m || m[1] === '*') throw new Error('Content-Range không có tổng số dòng cho "' + name + '": ' + range);
+  return Number(m[1]);
+}
+
+/**
+ * Giá trị cho filter `in.(...)` của PostgREST — bọc nháy kép để an toàn nếu
+ * giá trị chứa dấu phẩy, RỒI encodeURIComponent CẢ CỤM (kể cả dấu nháy) mới
+ * ghép vào URL. Bug thật (26/09/2026): bản đầu bọc nháy kép nhưng KHÔNG mã
+ * hoá — `UrlFetchApp.fetch` của Apps Script từ chối thẳng URL chứa `"` chưa
+ * mã hoá bằng lỗi "Invalid argument", chặn ngay phía client, Supabase còn
+ * chưa kịp thấy request. PostgREST tự giải mã %XX trước khi đọc cú pháp
+ * filter nên gửi dạng mã hoá vẫn đúng ý nghĩa, chỉ là an toàn khi truyền qua
+ * URL thật.
+ */
+function pgEscapeInValue_(v) {
+  return encodeURIComponent('"' + String(v).replace(/"/g, '\\"') + '"');
+}
+
+function uniqueValues_(arr) {
+  var seen = {}, out = [];
+  arr.forEach(function (v) {
+    var k = String(v);
+    if (seen[k]) return;
+    seen[k] = true;
+    out.push(v);
+  });
+  return out;
+}
+
+// ---------------------------------------------------------------------
+// CACHE TRONG PHẠM VI MỘT REQUEST
+//
+// Khác bản Sheets (cache theo TÊN BẢNG, đọc cả bảng): cache theo TỪNG TRUY
+// VẤN (tên bảng + bộ lọc), vì lọc đẩy xuống Postgres — hai truy vấn khác bộ
+// lọc trên cùng bảng không còn là "đọc lại cùng dữ liệu" nữa. Đây chính là
+// đổi để MonthlyForecastLines/WeeklyRegionSplits (phình theo version) không
+// còn phải tải cả bảng chỉ để lấy 1 version — lý do FC được ưu tiên chuyển
+// trước trong kế hoạch.
+// ---------------------------------------------------------------------
+var __queryCache_ = {};
+var __productMapCache_ = null;
 
 function resetTableCache_() {
-  __tableCache_ = {};
+  __queryCache_ = {};
   __productMapCache_ = null;
 }
 
-/** Dựng object {sheet, headers, rows, idx} từ dữ liệu 2 chiều đã đọc sẵn. */
-function buildTableFromValues_(name, sheet, values) {
-  var headers = values.length ? values[0].map(function (h) { return String(h).trim(); }) : (SCHEMA[name] || []);
-
-  if (!values.length || !headers.length || headers.join('') === '') {
-    headers = SCHEMA[name] || [];
-    if (headers.length) {
-      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    }
-    return { sheet: sheet, headers: headers, rows: [], idx: indexOf_(headers) };
-  }
-
-  return {
-    sheet: sheet,
-    headers: headers,
-    rows: values.slice(1).filter(function (r) { return r.join('') !== ''; }),
-    idx: indexOf_(headers)
-  };
+function invalidateCacheFor_(name) {
+  var prefix = name + '|';
+  Object.keys(__queryCache_).forEach(function (k) {
+    if (k.indexOf(prefix) === 0) delete __queryCache_[k];
+  });
+  if (name === SHEETS.PRODUCTS) __productMapCache_ = null;
 }
 
-/**
- * Đọc toàn bộ sheet đúng một lần. Trả về headers, rows (mảng thô có thể
- * sửa tại chỗ) và idx (tên cột → chỉ số), để mọi thao tác ghi bám theo
- * TÊN CỘT chứ không theo thứ tự cứng.
- *
- * Đường đi CHẬM (một round-trip SpreadsheetApp riêng cho sheet này) —
- * chỉ chạy khi prefetchAllSheets_() chưa gom sẵn dữ liệu (sheet mới tạo
- * sau lúc prefetch, hoặc batchGet lỗi phải rơi về cách cũ).
- */
-function readTable_(name) {
-  if (__tableCache_[name]) return __tableCache_[name];
-
-  var sheet = getOrCreateSheet_(name);
-  var values = sheet.getDataRange().getValues();
-  var table = buildTableFromValues_(name, sheet, values);
-
-  __tableCache_[name] = table;
-  diagMark_('đọc rời ' + name + ' (' + table.rows.length + ' dòng)');
-  return table;
+function pgQuery_(name, select, filter) {
+  var key = name + '|' + select + '|' + (filter || '');
+  if (__queryCache_[key]) return __queryCache_[key];
+  var table = pgTable_(name);
+  var path = table + '?select=' + encodeURIComponent(select) + (filter ? '&' + filter : '');
+  var rows = pgFetch_('get', path) || [];
+  __queryCache_[key] = rows;
+  return rows;
 }
 
-/**
- * Đọc TẤT CẢ sheet trong SCHEMA bằng đúng MỘT lệnh Sheets API batchGet,
- * thay vì để readTable_ mở round-trip riêng cho từng sheet một. Đo thực
- * tế: mỗi round-trip SpreadsheetApp tốn ~0.9-1.2 giây CỐ ĐỊNH bất kể
- * sheet rỗng hay 1141 dòng — một action gộp đọc 5-9 sheet khác nhau thì
- * cộng dồn thành nhiều giây dù đã cache handle Spreadsheet. Gộp thành 1
- * lệnh network duy nhất giải quyết tận gốc, không chỉ giảm số lần mở lại.
- *
- * Cần Advanced Service "Sheets" bật trong appsscript.json. Nếu vì lý do
- * gì đó batchGet lỗi (service chưa bật, quota, ...), bắt lỗi và để trống
- * cache — readTable_ ở trên tự động rơi về đọc rời từng sheet như cũ,
- * KHÔNG làm hỏng request đang chạy.
- */
-/**
- * Chỉ đọc sẵn những bảng mà action đang chạy thực sự cần (xem ACTION_TABLES
- * trong Config.gs). Action lạ hoặc chưa khai thì đọc tất cả như cũ.
- */
-function prefetchForAction_(action) {
-  var names = ACTION_TABLES[action];
-  prefetchSheets_(names && names.length ? names : Object.keys(SCHEMA));
-}
-
-function prefetchAllSheets_() {
-  prefetchSheets_(Object.keys(SCHEMA));
-}
-
-function prefetchSheets_(names) {
-  // Chốt an toàn: chỉ chấp nhận tên bảng có trong SCHEMA. Nếu không lọc, một
-  // lỗi gõ tên trong ACTION_TABLES sẽ khiến getOrCreateSheet_ TẠO RA một tab
-  // rỗng vô nghĩa trong file dữ liệu thật.
-  names = (names || []).filter(function (n) { return SCHEMA[n] !== undefined; });
-  if (!names.length) return;
-
-  names.forEach(function (name) { getOrCreateSheet_(name); }); // đảm bảo tồn tại, tra cứu local sau openById
-
-  try {
-    // valueRenderOption BẮT BUỘC phải là UNFORMATTED_VALUE.
-    //
-    // Mặc định của Sheets API là FORMATTED_VALUE — trả về CHUỖI ĐÃ ĐỊNH DẠNG
-    // THEO LOCALE của bảng tính. File này đặt ngôn ngữ Tiếng Việt, nên giá
-    // 3156787 về thành "3.156.787", và Number("3.156.787") là NaN. Mọi chỗ
-    // viết `Number(x) || 0` biến nó thành 0 — âm thầm, không lỗi nào.
-    //
-    // Hậu quả đã đo: doanh thu dự báo của OEM hiện 0,3 tỷ/tháng thay vì 8,9 tỷ,
-    // và 193/198 mã bị coi là "chưa có giá". Đúng 5 mã còn giá là 5 mã dưới
-    // 1.000 đồng — số không có dấu phân cách nên Number() vẫn đọc được.
-    //
-    // Lỗi này CHỈ xuất hiện trên đường /exec. Hàm chạy tay trong trình soạn
-    // thảo đi qua readTable_ -> getDataRange().getValues(), vốn trả số thật,
-    // nên mọi báo cáo chẩn đoán đều thấy dữ liệu đúng và không lộ ra gì.
-    //
-    // dateTimeRenderOption SERIAL_NUMBER là hệ quả bắt buộc: với
-    // UNFORMATTED_VALUE thì ngày về dạng số serial của Sheets. normalizeMonth_
-    // đã được dạy cách đọc số đó — đừng đổi cái này mà không sửa hàm kia.
-    var response = Sheets.Spreadsheets.Values.batchGet(SPREADSHEET_ID, {
-      ranges: names,
-      valueRenderOption: 'UNFORMATTED_VALUE',
-      dateTimeRenderOption: 'SERIAL_NUMBER'
-    });
-    var valueRanges = response.valueRanges || [];
-
-    names.forEach(function (name, i) {
-      var values = (valueRanges[i] && valueRanges[i].values) || [];
-      var sheet = getOrCreateSheet_(name);
-      __tableCache_[name] = buildTableFromValues_(name, sheet, values);
-    });
-
-    diagMark_('batchGet ' + names.length + ' sheet trong 1 lần gọi');
-  } catch (err) {
-    diagMark_('batchGet lỗi (' + err.message + '), rơi về đọc rời từng sheet');
-  }
-}
-
-function indexOf_(headers) {
-  var idx = {};
-  headers.forEach(function (h, i) { idx[h] = i; });
-  return idx;
-}
+// ---------------------------------------------------------------------
+// ĐỌC
+// ---------------------------------------------------------------------
 
 function readObjects_(name) {
-  var t = readTable_(name);
-  return t.rows.map(function (r) { return rowToObject_(t.headers, r); });
+  return pgQuery_(name, '*');
 }
 
 /**
- * Đọc bảng nhưng CHỈ dựng object cho những dòng thoả điều kiện trên một cột.
- *
- * readObjects_ dựng object cho TOÀN BỘ bảng rồi để chỗ gọi .filter() bỏ đi
- * phần lớn. Với MonthlyForecastLines/WeeklyRegionSplits thì phần bỏ đi là
- * gần hết: một màn hình chỉ xem MỘT version, nhưng hai bảng đó chứa dữ liệu
- * của mọi version của mọi chu kỳ đã từng lập. Lọc trên dòng thô trước rồi
- * mới dựng object cắt đúng phần lãng phí đó, và càng cắt nhiều hơn khi file
- * dữ liệu càng dày lên theo thời gian.
- *
- * Object trả về vẫn là object MỚI mỗi lần gọi, giống hệt readObjects_, nên
- * chỗ gọi nào đang tự gán thêm trường vào kết quả (getMonthlyLines_ ...) không
- * bị ảnh hưởng lẫn nhau.
+ * @param {string|number|Array|function} accept Giá trị cần khớp (so bằng
+ *     eq), MẢNG giá trị (so bằng in — dùng khi trước đây gọi với 1 hàm kiểm
+ *     tra "có nằm trong tập id đã tính trước" không), hoặc HÀM (giữ tương
+ *     thích ngược — xem cảnh báo trong thân hàm).
  */
 function readObjectsWhere_(name, field, accept) {
-  var t = readTable_(name);
-  var col = t.idx[field];
-  if (col === undefined) throw new Error('Sheet ' + name + ' thiếu cột "' + field + '".');
+  if (typeof accept === 'function') {
+    // Không dịch được thành SQL filter — rơi về đọc cả bảng rồi lọc tại chỗ,
+    // ĐÚNG hành vi bản Sheets cũ. Những bảng lớn (MONTHLY_LINES/WEEKLY_SPLITS)
+    // không nên gọi theo kiểu này; các chỗ gọi hiện tại kiểu này (getB0Summary_,
+    // getB1Summary_, getSapExport_, getSapGt2Weekly_) đã được sửa để truyền
+    // mảng version_id thay vì hàm — xem Queries.gs.
+    return readObjects_(name).filter(function (row) { return accept(row[field]); });
+  }
+  if (Array.isArray(accept)) {
+    return pgQueryChunkedIn_(name, '*', field, accept);
+  }
+  var filter = field + '=eq.' + encodeURIComponent(String(accept));
+  return pgQuery_(name, '*', filter);
+}
 
-  var test = typeof accept === 'function'
-    ? accept
-    : function (v) { return String(v) === String(accept); };
-
+/**
+ * `field=in.(...)` CHIA NHỎ theo lô (PG_CO_LON_IN_ giá trị/lượt) rồi gộp kết
+ * quả — dùng chung cho readObjectsWhere_ (mảng) và pgExistingKeySet_, tránh
+ * sửa cùng 1 lớp bug ("Limit Exceeded: URLFetch URL Length") ở 2 nơi. Xem
+ * chú thích đầy đủ ở PG_CO_LON_IN_.
+ */
+function pgQueryChunkedIn_(name, select, field, values) {
+  var vals = uniqueValues_(values);
+  if (!vals.length) return [];
   var out = [];
-  for (var i = 0; i < t.rows.length; i++) {
-    if (test(t.rows[i][col])) out.push(rowToObject_(t.headers, t.rows[i]));
+  for (var i = 0; i < vals.length; i += PG_CO_LON_IN_) {
+    var phanDoan = vals.slice(i, i + PG_CO_LON_IN_);
+    var filter = field + '=in.(' + phanDoan.map(pgEscapeInValue_).join(',') + ')';
+    out = out.concat(pgQuery_(name, select, filter));
   }
   return out;
 }
 
-function rowToObject_(headers, row) {
-  var o = {};
-  headers.forEach(function (h, i) {
-    var v = row[i];
-    o[h] = (v instanceof Date) ? v.toISOString() : v;
-  });
-  return o;
+function findOne_(name, field, value) {
+  var rows = readObjectsWhere_(name, field, value);
+  return rows.length ? rows[0] : null;
 }
 
-function objectToRow_(headers, obj, existingRow) {
-  return headers.map(function (h, i) {
-    if (Object.prototype.hasOwnProperty.call(obj, h)) return obj[h];
-    return existingRow ? existingRow[i] : '';
-  });
-}
-
-/**
- * Ghi lại toàn bộ vùng dữ liệu bằng MỘT lệnh setValues.
- *
- * Thứ tự GHI TRƯỚC - XOÁ SAU là có chủ đích. Bản cũ xoá sạch vùng dữ liệu
- * rồi mới ghi lại; hai lệnh đó không nguyên tử, nên nếu request chết ở giữa
- * (chạm giới hạn 6 phút của Apps Script, hết quota, mất kết nối) thì bảng đã
- * bị xoá mà chưa kịp ghi lại — mất trắng, không có backup tự động. Bảng càng
- * nhiều dòng thì cửa sổ rủi ro đó càng rộng.
- *
- * Cách này không bao giờ để bảng ở trạng thái rỗng: dữ liệu mới đè lên chỗ
- * dữ liệu cũ trước, phần dư phía sau (khi bảng co lại) mới bị xoá. Chết giữa
- * chừng thì tệ nhất là còn sót vài dòng cũ ở đuôi — sai lệch thấy được và
- * sửa được, thay vì mất sạch.
- */
-function writeTable_(name, table) {
-  invalidateProductMap_(name);
-  var sheet = table.sheet || getOrCreateSheet_(name);
-  var headers = table.headers;
-  var lastRow = sheet.getLastRow();
-  var newCount = table.rows.length;
-
-  if (newCount) {
-    sheet.getRange(2, 1, newCount, headers.length).setValues(
-      table.rows.map(function (r) {
-        var out = r.slice(0, headers.length);
-        while (out.length < headers.length) out.push('');
-        return out;
-      })
-    );
-  }
-
-  // Số dòng dữ liệu cũ còn thừa lại phía dưới vùng vừa ghi
-  var surplus = (lastRow - 1) - newCount;
-  if (surplus > 0) {
-    sheet.getRange(newCount + 2, 1, surplus, headers.length).clearContent();
-  }
-}
-
-function writeRowPatch_(name, table, rowIndex, patch) {
-  if (rowIndex < 0) throw new Error('Không tìm thấy dòng cần cập nhật trong ' + name);
-  invalidateProductMap_(name);
-  var sheet = table.sheet || getOrCreateSheet_(name);
-  var row = table.rows[rowIndex];
-
-  Object.keys(patch).forEach(function (field) {
-    var col = table.idx[field];
-    if (col === undefined) throw new Error('Sheet ' + name + ' thiếu cột "' + field + '".');
-    row[col] = patch[field];
-  });
-
-  sheet.getRange(rowIndex + 2, 1, 1, table.headers.length).setValues([
-    row.slice(0, table.headers.length)
-  ]);
-}
+// ---------------------------------------------------------------------
+// GHI
+// ---------------------------------------------------------------------
 
 function appendObjects_(name, objects) {
-  if (!objects.length) return;
-  invalidateProductMap_(name);
-  var t = readTable_(name);
-  var sheet = t.sheet;
-  var startRow = t.rows.length + 2;
-  var values = objects.map(function (o) { return objectToRow_(t.headers, o, null); });
-  sheet.getRange(startRow, 1, values.length, t.headers.length).setValues(values);
-
-  // Đẩy luôn vào t.rows (object đang được cache trong readTable_) để một
-  // lệnh đọc khác trong CÙNG request thấy ngay dòng vừa thêm, không phải
-  // đọc lại sheet từ đầu.
-  values.forEach(function (row) { t.rows.push(row); });
+  if (!objects || !objects.length) return;
+  invalidateCacheFor_(name);
+  pgFetch_('post', pgTable_(name), { body: objects, prefer: 'return=minimal' });
 }
 
 /**
- * Upsert theo khoá tổ hợp: đọc 1 lần, dựng map khoá → dòng, cập nhật
- * tại chỗ, dòng mới thì nối thêm, rồi ghi bằng một lệnh setValues.
- * Đây là chỗ thay cho appendRow-trong-vòng-lặp của bản cũ.
+ * Sửa MỘT dòng theo khoá — thay cho readTable_+findRowIndex_+writeRowPatch_.
+ * Ném lỗi nếu không tìm thấy dòng (đối xứng với writeRowPatch_ cũ vốn cũng
+ * đòi rowIndex hợp lệ được tìm trước đó).
  */
+function patchByKey_(name, keyField, keyValue, patch) {
+  invalidateCacheFor_(name);
+  var table = pgTable_(name);
+  var filter = keyField + '=eq.' + encodeURIComponent(String(keyValue));
+  var res = pgFetch_('patch', table + '?' + filter, { body: patch, prefer: 'return=representation' });
+  if (!res || !res.length) {
+    throw new Error('Không tìm thấy dòng ' + name + ' với ' + keyField + '=' + keyValue + ' để sửa.');
+  }
+  return res[0];
+}
+
 /**
- * @param {Object} [keyNormalizers] hàm chuẩn hoá cho từng cột khoá, áp cho CẢ hai
- *     phía trước khi so.
+ * Sửa MỌI dòng khớp bộ lọc bằng CÙNG một patch — thay cho vòng lặp
+ * readTable_ rồi mutate tại chỗ rồi writeTable_ cả khối (vd: bỏ cờ is_final
+ * của các version anh chị em khi tạo version mới; huỷ các yêu cầu duyệt
+ * đang chờ của cùng chu kỳ khi gửi duyệt bản mới).
+ */
+function patchWhere_(name, filters, patch) {
+  invalidateCacheFor_(name);
+  var table = pgTable_(name);
+  var qs = Object.keys(filters).map(function (f) {
+    return f + '=eq.' + encodeURIComponent(String(filters[f]));
+  }).join('&');
+  return pgFetch_('patch', table + '?' + qs, { body: patch, prefer: 'return=minimal' });
+}
+
+/** Xoá TOÀN BỘ dòng của 1 bảng — thay cho sheet.getRange(...).clearContent()
+ *  trong importProducts_(replace=true). is.not.null luôn đúng nên khớp mọi
+ *  dòng; PostgREST DELETE không filter thì bị chặn mặc định, đây là cách
+ *  viết tường minh "tôi thật sự muốn xoá hết", không phải quên filter. */
+function pgDeleteAll_(name) {
+  invalidateCacheFor_(name);
+  var table = pgTable_(name);
+  var pk = PG_PRIMARY_KEY_[name];
+  if (!pk) throw new Error('pgDeleteAll_: chưa khai khoá chính của "' + name + '".');
+  pgFetch_('delete', table + '?' + pk + '=not.is.null', { prefer: 'return=minimal' });
+}
+
+var PG_PRIMARY_KEY_ = { Products: 'sku_code', Users: 'id' };
+
+/**
+ * Số giá trị tối đa cho mỗi lượt gọi filter `in.(...)` — CHIA NHỎ thay vì
+ * nhét hết vào 1 URL. Bug thật (26/09/2026, lộ ra khi dữ liệu tăng đủ lớn):
+ * 1 lô 300 dòng MonthlyForecastLines có thể trải trên hàng trăm version_id
+ * KHÁC NHAU, dựng URL 1 lần cho ngần đó giá trị vượt giới hạn độ dài URL của
+ * `UrlFetchApp` ("Limit Exceeded: URLFetch URL Length") — lỗi client-side,
+ * Supabase còn chưa kịp thấy request, cùng nguyên nhân gốc với lỗi "Invalid
+ * argument" trước đó (dựng URL không giới hạn theo số lượng giá trị đầu vào).
+ * Dùng chung cho `pgQueryChunkedIn_` (đọc) và `pgExistingKeySet_` (kiểm tồn
+ * tại trước upsert) — 2 nơi độc lập nhau (khác tầng: có/không qua cache của
+ * pgQuery_) nhưng CÙNG một lớp bug, nên chia sẻ đúng 1 hằng số.
+ */
+var PG_CO_LON_IN_ = 40;
+
+/**
+ * Tập khoá tổ hợp ĐÃ CÓ trong bảng, trong số các dòng sắp upsert — dùng để
+ * đếm chính xác bao nhiêu dòng là "sửa" so với "thêm mới" (upsertProducts_
+ * và các báo cáo saveMonthlyLines_/saveWeeklySplits_/saveActuals_ đều hiện
+ * 2 con số này ra người dùng). Lọc theo CỘT KHOÁ ĐẦU TIÊN (trong thực tế
+ * luôn là version_id/business_unit_code — đã tự giới hạn phạm vi hẹp) rồi so
+ * đủ bộ khoá tại chỗ, tránh dựng filter tổ hợp or=(and(...),...) dài cho
+ * hàng trăm dòng.
+ */
+function pgExistingKeySet_(table, keyFields, records) {
+  var out = {};
+  var firstField = keyFields[0];
+  var firstValues = uniqueValues_(records.map(function (r) { return r[firstField]; }));
+  if (!firstValues.length) return out;
+  var select = keyFields.join(',');
+
+  for (var i = 0; i < firstValues.length; i += PG_CO_LON_IN_) {
+    var phanDoan = firstValues.slice(i, i + PG_CO_LON_IN_);
+    var filter = firstField + '=in.(' + phanDoan.map(pgEscapeInValue_).join(',') + ')';
+    var rows = pgFetch_('get', table + '?select=' + encodeURIComponent(select) + '&' + filter) || [];
+    rows.forEach(function (row) {
+      var k = keyFields.map(function (f) { return String(row[f]); }).join('\u0001');
+      out[k] = true;
+    });
+  }
+  return out;
+}
+
+/**
+ * Upsert + xoá theo khoá tổ hợp trong MỘT lượt — thay applyRowChanges_ cũ
+ * (đọc cả bảng, dựng map, mutate, ghi lại 1 setValues). Postgres làm việc
+ * này bằng chính cơ chế của nó: DELETE theo filter, INSERT với
+ * on_conflict=<keyFields> + Prefer: resolution=merge-duplicates.
  *
- *     Bắt buộc với cột tháng: Google Sheets tự đổi "2026-09-01" thành ô kiểu
- *     ngày, nên giá trị thô của dòng đã lưu là "Tue Sep 01 2026..." trong khi bản
- *     ghi gửi lên là chuỗi "2026-09-01". So thô thì hai bên không khớp, nên
- *     mỗi lần sửa tay lại CHÈN THÊM một dòng thay vì ghi đè. Lưới tháng vẫn
- *     hiện đúng vì lấy dòng cuối, nhưng Bảng 1 CỘNG mọi dòng nên số đối chiếu
- *     phồng lên — sai mà chỉ lộ ra ở màn hình khác.
+ * `keyNormalizers` KHÔNG còn cần thiết như bản Sheets: đó là lớp vá cho dữ
+ * liệu cũ lưu sai định dạng (Sheets tự đổi "2026-09-01" thành ô ngày). Cột
+ * Postgres là `text` thuần, ghi gì đọc lại đúng nấy — miễn dữ liệu nạp ban
+ * đầu (migrate) đã chuẩn hoá sạch. Tham số vẫn nhận để không phải sửa chữ
+ * ký ở các chỗ gọi, nhưng bị bỏ qua.
  */
 function applyRowChanges_(name, keyFields, upserts, deletes, keyNormalizers) {
-  var records = upserts || [];
+  upserts = upserts || [];
   deletes = deletes || [];
-  if (!records.length && !deletes.length) {
-    return { total: 0, updated: 0, inserted: 0, deleted: 0 };
+  invalidateCacheFor_(name);
+  var table = pgTable_(name);
+
+  var deletedCount = 0;
+  deletes.forEach(function (rec) {
+    var filter = keyFields.map(function (f) {
+      return f + '=eq.' + encodeURIComponent(String(rec[f]));
+    }).join('&');
+    var res = pgFetch_('delete', table + '?' + filter, { prefer: 'return=representation' });
+    deletedCount += (res || []).length;
+  });
+
+  var insertedCount = 0, updatedCount = 0;
+  if (upserts.length) {
+    var existingKeys = pgExistingKeySet_(table, keyFields, upserts);
+    upserts.forEach(function (rec) {
+      var k = keyFields.map(function (f) { return String(rec[f]); }).join('\u0001');
+      if (existingKeys[k]) updatedCount++; else insertedCount++;
+    });
+
+    var onConflict = keyFields.join(',');
+    pgFetch_('post', table + '?on_conflict=' + encodeURIComponent(onConflict), {
+      body: upserts,
+      prefer: 'resolution=merge-duplicates,return=minimal'
+    });
   }
 
-  var t = readTable_(name);
-  keyFields.forEach(function (f) {
-    if (t.idx[f] === undefined) throw new Error('Sheet ' + name + ' thiếu cột khoá "' + f + '".');
-  });
-
-  var norm = keyNormalizers || {};
-  // Co ky tu phan cach de hai khoa khac nhau khong don thanh cung mot chuoi
-  // (vd 'v-w1'+'2' va 'v-w'+'12' deu cho ra 'v-w12' neu noi tran).
-  var keyOf = function (getter) {
-    return keyFields.map(function (f) {
-      var v = getter(f);
-      return String(norm[f] ? norm[f](v) : v);
-    }).join(' ');
-  };
-
-  // Dọn dòng trùng khoá đã lỡ sinh ra trước khi có chuẩn hoá ở trên: giữ dòng
-  // CUỐI — đúng cái lưới đang hiện và là ý định mới nhất của người dùng.
-  // Nhờ vậy bảng tự lành lại ở lần lưu kế tiếp, không cần sửa tay trên Sheet.
-  var lastAt = {};
-  t.rows.forEach(function (row, i) {
-    lastAt[keyOf(function (f) { return row[t.idx[f]]; })] = i;
-  });
-  var beforeDedupe = t.rows.length;
-  t.rows = t.rows.filter(function (row, i) {
-    return lastAt[keyOf(function (f) { return row[t.idx[f]]; })] === i;
-  });
-  var dedupedCount = beforeDedupe - t.rows.length;
-
-  var deleted = 0;
-  if (deletes.length) {
-    var toDelete = {};
-    deletes.forEach(function (rec) {
-      toDelete[keyOf(function (f) { return rec[f]; })] = true;
-    });
-    var beforeCount = t.rows.length;
-    t.rows = t.rows.filter(function (row) {
-      return !toDelete[keyOf(function (f) { return row[t.idx[f]]; })];
-    });
-    deleted = beforeCount - t.rows.length;
-  }
-
-  var index = {};
-  t.rows.forEach(function (row, i) {
-    index[keyOf(function (f) { return row[t.idx[f]]; })] = i;
-  });
-
-  var updated = 0;
-  var inserted = 0;
-  var newRows = [];
-
-  records.forEach(function (rec) {
-    var key = keyOf(function (f) { return rec[f]; });
-    var at = index[key];
-    if (at === undefined) {
-      var row = objectToRow_(t.headers, rec, null);
-      index[key] = t.rows.length + newRows.length;
-      newRows.push(row);
-      inserted++;
-    } else {
-      var target = at < t.rows.length ? t.rows[at] : newRows[at - t.rows.length];
-      t.headers.forEach(function (h, i) {
-        // giữ nguyên id gốc để dòng không đổi định danh khi cập nhật
-        if (h === 'id') return;
-        if (Object.prototype.hasOwnProperty.call(rec, h)) target[i] = rec[h];
-      });
-      updated++;
-    }
-  });
-
-  if (newRows.length) t.rows = t.rows.concat(newRows);
-  writeTable_(name, t);
-
-  return {
-    total: records.length, updated: updated, inserted: inserted,
-    deleted: deleted, deduped: dedupedCount,
-    // Khoá của những dòng vừa được ghi đè — setupDatabase dùng để biết dòng
-    // nào KHÔNG nằm trong danh mục gieo, tức dòng nào không được tự vá sau
-    // một lần đổi chỗ cột.
-    keys: records.map(function (rec) {
-      return keyFields.map(function (f) { return String(rec[f]); }).join(' ');
-    })
-  };
+  return { total: upserts.length + deletes.length, updated: updatedCount, inserted: insertedCount, deleted: deletedCount };
 }
 
-/**
- * Thay TOÀN BỘ dữ liệu thuộc một phạm vi bằng bộ bản ghi mới.
- *
- * Dùng cho việc nhập lại từ file: bản cũ của kỳ phải biến mất hết, kể cả
- * những SKU không còn trong file mới. upsertRows_ chỉ đụng tới khoá có trong
- * danh sách gửi lên, nên SKU đã bị bỏ khỏi kế hoạch vẫn nằm lại và cộng vào
- * tổng — không ai thấy vì lưới chỉ hiện SKU có số.
- *
- * Xoá theo GIÁ TRỊ CỘT chứ không theo khoá tổ hợp: không phụ thuộc việc
- * chuẩn hoá tháng/mã hai bên có giống nhau hay không, nên không sót dòng.
- * Vẫn chỉ MỘT lệnh ghi.
- */
-function replaceRowsForScope_(name, scopeField, scopeValue, records) {
-  var t = readTable_(name);
-  var col = t.idx[scopeField];
-  if (col === undefined) throw new Error('Sheet ' + name + ' thiếu cột "' + scopeField + '".');
-
-  var before = t.rows.length;
-  t.rows = t.rows.filter(function (row) { return String(row[col]) !== String(scopeValue); });
-  var removed = before - t.rows.length;
-
-  var added = (records || []).map(function (rec) { return objectToRow_(t.headers, rec, null); });
-  if (added.length) t.rows = t.rows.concat(added);
-  writeTable_(name, t);
-
-  return { total: added.length, inserted: added.length, updated: 0, deleted: removed };
-}
-
-/** Chi upsert. Giu lai cho cac cho goi cu (Admin.gs, importProducts_...). */
 function upsertRows_(name, keyFields, records) {
   return applyRowChanges_(name, keyFields, records, []);
 }
 
-/**
- * Xoá theo khoá tổ hợp (đối xứng với upsertRows_) — dùng khi giá trị về 0
- * nghĩa là "không dùng đến" chứ không phải "0 nhưng vẫn cần nhớ", để bảng
- * không phình to vô hạn theo số SKU x tháng/tuần x version theo thời gian.
- * Khoá không tồn tại thì bỏ qua, không lỗi.
- */
 function deleteRowsByKeys_(name, keyFields, records) {
   return applyRowChanges_(name, keyFields, [], records);
 }
 
-function findRowIndex_(table, field, value) {
-  var col = table.idx[field];
-  if (col === undefined) return -1;
-  for (var i = 0; i < table.rows.length; i++) {
-    if (String(table.rows[i][col]) === String(value)) return i;
-  }
-  return -1;
-}
-
-function findOne_(name, field, value) {
-  var t = readTable_(name);
-  var i = findRowIndex_(t, field, value);
-  return i < 0 ? null : rowToObject_(t.headers, t.rows[i]);
-}
-
-function updateCycleStatus_(cycleId, status) {
-  var t = readTable_(SHEETS.CYCLES);
-  var i = findRowIndex_(t, 'id', cycleId);
-  if (i < 0) throw new Error('Không tìm thấy chu kỳ: ' + cycleId);
-  writeRowPatch_(SHEETS.CYCLES, t, i, { status: status });
-}
-
-function versionContext_(versionId) {
-  var version = findOne_(SHEETS.VERSIONS, 'id', versionId);
-  if (!version) throw new Error('Không tìm thấy version: ' + versionId);
-  var cycle = findOne_(SHEETS.CYCLES, 'id', version.cycle_id);
-  if (!cycle) throw new Error('Version không gắn với chu kỳ nào.');
-  return { version: version, cycle: cycle };
-}
-
 /**
- * Danh mục SKU dạng map sku_code → sản phẩm, dùng chung trong MỘT request.
- *
- * Gần như mọi hàm đọc đều cần map này, và trước đây mỗi hàm lại dựng lại từ
- * đầu: một lượt getWeeklyWorkspace dựng 1.141 object sản phẩm BỐN lần cho cùng
- * một dữ liệu không đổi. __tableCache_ đã bỏ phần đọc mạng lặp lại, đây bỏ nốt
- * phần dựng object lặp lại.
- *
- * Các chỗ dùng chỉ ĐỌC thuộc tính sản phẩm (p.name, p.avg_price...), không ghi
- * đè lên chúng, nên dùng chung một object là an toàn. Nếu sau này thêm chỗ
- * nào sửa trực tiếp object sản phẩm thì phải sao chép trước khi sửa, nếu
- * không thay đổi đó sẽ lan sang mọi chỗ khác trong cùng request.
+ * Thay TOÀN BỘ dữ liệu thuộc 1 version bằng bộ bản ghi mới, TRONG 1 GIAO DỊCH
+ * thật (xem hàm RPC fc.replace_monthly_lines/fc.replace_weekly_splits ở
+ * schema-fc.sql) — khác 2 lệnh DELETE rồi INSERT rời rạc, vốn có 1 khoảng hở
+ * (giữa 2 lệnh HTTP) mà dữ liệu bị xoá nhưng chưa kịp ghi lại nếu request
+ * chết giữa chừng.
  */
-var __productMapCache_ = null;
+function replaceRowsForScope_(name, scopeField, scopeValue, records) {
+  if (scopeField !== 'version_id') {
+    throw new Error('replaceRowsForScope_ (Postgres) hiện chỉ hỗ trợ scopeField = version_id.');
+  }
+  var rpc;
+  if (name === SHEETS.MONTHLY_LINES) rpc = 'replace_monthly_lines';
+  else if (name === SHEETS.WEEKLY_SPLITS) rpc = 'replace_weekly_splits';
+  else throw new Error('replaceRowsForScope_ (Postgres) chưa có RPC cho bảng ' + name + '.');
+
+  var before = readObjectsWhere_(name, scopeField, scopeValue).length;
+  invalidateCacheFor_(name);
+  pgFetch_('post', 'rpc/' + rpc, { body: { p_version_id: scopeValue, p_records: records || [] } });
+  return { total: (records || []).length, inserted: (records || []).length, updated: 0, deleted: before };
+}
+
+// ---------------------------------------------------------------------
+// DANH MỤC SẢN PHẨM DÙNG CHUNG TRONG 1 REQUEST (không đổi ý nghĩa/API)
+// ---------------------------------------------------------------------
 
 function productMap_() {
   if (!__productMapCache_) {
@@ -509,22 +435,9 @@ function productMap_() {
   return __productMapCache_;
 }
 
-/** Gọi sau mỗi lần ghi vào Products để map không còn giữ dữ liệu cũ. */
-function invalidateProductMap_(name) {
-  if (name === SHEETS.PRODUCTS) __productMapCache_ = null;
-}
-
 /**
- * Từ chối ghi số cho SKU không có trong danh mục Products.
- *
- * Không có ràng buộc khoá ngoại nào giữa các bảng, và mọi chỗ đọc đều lặng
- * lẽ dùng giá trị mặc định khi tra không thấy (nhóm hàng rơi về 'KHAC',
- * doanh thu tính bằng 0). Nghĩa là một mã gõ sai sẽ không báo lỗi ở đâu cả:
- * số vẫn được cộng vào báo cáo và vẫn xuất sang SAP, nhưng dòng đó không
- * hiện trên lưới để sửa. Chặn ngay lúc ghi là chỗ duy nhất phát hiện được.
- *
- * So khớp trên mã đã chuẩn hoá ở CẢ HAI phía, để một dòng Products lỡ có
- * khoảng trắng thừa vẫn khớp với mã sạch mà client gửi lên.
+ * Từ chối ghi số cho SKU không có trong danh mục Products — không đổi so
+ * với bản Sheets, vẫn dựa trên readObjects_ + productMap_ đã port ở trên.
  */
 function assertKnownSkus_(skuCodes) {
   if (!skuCodes.length) return;
@@ -551,10 +464,24 @@ function assertKnownSkus_(skuCodes) {
   }
 }
 
-function activeOnly_(list) {
-  return list.filter(function (x) {
-    if (x.is_active === undefined || x.is_active === '') return true;
-    return String(x.is_active) === '1' || String(x.is_active).toLowerCase() === 'true';
-  });
+/**
+ * True nếu is_active coi là ĐANG BẬT — trống/undefined cũng coi là bật (đúng
+ * quy ước Sheet cũ, giữ nguyên khi chuyển Postgres). Nhận cả boolean thật
+ * (`true`/`false` — Postgres) lẫn chuỗi cũ ('1'/'0'/'true'/'false' — sót lại
+ * từ dữ liệu Sheet nếu có).
+ *
+ * VÌ SAO CẦN HÀM RIÊNG, không để mỗi nơi tự viết `=== '1'`: bug thật
+ * (27/09/2026, ngay sau khi cắt luồng) — `createCycle_` (Mutations.gs) tự so
+ * `String(buRow.is_active) !== '1'`, mà `String(true)` ra `"true"` chứ không
+ * phải `"1"`, nên MỌI đơn vị (kể cả đang bật) đều bị coi là "đã ngừng dùng".
+ * Quét lại cả `gas/` thấy thêm 3 chỗ khác cùng lỗi (chỉ so `'1'`/`'0'` một
+ * mình, thiếu nhánh boolean) — dùng đúng 1 hàm này thay vì tự so lại.
+ */
+function laDangBat_(v) {
+  if (v === undefined || v === null || v === '') return true;
+  return String(v) === '1' || String(v).toLowerCase() === 'true';
 }
 
+function activeOnly_(list) {
+  return list.filter(function (x) { return laDangBat_(x.is_active); });
+}

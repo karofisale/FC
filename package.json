@@ -15,7 +15,7 @@
     "gas:open": "cd gas && clasp open",
     "gas:logs": "cd gas && clasp logs --watch",
     "seed:products": "node tools/seed-products.mjs",
-    "test": "node test/productpaste.test.js && node test/normalizemonth.test.js gas/Utils.gs && node test/pricesync.test.js gas/PriceSync.gs && node test/portalstats.test.js"
+    "test": "node test/productpaste.test.js && node test/normalizemonth.test.js gas/Utils.gs && node test/pricesync.test.js gas/PriceSync.gs && node test/portalstats.test.js && node test/migrate.test.js && node test/sheetdb.test.js"
   },
   "devDependencies": {
     "@google/clasp": "^3.4.1"

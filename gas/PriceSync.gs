@@ -243,13 +243,7 @@ function psChay_(ghiThat) {
   var oem = psGiaOEM_(tuThang);
   var xk = psGiaXK_(tuThang);   // { ma: {gia, nguon} }
 
-  var table = readTable_(SHEETS.PRODUCTS);
-  var iSku = table.idx.sku_code;
-  var iGia = table.idx.avg_price;
-  var iTen = table.idx.name;
-  if (iSku == null || iGia == null) {
-    throw new Error('Tab Products thiếu cột sku_code hoặc avg_price.');
-  }
+  var products = readObjects_(SHEETS.PRODUCTS);
 
   var out = [];
   var doi = [];
@@ -257,9 +251,9 @@ function psChay_(ghiThat) {
   var khongNguon = 0;
   var giuNguyen = 0;
 
-  for (var i = 0; i < table.rows.length; i++) {
-    var ma = sopMa_(table.rows[i][iSku]);
-    if (!ma) continue;
+  products.forEach(function (p) {
+    var ma = sopMa_(p.sku_code);
+    if (!ma) return;
 
     var gOem = oem[ma];
     var gXk = xk[ma] ? Math.round(xk[ma].gia * tyGia) : undefined;
@@ -273,7 +267,7 @@ function psChay_(ghiThat) {
       if (mau > 0 && Math.abs(gOem - gXk) / mau > PS_NGUONG_LECH) {
         lech.push('  ' + ma + '  OEM ' + gOem.toLocaleString('en-US') +
                   ' vs XK ' + gXk.toLocaleString('en-US') +
-                  '  (' + String(table.rows[i][iTen] || '').slice(0, 40) + ')');
+                  '  (' + String(p.name || '').slice(0, 40) + ')');
       }
     } else if (gOem !== undefined) {
       moi = gOem;
@@ -283,14 +277,13 @@ function psChay_(ghiThat) {
       // Không có số bán trong cửa sổ -> KHÔNG đụng vào. Có thể là giá nhập tay
       // ở màn Thêm sản phẩm, xoá đi là làm mất việc của người khác.
       khongNguon++;
-      continue;
+      return;
     }
 
-    var cu = psSo_(table.rows[i][iGia]);
-    if (cu === moi) { giuNguyen++; continue; }
-    doi.push({ rowIndex: i, ma: ma, cu: cu, moi: moi,
-               ten: String(table.rows[i][iTen] || '').slice(0, 40) });
-  }
+    var cu = psSo_(p.avg_price);
+    if (cu === moi) { giuNguyen++; return; }
+    doi.push({ sku: p.sku_code, ma: ma, cu: cu, moi: moi, ten: String(p.name || '').slice(0, 40) });
+  });
 
   out.push('=== ĐỒNG BỘ GIÁ BÁN TRUNG BÌNH ===');
   out.push(ghiThat ? 'CHẾ ĐỘ: GHI THẬT' : 'CHẾ ĐỘ: chạy thử — không đổi gì');
@@ -330,9 +323,10 @@ function psChay_(ghiThat) {
     return out.join('\n');
   }
 
-  doi.forEach(function (d) {
-    writeRowPatch_(SHEETS.PRODUCTS, table, d.rowIndex, { avg_price: d.moi });
-  });
+  // 1 lượt upsert cho mọi mã đổi giá, thay vì N lượt patch riêng.
+  upsertRows_(SHEETS.PRODUCTS, ['sku_code'], doi.map(function (d) {
+    return { sku_code: d.sku, avg_price: d.moi };
+  }));
 
   // Ghi lại tỷ giá đã dùng và thời điểm — để con số giải thích được về sau.
   // Dùng thẳng PropertiesService: FC không có hàm bọc setProp_ như Karofi ID.

@@ -29,11 +29,10 @@ var UID_COLUMNS_ = [
 ];
 
 function adminReportUserIds() {
-  var users = readTable_(SHEETS.USERS);
-  var coId = users.idx['id'];
+  var users = readObjects_(SHEETS.USERS);
   var biet = {};
-  users.rows.forEach(function (r) {
-    var v = String(r[coId] == null ? '' : r[coId]).trim();
+  users.forEach(function (u) {
+    var v = String(u.id == null ? '' : u.id).trim();
     if (v) biet[v.toLowerCase()] = v;
   });
 
@@ -44,18 +43,16 @@ function adminReportUserIds() {
   UID_COLUMNS_.forEach(function (pair) {
     var ten = pair[0], cot = pair[1];
     var nhan = ten + '.' + cot;
-    var t;
+    var rows;
     try {
-      t = readTable_(ten);
+      rows = readObjects_(ten);
     } catch (e) {
       loi.push(nhan + ': ' + e.message);
       return;
     }
-    var ci = t.idx[cot];
-    if (ci == null) { loi.push(nhan + ': không có cột này'); return; }
 
-    t.rows.forEach(function (r) {
-      var v = String(r[ci] == null ? '' : r[ci]).trim();
+    rows.forEach(function (r) {
+      var v = String(r[cot] == null ? '' : r[cot]).trim();
       if (!v) return;
       if (!dem[v]) dem[v] = {};
       dem[v][nhan] = (dem[v][nhan] || 0) + 1;
@@ -68,7 +65,7 @@ function adminReportUserIds() {
 
   var out = [];
   out.push('=== MÃ NGƯỜI DÙNG ĐANG CÓ TRONG DỮ LIỆU FC ===');
-  out.push('Tab Users: ' + users.rows.length + ' mã.');
+  out.push('Tab Users: ' + users.length + ' mã.');
   out.push('');
 
   // Tách hai loại rất khác nhau. AuthLog ghi CẢ những lượt đăng nhập hỏng,

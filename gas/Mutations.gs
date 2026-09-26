@@ -22,7 +22,7 @@ function createCycle_(session, p) {
     return String(b.code) === String(bu);
   })[0];
   if (!buRow) throw new Error('Đơn vị "' + bu + '" không có trong danh mục.');
-  if (String(buRow.is_active) !== '1') {
+  if (!laDangBat_(buRow.is_active)) {
     throw new Error('Đơn vị "' + bu + '" đã ngừng dùng — không lập chu kỳ mới được.');
   }
 
@@ -56,7 +56,7 @@ function createCycle_(session, p) {
     update_date: baseMonth,
     iso_week_label: 'W0',
     submitted_by: '',
-    submitted_at: '',
+    submitted_at: null,
     is_final: 1,
     created_at: now
   }]);
@@ -94,17 +94,10 @@ function createVersion_(session, p) {
   var versionId = newVersionId_(cycle.business_unit_code, updateWeek);
   var now = new Date().toISOString();
 
-  // Bản mới là bản cuối cùng, các bản trước bỏ cờ is_final
-  var vTable = readTable_(SHEETS.VERSIONS);
-  var finalIdx = vTable.idx.is_final;
-  var changed = false;
-  vTable.rows.forEach(function (row) {
-    if (String(row[vTable.idx.cycle_id]) === String(cycle.id) && String(row[finalIdx]) !== '0') {
-      row[finalIdx] = 0;
-      changed = true;
-    }
-  });
-  if (changed) writeTable_(SHEETS.VERSIONS, vTable);
+  // Bản mới là bản cuối cùng, các bản trước bỏ cờ is_final. 1 lệnh PATCH có
+  // filter thay cho đọc-cả-bảng-rồi-ghi-cả-khối — is_final=eq.true chỉ khớp
+  // đúng những dòng cần đổi, dòng đã là false thì PostgREST không đụng tới.
+  patchWhere_(SHEETS.VERSIONS, { cycle_id: cycle.id, is_final: true }, { is_final: false });
 
   appendObjects_(SHEETS.VERSIONS, [{
     id: versionId,
@@ -113,7 +106,7 @@ function createVersion_(session, p) {
     update_date: p.updateDate || isoDate_(new Date()),
     iso_week_label: p.isoWeekLabel || ('W' + updateWeek),
     submitted_by: '',
-    submitted_at: '',
+    submitted_at: null,
     is_final: 1,
     created_at: now
   }]);
@@ -339,36 +332,26 @@ function submitCycle_(session, cycleId, versionId) {
 
   var now = new Date().toISOString();
 
-  var vTable = readTable_(SHEETS.VERSIONS);
-  var vRow = findRowIndex_(vTable, 'id', versionId);
-  writeRowPatch_(SHEETS.VERSIONS, vTable, vRow, { submitted_by: session.userId, submitted_at: now });
+  patchByKey_(SHEETS.VERSIONS, 'id', versionId, { submitted_by: session.userId, submitted_at: now });
 
   updateCycleStatus_(cycleId, 'submitted');
 
-  // Huỷ các yêu cầu đang chờ cũ để chỉ còn đúng một yêu cầu pending
-  var aTable = readTable_(SHEETS.APPROVALS);
-  var statusIdx = aTable.idx.status;
-  var touched = false;
-  aTable.rows.forEach(function (row) {
-    if (String(row[aTable.idx.cycle_id]) === String(cycleId) && String(row[statusIdx]) === 'pending') {
-      row[statusIdx] = 'superseded';
-      row[aTable.idx.decided_at] = now;
-      touched = true;
-    }
-  });
-  if (touched) writeTable_(SHEETS.APPROVALS, aTable);
+  // Huỷ các yêu cầu đang chờ cũ để chỉ còn đúng một yêu cầu pending — 1 PATCH
+  // có filter thay cho đọc-cả-bảng-rồi-ghi-cả-khối.
+  patchWhere_(SHEETS.APPROVALS, { cycle_id: cycleId, status: 'pending' },
+    { status: 'superseded', decided_at: now });
 
   var approvalId = Utilities.getUuid();
   appendObjects_(SHEETS.APPROVALS, [{
     id: approvalId,
     cycle_id: cycleId,
     version_id: versionId,
-    approver_id: '',
+    approver_id: null,
     status: 'pending',
     comment: '',
     requested_by: session.userId,
     requested_at: now,
-    decided_at: ''
+    decided_at: null
   }]);
 
   return { message: 'Đã gửi kế hoạch lên cấp thẩm định.', approvalId: approvalId };
@@ -382,11 +365,9 @@ function decideApproval_(session, approvalId, decision, comment) {
     throw new Error('Quyết định không hợp lệ: ' + decision);
   }
 
-  var table = readTable_(SHEETS.APPROVALS);
-  var rowIndex = findRowIndex_(table, 'id', approvalId);
-  if (rowIndex < 0) throw new Error('Không tìm thấy yêu cầu phê duyệt.');
+  var approval = findOne_(SHEETS.APPROVALS, 'id', approvalId);
+  if (!approval) throw new Error('Không tìm thấy yêu cầu phê duyệt.');
 
-  var approval = rowToObject_(table.headers, table.rows[rowIndex]);
   if (approval.status !== 'pending') {
     throw new Error('Yêu cầu này đã được xử lý (' + approval.status + ').');
   }
@@ -401,7 +382,7 @@ function decideApproval_(session, approvalId, decision, comment) {
   }
 
   var now = new Date().toISOString();
-  writeRowPatch_(SHEETS.APPROVALS, table, rowIndex, {
+  patchByKey_(SHEETS.APPROVALS, 'id', approvalId, {
     status: decision,
     comment: comment || '',
     approver_id: session.userId,
@@ -417,19 +398,14 @@ function importProducts_(session, products, replace) {
   assertRole_(session, ['central_admin']);
   if (!Array.isArray(products) || !products.length) throw new Error('Danh sách sản phẩm rỗng.');
 
-  var sheet = getOrCreateSheet_(SHEETS.PRODUCTS);
-  if (replace) {
-    if (sheet.getLastRow() > 1) {
-      sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).clearContent();
-    }
-  }
+  if (replace) pgDeleteAll_(SHEETS.PRODUCTS);
 
   var records = products.map(function (p) {
     return {
       sku_code: String(p.sku_code || '').trim(),
       name: p.name || '',
       short_name: p.short_name || '',
-      product_group_code: p.product_group_code || '',
+      product_group_code: p.product_group_code || null,
       product_group_name: p.product_group_name || '',
       technology: p.technology || '',
       default_channel: p.default_channel || '',
@@ -509,7 +485,7 @@ function addProduct_(session, p) {
     sku_code: skuCode,
     name: p.name,
     short_name: p.shortName || '',
-    product_group_code: p.productGroupCode || '',
+    product_group_code: p.productGroupCode || null,
     product_group_name: p.productGroupName || '',
     technology: p.technology || '',
     default_channel: p.defaultChannel || '',
@@ -554,7 +530,7 @@ function addProducts_(session, products) {
       sku_code: skuCode,
       name: p.name || skuCode,
       short_name: p.shortName || '',
-      product_group_code: p.productGroupCode || '',
+      product_group_code: p.productGroupCode || null,
       product_group_name: p.productGroupName || '',
       technology: p.technology || '',
       default_channel: p.defaultChannel || '',
@@ -664,20 +640,14 @@ function updateProduct_(session, p) {
   var skuCode = normalizeSku_(p.skuCode);
   if (!skuCode) throw new Error('Thiếu mã SKU.');
 
-  var t = readTable_(SHEETS.PRODUCTS);
-  var i = findRowIndex_(t, 'sku_code', skuCode);
-  if (i < 0) throw new Error('Không có SKU ' + skuCode + ' trong danh mục — dùng chức năng Thêm mới.');
-
-  var truoc = rowToObject_(t.headers, t.rows[i]);
+  var truoc = findOne_(SHEETS.PRODUCTS, 'sku_code', skuCode);
+  if (!truoc) throw new Error('Không có SKU ' + skuCode + ' trong danh mục — dùng chức năng Thêm mới.');
   assertProductEditable_(session, truoc.default_channel);
 
-  // writeRowPatch_ ghi lại CẢ DÒNG, nên ô mã cũng đi qua setValues. Không ép
-  // định dạng văn bản trước thì Sheets đổi "2013050022" thành số, và mã có
-  // số 0 đứng đầu mất số 0 đó không lấy lại được. Chỉ đúng DÒNG này bị ghi
-  // đè nên chỉ cần định dạng đúng dòng đó, không phải cả cột.
-  giuCotMaDangChu_({ hang: i + 2 });
-  t = readTable_(SHEETS.PRODUCTS);
-  i = findRowIndex_(t, 'sku_code', skuCode);
+  // (Bỏ giuCotMaDangChu_/đọc lại bảng: đó là vá riêng cho việc Sheets tự đổi
+  // mã toàn số như "2013050022" thành number, làm mất số 0 đứng đầu. Cột
+  // Postgres là `text` thật, ghi "0"+số vào vẫn giữ nguyên, không cần ép định
+  // dạng ô trước khi ghi.)
 
   var patch = {};
   var doi = [];
@@ -694,7 +664,7 @@ function updateProduct_(session, p) {
   }
   if (has_(p, 'shortName'))        dat('short_name', String(p.shortName || '').trim());
   if (has_(p, 'technology'))       dat('technology', String(p.technology || '').trim());
-  if (has_(p, 'productGroupCode')) dat('product_group_code', String(p.productGroupCode || '').trim());
+  if (has_(p, 'productGroupCode')) dat('product_group_code', String(p.productGroupCode || '').trim() || null);
   if (has_(p, 'productGroupName')) dat('product_group_name', String(p.productGroupName || '').trim());
   if (has_(p, 'avgPrice'))         dat('avg_price', parseGia_(p.avgPrice, 'SKU ' + skuCode));
   if (has_(p, 'isActive'))         dat('is_active', parseActive_(p.isActive));
@@ -714,11 +684,7 @@ function updateProduct_(session, p) {
     return { message: 'Không có gì thay đổi cho SKU ' + skuCode + '.', changed: [], product: truoc };
   }
 
-  // Ghi lại mã dưới dạng chuỗi kể cả khi không có gì đổi ở ô đó: dòng đang
-  // nằm trong bộ nhớ có thể đã là số (do một lần ghi trước), và writeRowPatch_
-  // sẽ ghi nguyên con số đó trở lại.
-  patch.sku_code = skuCode;
-  writeRowPatch_(SHEETS.PRODUCTS, t, i, patch);
+  patchByKey_(SHEETS.PRODUCTS, 'sku_code', skuCode, patch);
   logAuth_(session.userId, 'product_updated', skuCode + ' — sửa: ' + doi.join(', '));
 
   var sau = {};
@@ -735,10 +701,11 @@ function updateProduct_(session, p) {
  * riêng chứ không phải một cờ trong cùng một hàm: giao diện mặc định gọi
  * addProducts_, người dùng phải chủ động chọn chế độ ghi đè mới chạm tới đây.
  *
- * Ghi CẢ BẢNG một lần bằng upsertRows_ thay vì vá từng dòng — dán 300 dòng mà
- * gọi writeRowPatch_ 300 lần là 300 lượt ghi Sheets, chắc chắn quá 6 phút.
- * objectToRow_ giữ nguyên những cột không gửi lên, nên gửi thiếu cột không
- * xoá trắng dữ liệu đang có.
+ * Ghi bằng upsertRows_ (1 lượt POST upsert Postgres) thay vì vá từng dòng —
+ * dán 300 dòng mà gọi patchByKey_ 300 lần là 300 lượt HTTP riêng, chậm và dễ
+ * chết giữa chừng. Chỉ cột CÓ GỬI lên mới bị ghi đè (đang xây object `rec`
+ * bằng has_(p, ...) trước khi gọi), nên gửi thiếu cột không xoá trắng dữ
+ * liệu đang có ở dòng đã tồn tại.
  */
 function upsertProducts_(session, products) {
   assertRole_(session, ['bu_editor', 'central_admin']);
@@ -777,7 +744,7 @@ function upsertProducts_(session, products) {
     if (has_(p, 'name'))             rec.name = String(p.name).trim();
     if (has_(p, 'shortName'))        rec.short_name = String(p.shortName || '').trim();
     if (has_(p, 'technology'))       rec.technology = String(p.technology || '').trim();
-    if (has_(p, 'productGroupCode')) rec.product_group_code = String(p.productGroupCode || '').trim();
+    if (has_(p, 'productGroupCode')) rec.product_group_code = String(p.productGroupCode || '').trim() || null;
     if (has_(p, 'productGroupName')) rec.product_group_name = String(p.productGroupName || '').trim();
     if (has_(p, 'avgPrice'))         rec.avg_price = parseGia_(p.avgPrice, 'SKU ' + skuCode);
     rec.is_active = has_(p, 'isActive') ? parseActive_(p.isActive) : (cu ? parseActive_(cu.is_active) : 1);
@@ -795,10 +762,8 @@ function upsertProducts_(session, products) {
     return { message: 'Không có dòng nào hợp lệ để ghi.', inserted: 0, updated: 0, skipped: boQua };
   }
 
-  // upsertRows_ ghi lại CẢ BẢNG, nên một lượt dán đổi kiểu dữ liệu của mọi mã
-  // chứ không riêng mã được dán. Ép định dạng văn bản trước — kể cả các dòng
-  // MỚI sắp được nối thêm (themMoi.length), không chỉ số dòng đang có.
-  giuCotMaDangChu_({ themToiDa: themMoi.length });
+  // (Bỏ giuCotMaDangChu_: vá riêng cho việc Sheets tự đổi mã toàn số thành
+  // number — không còn áp dụng với cột Postgres kiểu text.)
   upsertRows_(SHEETS.PRODUCTS, ['sku_code'], records);
   logAuth_(session.userId, 'products_upserted', themMoi.length + ' thêm / ' + capNhat.length + ' sửa');
 

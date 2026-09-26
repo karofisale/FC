@@ -153,14 +153,14 @@ function setupDatabase() {
   var usersSheet = getOrCreateSheet_(SHEETS.USERS);
   if (usersSheet.getLastRow() <= 1) {
     upsertRows_(SHEETS.USERS, ['id'], [
-      { id: 'admin', full_name: 'Admin Hệ Thống', email: 'admin@karofi.com', role: 'central_admin', business_unit_code: '', is_active: 1, failed_attempts: 0 },
+      { id: 'admin', full_name: 'Admin Hệ Thống', email: 'admin@karofi.com', role: 'central_admin', business_unit_code: null, is_active: 1, failed_attempts: 0 },
       { id: 'gt2', full_name: 'Editor GT2', email: 'editor.gt2@karofi.com', role: 'bu_editor', business_unit_code: 'GT2', is_active: 1, failed_attempts: 0 },
       { id: 'gt2admin', full_name: 'Approver GT2', email: 'approver.gt2@karofi.com', role: 'bu_approver', business_unit_code: 'GT2', is_active: 1, failed_attempts: 0 },
       { id: 'export', full_name: 'Editor Xuất khẩu', email: 'editor.xk@karofi.com', role: 'bu_editor', business_unit_code: 'XK', is_active: 1, failed_attempts: 0 },
       { id: 'exportadmin', full_name: 'Approver Xuất khẩu', email: 'approver.xk@karofi.com', role: 'bu_approver', business_unit_code: 'XK', is_active: 1, failed_attempts: 0 },
       { id: 'oem', full_name: 'Editor OEM', email: 'editor.oem@karofi.com', role: 'bu_editor', business_unit_code: 'OEM', is_active: 1, failed_attempts: 0 },
       { id: 'oemadmin', full_name: 'Approver OEM', email: 'approver.oem@karofi.com', role: 'bu_approver', business_unit_code: 'OEM', is_active: 1, failed_attempts: 0 },
-      { id: 'viewer', full_name: 'Người xem Báo cáo', email: 'viewer@karofi.com', role: 'viewer', business_unit_code: '', is_active: 1, failed_attempts: 0 }
+      { id: 'viewer', full_name: 'Người xem Báo cáo', email: 'viewer@karofi.com', role: 'viewer', business_unit_code: null, is_active: 1, failed_attempts: 0 }
     ]);
   }
 
@@ -259,7 +259,7 @@ function adminReportBUs() {
 
   out.push('=== ĐƠN VỊ KINH DOANH ===');
   readObjects_(SHEETS.BUSINESS_UNITS).forEach(function (b) {
-    out.push('  ' + (String(b.is_active) === '1' ? '[bật] ' : '[tắt] ')
+    out.push('  ' + (laDangBat_(b.is_active) ? '[bật] ' : '[tắt] ')
       + b.code + '  —  ' + b.name);
   });
 
@@ -295,7 +295,7 @@ function adminReportBUs() {
   users.forEach(function (u) {
     out.push('  ' + String(u.id) + '  vai=' + String(u.role)
       + '  đơn vị=' + (String(u.business_unit_code || '') || '(mọi đơn vị)')
-      + (String(u.is_active) === '1' ? '' : '  [đã tắt]'));
+      + (laDangBat_(u.is_active) ? '' : '  [đã tắt]'));
   });
 
   Logger.log(out.join(String.fromCharCode(10)));
@@ -316,14 +316,7 @@ function adminMoveProductChannel(fromChannel, toChannel, apply) {
   var to = String(toChannel == null ? '' : toChannel).trim();
   if (!from) throw new Error('Cần nêu rõ đơn vị nguồn (fromChannel).');
 
-  var table = readTable_(SHEETS.PRODUCTS);
-  var col = table.idx.default_channel;
-  if (col === undefined) throw new Error('Sheet Products không có cột default_channel.');
-
-  var hits = [];
-  for (var i = 0; i < table.rows.length; i++) {
-    if (String(table.rows[i][col] || '').trim() === from) hits.push(i);
-  }
+  var hits = readObjectsWhere_(SHEETS.PRODUCTS, 'default_channel', from);
 
   if (!apply) {
     Logger.log('CHẠY THỬ — sẽ đổi ' + hits.length + ' SKU từ "' + from + '" sang "'
@@ -335,9 +328,11 @@ function adminMoveProductChannel(fromChannel, toChannel, apply) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    for (var j = 0; j < hits.length; j++) {
-      writeRowPatch_(SHEETS.PRODUCTS, table, hits[j], { default_channel: to });
-    }
+    // 1 lượt upsert theo sku_code thay vì N lượt patch riêng — Postgres nhận
+    // mảng {sku_code, default_channel} và tự khớp đúng dòng theo khoá chính.
+    upsertRows_(SHEETS.PRODUCTS, ['sku_code'], hits.map(function (p) {
+      return { sku_code: p.sku_code, default_channel: to };
+    }));
   } finally {
     lock.releaseLock();
   }
@@ -354,13 +349,11 @@ function adminMoveProductChannel(fromChannel, toChannel, apply) {
  */
 function adminSetPin(userId, pin) {
   validatePinFormat_(pin);
-  var t = readTable_(SHEETS.USERS);
-  var i = findRowIndex_(t, 'id', userId);
-  if (i < 0) throw new Error('Không tìm thấy người dùng: ' + userId);
-  writeRowPatch_(SHEETS.USERS, t, i, {
+  if (!findOne_(SHEETS.USERS, 'id', userId)) throw new Error('Không tìm thấy người dùng: ' + userId);
+  patchByKey_(SHEETS.USERS, 'id', userId, {
     pin_hash: makePinRecord_(pin),
     failed_attempts: 0,
-    locked_until: ''
+    locked_until: null
   });
   Logger.log('Đã đặt PIN cho ' + userId);
   return 'OK';
@@ -405,10 +398,8 @@ function bulkSetInitialPins() {
 
 /** Mở khoá tài khoản bị khoá do nhập sai PIN nhiều lần. */
 function adminUnlockUser(userId) {
-  var t = readTable_(SHEETS.USERS);
-  var i = findRowIndex_(t, 'id', userId);
-  if (i < 0) throw new Error('Không tìm thấy người dùng: ' + userId);
-  writeRowPatch_(SHEETS.USERS, t, i, { failed_attempts: 0, locked_until: '' });
+  if (!findOne_(SHEETS.USERS, 'id', userId)) throw new Error('Không tìm thấy người dùng: ' + userId);
+  patchByKey_(SHEETS.USERS, 'id', userId, { failed_attempts: 0, locked_until: null });
   return 'OK';
 }
 

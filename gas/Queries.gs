@@ -58,25 +58,13 @@ function getProducts_(bu, group, search) {
  * thực sự hiện trên lưới.
  */
 function countProducts_(bu) {
-  var t = readTable_(SHEETS.PRODUCTS);
-  var colActive = t.idx['is_active'];
-  var colChannel = t.idx['default_channel'];
-  var n = 0;
-
-  for (var i = 0; i < t.rows.length; i++) {
-    var row = t.rows[i];
-
-    var active = colActive === undefined ? undefined : row[colActive];
-    if (!(active === undefined || active === ''
-          || String(active) === '1' || String(active).toLowerCase() === 'true')) continue;
-
-    if (bu && colChannel !== undefined) {
-      var channel = row[colChannel];
-      if (channel && String(channel) !== String(bu)) continue;
-    }
-    n++;
+  var list = activeOnly_(readObjects_(SHEETS.PRODUCTS));
+  if (bu) {
+    list = list.filter(function (p) {
+      return !p.default_channel || String(p.default_channel) === String(bu);
+    });
   }
-  return n;
+  return list.length;
 }
 
 function getCycles_(session, bu, status) {
@@ -243,9 +231,8 @@ function getB0Summary_(baseMonth, bu) {
   var finalVersions = finalVersionsByCycle_(month, bu);
 
   var map = {};
-  readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', function (v) {
-    return finalVersions[v] !== undefined;
-  }).forEach(function (l) {
+  readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', Object.keys(finalVersions))
+    .forEach(function (l) {
     var cycle = finalVersions[l.version_id];
     var p = products[l.sku_code] || {};
     var key = cycle.business_unit_code + '|' + (p.product_group_code || 'KHAC') + '|' + normalizeMonth_(l.forecast_month);
@@ -274,9 +261,8 @@ function getB1Summary_(baseMonth, bu) {
   var finalVersions = finalVersionsByCycle_(month, bu);
 
   var map = {};
-  readObjectsWhere_(SHEETS.WEEKLY_SPLITS, 'version_id', function (v) {
-    return finalVersions[v] !== undefined;
-  }).forEach(function (w) {
+  readObjectsWhere_(SHEETS.WEEKLY_SPLITS, 'version_id', Object.keys(finalVersions))
+    .forEach(function (w) {
     var cycle = finalVersions[w.version_id];
     var p = products[w.sku_code] || {};
     var key = cycle.business_unit_code + '|' + (p.product_group_code || 'KHAC') + '|' + w.week_number + '|' + w.region_code;
@@ -701,9 +687,8 @@ function getSapExport_(session, baseMonth) {
   });
 
   var rowsMap = {};
-  readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', function (v) {
-    return buByVersionId[v] !== undefined;
-  }).forEach(function (l) {
+  readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', Object.keys(buByVersionId))
+    .forEach(function (l) {
     var bu = buByVersionId[l.version_id];
     var m = normalizeMonth_(l.forecast_month);
     if (months.indexOf(m) < 0) return;
@@ -731,9 +716,8 @@ function getSapExport_(session, baseMonth) {
   // (tuần 3 miền Bắc) — nên sản lượng xuất khẩu và OEM chảy thẳng vào cột
   // W1..W4 của file GT2 mà file nhìn vẫn đủ cột, đủ dòng.
   var weeklyByChannel = {};
-  readObjectsWhere_(SHEETS.WEEKLY_SPLITS, 'version_id', function (v) {
-    return buByVersionId[v] !== undefined;
-  }).forEach(function (w) {
+  readObjectsWhere_(SHEETS.WEEKLY_SPLITS, 'version_id', Object.keys(buByVersionId))
+    .forEach(function (w) {
     var sku = w.sku_code;
     var week = Number(w.week_number) || 0;
     if (!week) return;
@@ -748,15 +732,14 @@ function getSapExport_(session, baseMonth) {
   // sẽ lặng lẽ rơi về quy tắc mã-đầu-1 và sai loại kế hoạch trên SAP mà
   // không ai thấy. Gõ sai tên tiêu đề cũng cho ra đúng hậu quả đó. Báo lên để
   // người xuất biết danh mục đang ở trạng thái nào.
-  var productsTable = readTable_(SHEETS.PRODUCTS);
-  var hasTypeColumn = productsTable.idx['requirements_type'] !== undefined;
-  var typeOverrides = 0;
-  if (hasTypeColumn) {
-    var col = productsTable.idx['requirements_type'];
-    productsTable.rows.forEach(function (row) {
-      if (String(row[col] || '').trim()) typeOverrides++;
-    });
-  }
+  // Cột requirements_type LUÔN tồn tại trên Postgres (khai trong schema-fc.sql
+  // với default '') — khác Sheet cũ, nơi cột này có thể bị thiếu ở một tab đã
+  // tạo từ trước khi tính năng ra đời. Giữ biến hasTypeColumn để không đổi
+  // hình dạng JSON trả về cho client.
+  var hasTypeColumn = true;
+  var typeOverrides = readObjects_(SHEETS.PRODUCTS).filter(function (p) {
+    return String(p.requirements_type || '').trim();
+  }).length;
 
   return {
     baseMonth: month0,

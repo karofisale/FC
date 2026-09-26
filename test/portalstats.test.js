@@ -3,15 +3,25 @@
  *
  *   node test/portalstats.test.js
  *
- * Bài test này nạp MÃ THẬT của dự án — Config, Utils, SheetDb, Queries, Auth,
- * PortalStats — và chỉ giả lập SpreadsheetApp, thứ duy nhất không tồn tại
- * trong Node. KHÔNG giả lập một hàm nào của dự án.
+ * Bài test này nạp MÃ THẬT của dự án — Config, Utils, SheetDb, LegacySheet,
+ * Queries, Auth, PortalStats — và chỉ giả lập UrlFetchApp/SpreadsheetApp/
+ * PropertiesService, thứ duy nhất không tồn tại trong Node. KHÔNG giả lập một
+ * hàm nào của dự án.
  *
  * Vì sao viết rõ điều đó: một bài test tự cấp bản giả cho hàm ĐÁNG LẼ phải có
  * trong dự án sẽ xanh trong khi mã nguồn nổ ReferenceError trên Apps Script.
  * Chuyện này đã xảy ra thật ở dự án Karofi ID (psInLog_ — một hàm của CHÍNH
  * dự án FC bị gọi ở dự án khác, bài test bên đó có bản giả nên không ai biết).
  * Nạp thật cả chuỗi gọi là cách duy nhất bắt được lỗi đó.
+ *
+ * CẬP NHẬT (chuyển CSDL sang Postgres, xem Ke-hoach-Buoc2-FC-OEM-Export-
+ * Supabase.md): SheetDb.gs không còn đọc/ghi qua SpreadsheetApp cho dữ liệu
+ * nghiệp vụ nữa — nó gọi PostgREST qua UrlFetchApp. `test/pg-shim.js` giả lập
+ * đúng giao thức đó trên một CSDL trong bộ nhớ, dựng từ CÙNG fixture dạng
+ * bảng (header + rows) như trước — chỉ đổi TẦNG ĐỌC, không đổi dữ liệu mẫu.
+ * SpreadsheetApp vẫn còn CẦN cho đúng một việc: NhipTim (getSpreadsheet_,
+ * chuyển sang gas/LegacySheet.gs) — cơ chế báo cáo "job chạy lúc mấy giờ"
+ * chưa chuyển khỏi Sheet, xem ghi chú đầu LegacySheet.gs.
  *
  * Ba điều được chốt ở đây:
  *   1. PHÂN QUYỀN — người của một đơn vị không thấy số của đơn vị khác, kể cả
@@ -26,14 +36,18 @@ process.env.TZ = 'Asia/Ho_Chi_Minh';
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { taoCSDLGia, taoUrlFetchAppGia, kiemTraKhopBanGoc } = require('./pg-shim');
 
 const GAS = path.join(__dirname, '..', 'gas');
+kiemTraKhopBanGoc(path.join(GAS, 'SheetDb.gs'));
+
 // NhipTim.gs có trong danh sách vì getPortalStats_ gọi docNhipTim_ thật. Nạp
 // mã thật chứ không stub — đó là tính chất của bài test này, và nó vừa chứng
 // minh giá trị của mình: thêm dòng nhipTim vào payload mà quên file này thì
 // cổng gọi getPortalStats sẽ nổ ReferenceError cho MỌI người dùng, và bài test
-// đỏ ngay tại chỗ.
-const FILES = ['Config.gs', 'Utils.gs', 'SheetDb.gs', 'Queries.gs', 'Auth.gs',
+// đỏ ngay tại chỗ. LegacySheet.gs có trong danh sách vì getSpreadsheet_ đã dời
+// sang đó khi tách khỏi SheetDb.gs.
+const FILES = ['Config.gs', 'Utils.gs', 'SheetDb.gs', 'LegacySheet.gs', 'Queries.gs', 'Auth.gs',
   'NhipTim.gs', 'PortalStats.gs'];
 
 let pass = 0, fail = 0;
@@ -42,28 +56,21 @@ function check(ten, dieuKien, them) {
   else { fail++; console.log('  FAIL ' + ten + (them === undefined ? '' : '  -> ' + JSON.stringify(them))); }
 }
 
-/** Bảng tính giả: chỉ đủ phần readTable_ dùng tới. */
-function bangTinh(tabs) {
+/** Bảng tính giả CHỈ cho NhipTim (tab JobHeartbeat) — không còn phục vụ dữ
+ *  liệu nghiệp vụ, tab nào khác luôn trả null đúng như Sheet thật khi chưa
+ *  tạo tab đó. */
+function bangTinhChoNhipTim() {
   return {
-    getSheetByName: (n) => {
-      if (!tabs[n]) return null;
-      return {
-        getDataRange: () => ({ getValues: () => tabs[n] }),
-        getRange: () => ({
-          setValues: () => {},
-          setFontWeight: () => ({ setBackground: () => ({ setFontColor: () => {} }) })
-        }),
-        setFrozenRows: () => {},
-        appendRow: () => {}
-      };
-    },
+    getSheetByName: () => null,
     insertSheet: (n) => { throw new Error('Bài test không cho tạo tab mới: ' + n); }
   };
 }
 
 function nap(tabs) {
+  const db = taoCSDLGia(tabs);
   const sandbox = {
-    SpreadsheetApp: { openById: () => bangTinh(tabs) },
+    UrlFetchApp: taoUrlFetchAppGia(db),
+    SpreadsheetApp: { openById: () => bangTinhChoNhipTim() },
     Utilities: {
       formatDate: (d, tz, f) => {
         const p = (x) => String(x).padStart(2, '0');
@@ -73,17 +80,27 @@ function nap(tabs) {
       getUuid: () => 'uuid-' + Math.random().toString(36).slice(2)
     },
     Session: { getScriptTimeZone: () => 'Asia/Ho_Chi_Minh' },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null, setProperty: () => {} }) },
+    PropertiesService: {
+      getScriptProperties: () => ({
+        getProperty: (k) => {
+          if (k === 'SUPABASE_URL') return 'https://gia.supabase.co';
+          if (k === 'SUPABASE_SERVICE_ROLE_KEY') return 'khoa-gia';
+          return null;
+        },
+        setProperty: () => {}
+      })
+    },
     CacheService: { getScriptCache: () => ({ get: () => null, put: () => {} }) },
     Logger: { log: () => {} },
     console, JSON, Math, Date, String, Number, Object, Array, RegExp, Error,
-    isFinite, isNaN, parseInt, parseFloat
+    isFinite, isNaN, parseInt, parseFloat, encodeURIComponent, decodeURIComponent
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   FILES.forEach((f) => {
     vm.runInContext(fs.readFileSync(path.join(GAS, f), 'utf8'), sandbox, { filename: f });
   });
+  sandbox.__db = db;
   return sandbox;
 }
 

@@ -121,15 +121,13 @@ function adminReportSharedSkus(tuThang) {
   if (!tuThang) tuThang = prepThangHienTai_();
   var out = [];
 
-  var table = readTable_(SHEETS.PRODUCTS);
-  var iSku = table.idx.sku_code, iCh = table.idx.default_channel;
   var kenhCua = {}, coTrongFC = {};
-  for (var i = 0; i < table.rows.length; i++) {
-    var ma = sopMa_(table.rows[i][iSku]);
-    if (!ma) continue;
+  readObjects_(SHEETS.PRODUCTS).forEach(function (p) {
+    var ma = sopMa_(p.sku_code);
+    if (!ma) return;
     coTrongFC[ma] = true;
-    kenhCua[ma] = String(table.rows[i][iCh] || '').trim();
-  }
+    kenhCua[ma] = String(p.default_channel || '').trim();
+  });
 
   // --- SKU dùng chung: xét toàn bộ lịch sử, vì đó là bản chất sản phẩm ---
   var het = prepQuetNguon_('');
@@ -189,20 +187,15 @@ function adminReportSharedSkus(tuThang) {
  */
 function adminClearChannelForShared(apply) {
   var ng = prepQuetNguon_('');
-  var table = readTable_(SHEETS.PRODUCTS);
-  var iSku = table.idx.sku_code, iCh = table.idx.default_channel;
-  if (iSku === undefined || iCh === undefined) {
-    throw new Error('Sheet Products thiếu cột sku_code hoặc default_channel.');
-  }
 
   var canSua = [];
-  for (var i = 0; i < table.rows.length; i++) {
-    var ma = sopMa_(table.rows[i][iSku]);
-    if (!ma) continue;
-    var ch = String(table.rows[i][iCh] || '').trim();
-    if (!ch) continue;
-    if (ng.oem[ma] && ng.xk[ma]) canSua.push({ row: i, ma: ma, ch: ch });
-  }
+  readObjects_(SHEETS.PRODUCTS).forEach(function (p) {
+    var ma = sopMa_(p.sku_code);
+    if (!ma) return;
+    var ch = String(p.default_channel || '').trim();
+    if (!ch) return;
+    if (ng.oem[ma] && ng.xk[ma]) canSua.push({ sku: p.sku_code, ma: ma, ch: ch });
+  });
 
   if (!apply) {
     Logger.log('CHẠY THỬ — sẽ để trống kênh cho ' + canSua.length + ' mã dùng chung:');
@@ -215,9 +208,9 @@ function adminClearChannelForShared(apply) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    canSua.forEach(function (x) {
-      writeRowPatch_(SHEETS.PRODUCTS, table, x.row, { default_channel: '' });
-    });
+    upsertRows_(SHEETS.PRODUCTS, ['sku_code'], canSua.map(function (x) {
+      return { sku_code: x.sku, default_channel: '' };
+    }));
   } finally {
     lock.releaseLock();
   }
@@ -258,7 +251,7 @@ function adminAddMissingSkus(tuThang, apply) {
       sku_code: ma,
       name: ng.ten[ma] || ('SKU ' + ma),
       short_name: '',
-      product_group_code: '',
+      product_group_code: null,
       product_group_name: '',
       technology: '',
       default_channel: (ng.oem[ma] && ng.xk[ma]) ? '' : (ng.oem[ma] ? 'OEM' : 'XK'),

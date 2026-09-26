@@ -8,28 +8,29 @@
 // XÁC THỰC BẰNG PIN
 // ---------------------------------------------------------------------
 
+/**
+ * Tra người dùng theo id HOẶC email, không phân biệt hoa thường — dịch
+ * thẳng vòng lặp thủ công cũ thành 1 filter OR của PostgREST.
+ */
+function pgFindUserByIdOrEmail_(key) {
+  var rows = pgFetch_('get', pgTable_(SHEETS.USERS) + '?select=*&or=(' +
+    'id.ilike.' + encodeURIComponent(key) + ',' +
+    'email.ilike.' + encodeURIComponent(key) + ')');
+  return (rows && rows[0]) || null;
+}
+
 function login_(userId, pin) {
   var key = String(userId || '').trim().toLowerCase();
   if (!key || !pin) throw new Error('Cần nhập mã người dùng và mã PIN.');
 
   return runExclusive_(function () {
-    var table = readTable_(SHEETS.USERS);
-    var rowIndex = -1;
-
-    for (var i = 0; i < table.rows.length; i++) {
-      var id = String(table.rows[i][table.idx.id] || '').trim().toLowerCase();
-      var email = String(table.rows[i][table.idx.email] || '').trim().toLowerCase();
-      if (id === key || email === key) { rowIndex = i; break; }
-    }
+    var user = pgFindUserByIdOrEmail_(key);
 
     // Thông báo cố tình chung chung để không lộ mã người dùng nào có thật
-    if (rowIndex < 0) {
+    if (!user) {
       logAuth_(key, 'login_failed', 'không tìm thấy người dùng');
       throw new Error('Mã người dùng hoặc PIN không đúng.');
     }
-
-    var row = table.rows[rowIndex];
-    var user = rowToObject_(table.headers, row);
 
     if (String(user.is_active) === '0' || String(user.is_active).toLowerCase() === 'false') {
       throw new Error('Tài khoản đã bị vô hiệu hoá. Liên hệ quản trị hệ thống.');
@@ -52,7 +53,7 @@ function login_(userId, pin) {
         patch.locked_until = new Date(Date.now() + LOCK_DURATION_MS).toISOString();
         patch.failed_attempts = 0;
       }
-      writeRowPatch_(SHEETS.USERS, table, rowIndex, patch);
+      patchByKey_(SHEETS.USERS, 'id', user.id, patch);
       logAuth_(user.id, 'login_failed', 'lần sai thứ ' + failed);
 
       if (failed >= MAX_FAILED_ATTEMPTS) {
@@ -64,9 +65,9 @@ function login_(userId, pin) {
     }
 
     // Đăng nhập thành công
-    writeRowPatch_(SHEETS.USERS, table, rowIndex, {
+    patchByKey_(SHEETS.USERS, 'id', user.id, {
       failed_attempts: 0,
-      locked_until: '',
+      locked_until: null,
       last_login: new Date().toISOString()
     });
 
@@ -242,16 +243,14 @@ function changeMyPin_(session, currentPin, newPin) {
     throw new Error('Đổi PIN tại cổng VHKD — một PIN dùng chung cho cả ba app.');
   }
   validatePinFormat_(newPin);
-  var table = readTable_(SHEETS.USERS);
-  var rowIndex = findRowIndex_(table, 'id', session.userId);
-  if (rowIndex < 0) throw new Error('Không tìm thấy tài khoản.');
+  var user = findOne_(SHEETS.USERS, 'id', session.userId);
+  if (!user) throw new Error('Không tìm thấy tài khoản.');
 
-  var user = rowToObject_(table.headers, table.rows[rowIndex]);
   if (!verifyPin_(currentPin, user.pin_hash)) {
     throw new Error('PIN hiện tại không đúng.');
   }
 
-  writeRowPatch_(SHEETS.USERS, table, rowIndex, { pin_hash: makePinRecord_(newPin) });
+  patchByKey_(SHEETS.USERS, 'id', session.userId, { pin_hash: makePinRecord_(newPin) });
   logAuth_(session.userId, 'pin_changed', 'tự đổi');
   return { message: 'Đã đổi PIN thành công.' };
 }
@@ -266,14 +265,13 @@ function setUserPin_(session, userId, newPin) {
   }
   validatePinFormat_(newPin);
 
-  var table = readTable_(SHEETS.USERS);
-  var rowIndex = findRowIndex_(table, 'id', userId);
-  if (rowIndex < 0) throw new Error('Không tìm thấy người dùng: ' + userId);
+  var user = findOne_(SHEETS.USERS, 'id', userId);
+  if (!user) throw new Error('Không tìm thấy người dùng: ' + userId);
 
-  writeRowPatch_(SHEETS.USERS, table, rowIndex, {
+  patchByKey_(SHEETS.USERS, 'id', userId, {
     pin_hash: makePinRecord_(newPin),
     failed_attempts: 0,
-    locked_until: ''
+    locked_until: null
   });
   logAuth_(session.userId, 'pin_reset', 'đặt lại PIN cho ' + userId);
   return { message: 'Đã đặt PIN mới cho ' + userId };
