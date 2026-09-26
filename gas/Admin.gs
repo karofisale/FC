@@ -341,6 +341,92 @@ function adminMoveProductChannel(fromChannel, toChannel, apply) {
 }
 
 /**
+ * Vá NGƯỢC những chu kỳ đã tạo TRƯỚC KHI có tính năng tự nạp sẵn 3 tháng
+ * đầu từ chu kỳ trước (seedThangDauTuChuKyTruoc_, Mutations.gs, thêm
+ * 27/09/2026 @69) — bản version W0 của chúng đã tạo xong, nên tính năng mới
+ * không tự áp dụng ngược lại được, bảng vẫn trống dù chu kỳ trước đã có số.
+ *
+ * Chỉ THÊM dòng còn thiếu, KHÔNG đụng dòng đã có — an toàn chạy lại nhiều
+ * lần, và an toàn với version đã có người nhập tay một phần (chỉ bù đúng
+ * phần còn thiếu, không ghi đè số đã nhập).
+ *
+ * Mặc định CHẠY THỬ — in ra sẽ vá bao nhiêu dòng ở bao nhiêu version mà
+ * không ghi gì. Ghi thật: adminBackfillSeedThangDau_(true)
+ */
+function adminBackfillSeedThangDau_(apply) {
+  var cycles = readObjects_(SHEETS.CYCLES);
+  var toInsert = [];
+  var affectedVersions = {};
+  var now = new Date().toISOString();
+
+  cycles.forEach(function (cycle) {
+    var baseMonth = normalizeMonth_(cycle.base_month);
+    if (!baseMonth) return;
+
+    var versions = getVersions_(cycle.id);
+    var w0 = versions.filter(function (v) { return Number(v.update_week) === 0; })[0];
+    if (!w0) return;
+
+    var thangTruoc = dichThang_(baseMonth, -1);
+    var chuKyTruoc = cycles.filter(function (c) {
+      return String(c.business_unit_code) === String(cycle.business_unit_code)
+        && normalizeMonth_(c.base_month) === thangTruoc;
+    })[0];
+    if (!chuKyTruoc) return;
+
+    var cacBanTruoc = getVersions_(chuKyTruoc.id);
+    var banMoiNhat = cacBanTruoc[cacBanTruoc.length - 1];
+    if (!banMoiNhat) return;
+
+    var baThangDau = [baseMonth, dichThang_(baseMonth, 1), dichThang_(baseMonth, 2)];
+    var nguon = readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', banMoiNhat.id)
+      .filter(function (l) { return baThangDau.indexOf(normalizeMonth_(l.forecast_month)) >= 0; });
+    if (!nguon.length) return;
+
+    var daCo = {};
+    readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', w0.id).forEach(function (l) {
+      daCo[l.sku_code + '|' + normalizeMonth_(l.forecast_month)] = true;
+    });
+
+    var thieu = nguon.filter(function (l) {
+      return !daCo[l.sku_code + '|' + normalizeMonth_(l.forecast_month)];
+    });
+    if (!thieu.length) return;
+
+    affectedVersions[w0.id] = (affectedVersions[w0.id] || 0) + thieu.length;
+    thieu.forEach(function (l) {
+      toInsert.push({
+        id: Utilities.getUuid(),
+        version_id: w0.id,
+        sku_code: l.sku_code,
+        forecast_month: normalizeMonth_(l.forecast_month),
+        quantity: Number(l.quantity) || 0,
+        note: l.note || '',
+        updated_at: now,
+        updated_by: 'admin-backfill'
+      });
+    });
+  });
+
+  var soVersion = Object.keys(affectedVersions).length;
+  if (!apply) {
+    Logger.log('CHẠY THỬ — sẽ vá ' + toInsert.length + ' dòng ở ' + soVersion + ' version. Chưa ghi gì.');
+    Logger.log('Ghi thật: adminBackfillSeedThangDau_(true)');
+    return { versions: soVersion, rows: toInsert.length };
+  }
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    if (toInsert.length) appendObjects_(SHEETS.MONTHLY_LINES, toInsert);
+  } finally {
+    lock.releaseLock();
+  }
+  Logger.log('Đã vá ' + toInsert.length + ' dòng ở ' + soVersion + ' version.');
+  return { versions: soVersion, rows: toInsert.length };
+}
+
+/**
  * Đặt / đổi PIN cho một tài khoản. Chạy trực tiếp trong editor:
  *   adminSetPin('gt2', '246810')
  * PIN không được lưu dạng thô ở bất kỳ đâu. Hash không phụ thuộc vào

@@ -32,7 +32,7 @@ const { taoCSDLGia, taoUrlFetchAppGia, kiemTraKhopBanGoc } = require('./pg-shim'
 const GAS = path.join(__dirname, '..', 'gas');
 kiemTraKhopBanGoc(path.join(GAS, 'SheetDb.gs'));
 
-const FILES = ['Config.gs', 'Utils.gs', 'SheetDb.gs', 'Queries.gs', 'Auth.gs', 'Mutations.gs'];
+const FILES = ['Config.gs', 'Utils.gs', 'SheetDb.gs', 'Queries.gs', 'Auth.gs', 'Mutations.gs', 'Admin.gs'];
 
 let pass = 0, fail = 0;
 function check(ten, dieuKien, them) {
@@ -92,6 +92,7 @@ function nap(tabs) {
       })
     },
     CacheService: { getScriptCache: () => ({ get: () => null, put: () => {} }) },
+    LockService: { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {}, tryLock: () => true }) },
     Logger: { log: () => {} },
     console, JSON, Math, Date, String, Number, Object, Array, RegExp, Error,
     isFinite, isNaN, parseInt, parseFloat, encodeURIComponent, decodeURIComponent
@@ -223,6 +224,48 @@ console.log('\n5. seedThangDauTuChuKyTruoc_ — chu kỳ mới tự nạp 3 thá
   check('không nổ lỗi dù chưa có chu kỳ nào trước đó', loiDauTien === null, loiDauTien && loiDauTien.message);
   const dongDauTien = g2.readObjectsWhere_('MonthlyForecastLines', 'version_id', dauTien.initialVersionId);
   check('không có dòng nào được nạp (không có nguồn)', dongDauTien.length === 0, dongDauTien);
+}
+
+console.log('\n7. adminBackfillSeedThangDau_ — vá ngược version tạo TRƯỚC KHI có tính năng tự nạp (bug thật KRF-India 28/09/2026)');
+{
+  const g = nap(duLieuGoc());
+
+  // Chu kỳ tháng 9 (KRF-India), CÓ số liệu thật ở tháng 9/10/11.
+  const thang9 = g.createCycle_(bienTap, { businessUnitCode: 'GT2', baseMonth: '2026-09' });
+  g.saveMonthlyLines_(bienTap, thang9.initialVersionId, [
+    { skuCode: '1001', forecastMonth: '2026-09', quantity: 5 },
+    { skuCode: '1001', forecastMonth: '2026-10', quantity: 15 },
+    { skuCode: '1001', forecastMonth: '2026-11', quantity: 25 }
+  ], false);
+
+  // Mô phỏng ĐÚNG tình huống thật: chu kỳ tháng 10 đã được tạo (createCycle_
+  // của bản NÀY sẽ tự nạp — xoá sạch để giả lập "đã tạo TRƯỚC KHI có tính
+  // năng nạp", tức version rỗng y hệt các version tạo trước @69).
+  const thang10 = g.createCycle_(bienTap, { businessUnitCode: 'GT2', baseMonth: '2026-10' });
+  const truocKhiVa = g.readObjectsWhere_('MonthlyForecastLines', 'version_id', thang10.initialVersionId);
+  check('(dàn cảnh) tự nạp đã hoạt động — xoá đi để giả lập version cũ rỗng', truocKhiVa.length > 0, truocKhiVa);
+  g.deleteRowsByKeys_('MonthlyForecastLines', ['version_id', 'sku_code', 'forecast_month'],
+    truocKhiVa.map((l) => ({ version_id: l.version_id, sku_code: l.sku_code, forecast_month: l.forecast_month })));
+  const rongThat = g.readObjectsWhere_('MonthlyForecastLines', 'version_id', thang10.initialVersionId);
+  check('version tháng 10 giờ rỗng, giống hệt tình huống thật', rongThat.length === 0, rongThat);
+
+  const thu = g.adminBackfillSeedThangDau_();
+  check('chạy thử: báo đúng 2 dòng cần vá (10, 11 — không phải 09)', thu.rows === 2, thu);
+  const sauThu = g.readObjectsWhere_('MonthlyForecastLines', 'version_id', thang10.initialVersionId);
+  check('chạy thử KHÔNG ghi gì', sauThu.length === 0, sauThu);
+
+  const that = g.adminBackfillSeedThangDau_(true);
+  check('ghi thật: đúng 2 dòng', that.rows === 2, that);
+  const sauThat = g.readObjectsWhere_('MonthlyForecastLines', 'version_id', thang10.initialVersionId);
+  const theoThang = {};
+  sauThat.forEach((l) => { theoThang[l.forecast_month] = Number(l.quantity); });
+  check('tháng 10 = 15 (vá đúng từ chu kỳ 9)', theoThang['2026-10-01'] === 15, theoThang);
+  check('tháng 11 = 25', theoThang['2026-11-01'] === 25, theoThang);
+
+  const lanHai = g.adminBackfillSeedThangDau_(true);
+  check('chạy lại lần 2: không còn gì để vá (an toàn, không tạo trùng)', lanHai.rows === 0, lanHai);
+  const sauLanHai = g.readObjectsWhere_('MonthlyForecastLines', 'version_id', thang10.initialVersionId);
+  check('vẫn đúng 2 dòng, không nhân đôi', sauLanHai.length === 2, sauLanHai);
 }
 
 console.log('\n' + pass + ' đạt, ' + fail + ' hỏng');

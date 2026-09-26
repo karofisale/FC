@@ -32,12 +32,14 @@ export default function CycleBar({
 
   const cycleApproved = selectedCycle?.status === 'approved' || selectedCycle?.status === 'locked';
 
-  // Đổi đơn vị không unmount component này (cùng 1 CycleBar, chỉ đổi props)
-  // nên lỗi "đã tồn tại" của đơn vị vừa rời đi cứ treo mãi trên đơn vị mới,
-  // trông như app báo nhầm đơn vị đang chọn.
+  // Đổi đơn vị, đổi chu kỳ hoặc đổi bản cập nhật đang chọn KHÔNG unmount
+  // component này (cùng 1 CycleBar, chỉ đổi props) — nên lỗi của lần thao tác
+  // trước (vd "Chu kỳ ... đã tồn tại" từ một lần bấm "Mở chu kỳ" thất bại) cứ
+  // treo mãi trên màn hình dù người dùng đã chuyển sang xem chu kỳ/bản khác,
+  // trông như app đang báo nhầm cho lựa chọn hiện tại.
   useEffect(() => {
     setError(null);
-  }, [currentBU]);
+  }, [currentBU, selectedCycle?.id, selectedVersion?.id]);
 
   const createCycle = async () => {
     setError(null);

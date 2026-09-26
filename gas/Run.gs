@@ -49,6 +49,22 @@ function run_supabase_ghiThat() {
   return migrateGhiThat_();
 }
 
+/* ==================================================================
+ * VÁ NGƯỢC — nạp 3 tháng đầu còn thiếu cho các chu kỳ tạo TRƯỚC KHI có
+ * tính năng tự nạp sẵn (adminBackfillSeedThangDau_, Admin.gs). Chỉ THÊM
+ * dòng thiếu, không đụng dòng đã có — an toàn chạy lại nhiều lần.
+ * ================================================================== */
+
+/** Chỉ đọc + đếm sẽ vá bao nhiêu dòng, KHÔNG ghi gì. Chạy TRƯỚC, soát log. */
+function run_vaSeedThangDau_xemTruoc() {
+  return adminBackfillSeedThangDau_();
+}
+
+/** Ghi thật. */
+function run_vaSeedThangDau_ghiThat() {
+  return adminBackfillSeedThangDau_(true);
+}
+
 
 /* ==================================================================
  * GIÁ BÁN TRUNG BÌNH — đồng bộ từ số bán thật của OEM và Xuất khẩu
