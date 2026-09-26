@@ -23,7 +23,7 @@ export const KAROFI_APPS = [
     nhan: 'OEM',
     href: '/OEM/',
     mo_ta: 'Đơn hàng, doanh thu và công nợ kênh OEM.',
-    api: 'https://script.google.com/macros/s/AKfycbwKe1b7gUOnp9gPF_q6jlzTFIrD3DOtkFM8oMQf41D1iXGrEwmYElWZeupCNG-Szy7DfQ/exec'
+    api: 'https://zzbnxyvjpiuhxauagbgh.supabase.co/functions/v1/oem-api'
   },
   {
     key: 'EXPORT',
