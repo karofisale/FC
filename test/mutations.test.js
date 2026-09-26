@@ -189,5 +189,41 @@ console.log('\n4. Vòng đời đầy đủ: lưu số -> gửi duyệt -> phê 
   check('chu kỳ quay lại draft', chuKySauMoLai.status === 'draft', chuKySauMoLai);
 }
 
+console.log('\n5. seedThangDauTuChuKyTruoc_ — chu kỳ mới tự nạp 3 tháng đầu từ chu kỳ liền trước (rolling forecast)');
+{
+  const g = nap(duLieuGoc());
+
+  // Chu kỳ tháng 10 (horizon 4: 10,11,12,01) — số 10/20/30/40 lần lượt.
+  const thang10 = g.createCycle_(bienTap, { businessUnitCode: 'GT2', baseMonth: '2026-10' });
+  g.saveMonthlyLines_(bienTap, thang10.initialVersionId, [
+    { skuCode: '1001', forecastMonth: '2026-10', quantity: 10 },
+    { skuCode: '1001', forecastMonth: '2026-11', quantity: 20 },
+    { skuCode: '1001', forecastMonth: '2026-12', quantity: 30 },
+    { skuCode: '1001', forecastMonth: '2027-01', quantity: 40 }
+  ], false);
+
+  // Chu kỳ tháng 11 — 3 tháng đầu (11,12,01) PHẢI tự có sẵn đúng bằng tháng
+  // 2-4 của chu kỳ 10; tháng thứ 4 (02) hoàn toàn mới, PHẢI để trống.
+  const thang11 = g.createCycle_(bienTap, { businessUnitCode: 'GT2', baseMonth: '2026-11' });
+  const dong = g.readObjectsWhere_('MonthlyForecastLines', 'version_id', thang11.initialVersionId);
+  const theoThang = {};
+  dong.forEach((d) => { theoThang[d.forecast_month] = Number(d.quantity); });
+
+  check('tháng 11 (tháng đầu chu kỳ mới) = 20, lấy từ chu kỳ trước', theoThang['2026-11-01'] === 20, theoThang);
+  check('tháng 12 = 30, lấy từ chu kỳ trước', theoThang['2026-12-01'] === 30, theoThang);
+  check('tháng 01/2027 = 40, lấy từ chu kỳ trước', theoThang['2027-01-01'] === 40, theoThang);
+  check('tháng 02/2027 (tháng thứ 4, hoàn toàn mới) KHÔNG được nạp sẵn', theoThang['2027-02-01'] === undefined, theoThang);
+  check('chỉ đúng 3 dòng được nạp (không thừa)', dong.length === 3, dong);
+
+  console.log('\n6. Chu kỳ ĐẦU TIÊN của một đơn vị (không có chu kỳ trước) — không nổ lỗi, không nạp gì');
+  const g2 = nap(duLieuGoc());
+  let loiDauTien = null, dauTien = null;
+  try { dauTien = g2.createCycle_(bienTap, { businessUnitCode: 'GT2', baseMonth: '2026-10' }); }
+  catch (e) { loiDauTien = e; }
+  check('không nổ lỗi dù chưa có chu kỳ nào trước đó', loiDauTien === null, loiDauTien && loiDauTien.message);
+  const dongDauTien = g2.readObjectsWhere_('MonthlyForecastLines', 'version_id', dauTien.initialVersionId);
+  check('không có dòng nào được nạp (không có nguồn)', dongDauTien.length === 0, dongDauTien);
+}
+
 console.log('\n' + pass + ' đạt, ' + fail + ' hỏng');
 process.exit(fail ? 1 : 0);

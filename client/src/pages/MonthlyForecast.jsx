@@ -7,7 +7,7 @@ import AddProductModal from '../components/AddProductModal';
 // người dùng không bấm "Nhập từ file" mỗi lần vào trang này.
 const ImportForecastModal = React.lazy(() => import('../components/ImportForecastModal'));
 const ImportFromSourceModal = React.lazy(() => import('../components/ImportFromSourceModal'));
-import { Save, Send, Search, Filter, AlertCircle, CheckCircle2, Loader2, ArrowDownToLine, PackagePlus, FileSpreadsheet } from 'lucide-react';
+import { Save, Send, Search, Filter, AlertCircle, CheckCircle2, Loader2, ArrowDownToLine, PackagePlus, FileSpreadsheet, CopyPlus } from 'lucide-react';
 import { monthsOfCycle, monthLabel, weeksOfMonth } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
 
@@ -62,6 +62,14 @@ export default function MonthlyForecast({ currentBU, user }) {
   // Memo hoá để mảng không đổi định danh mỗi lần render — nếu không thì mọi
   // useMemo phụ thuộc vào `months` đều bị tính lại sau từng phím gõ.
   const months = useMemo(() => monthsOfCycle(selectedCycle), [selectedCycle]);
+
+  // Tháng đầu-2-3 của chu kỳ mới đã tự nạp sẵn từ chu kỳ trước (xem
+  // seedThangDauTuChuKyTruoc_ ở backend). Tháng thứ 4 thì chưa từng có ở đâu
+  // — nút "Copy từ tháng" cho người dùng tự chọn nguồn thay vì gõ tay từng dòng.
+  const [copySrcMonth, setCopySrcMonth] = useState('');
+  useEffect(() => {
+    setCopySrcMonth(months.length > 1 ? months[months.length - 2] : '');
+  }, [months]);
   const isEditor = user?.role === 'bu_editor' || user?.role === 'central_admin';
   // Rút lại phê duyệt là quyền của người thẩm định, không phải người lập kế hoạch
   const canReopen = user?.role === 'bu_approver' || user?.role === 'central_admin';
@@ -189,6 +197,29 @@ export default function MonthlyForecast({ currentBU, user }) {
       const next = new Set(prev);
       updates.forEach(({ rowKey, col }) => next.add(`${rowKey}_${col}`));
       return next;
+    });
+  };
+
+  /**
+   * "Copy từ tháng" cho cột tháng CUỐI (tháng thứ 4) — tháng này hoàn toàn
+   * mới, không có nguồn nào để tự nạp sẵn như 3 tháng đầu. Copy TOÀN BỘ
+   * `products`, không chỉ dòng đang lọc, để không âm thầm bỏ sót SKU đang bị
+   * ẩn bởi bộ lọc/tìm kiếm. Chỉ đánh dấu ô "chưa lưu" như gõ tay bình
+   * thường — vẫn phải bấm "Lưu bản thảo" mới thật sự ghi xuống, đúng ý
+   * "populate để sửa tiếp" chứ không phải ghi đè ngay lập tức.
+   */
+  const handleCopyLastMonth = () => {
+    const targetMonth = months[months.length - 1];
+    if (!copySrcMonth || !targetMonth || copySrcMonth === targetMonth) return;
+    const updates = products.map((p) => ({
+      rowKey: p.sku_code,
+      col: targetMonth,
+      value: forecastMap[`${p.sku_code}_${copySrcMonth}`] || 0
+    }));
+    handleCellsChange(updates);
+    setMessage({
+      type: 'success',
+      text: `Đã copy số liệu từ ${monthLabel(copySrcMonth)} sang ${monthLabel(targetMonth)} — bấm "Lưu bản thảo" để lưu.`
     });
   };
 
@@ -671,23 +702,48 @@ export default function MonthlyForecast({ currentBU, user }) {
                 <th className="py-2.5 px-3 border-r border-slate-700 w-28">Mã SKU</th>
                 <th className="py-2.5 px-3 border-r border-slate-700 min-w-[200px]">Tên sản phẩm</th>
                 <th className="py-2.5 px-3 border-r border-slate-700 w-28">Nhóm SP</th>
-                {months.map((m, colIdx) => (
-                  <th key={m} className="py-2.5 px-3 border-r border-slate-700 text-right w-28 bg-blue-900/60">
-                    <div className="flex items-center justify-end gap-1.5">
-                      {monthLabel(m)}
-                      {canWrite && (
-                        <button
-                          type="button"
-                          onClick={() => grid.fillColumnDown(colIdx)}
-                          title="Điền giá trị dòng đầu xuống toàn bộ cột này"
-                          className="p-0.5 rounded hover:bg-blue-800/60"
-                        >
-                          <ArrowDownToLine className="w-3 h-3" />
-                        </button>
+                {months.map((m, colIdx) => {
+                  const isLastMonth = colIdx === months.length - 1;
+                  return (
+                    <th key={m} className="py-2.5 px-3 border-r border-slate-700 text-right w-28 bg-blue-900/60">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {monthLabel(m)}
+                        {canWrite && (
+                          <button
+                            type="button"
+                            onClick={() => grid.fillColumnDown(colIdx)}
+                            title="Điền giá trị dòng đầu xuống toàn bộ cột này"
+                            className="p-0.5 rounded hover:bg-blue-800/60"
+                          >
+                            <ArrowDownToLine className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                      {canWrite && isLastMonth && months.length > 1 && (
+                        <div className="flex items-center justify-end gap-1 mt-1 font-sans normal-case">
+                          <select
+                            value={copySrcMonth}
+                            onChange={(e) => setCopySrcMonth(e.target.value)}
+                            title="Chọn tháng nguồn để copy sang tháng này"
+                            className="bg-blue-950/60 border border-blue-700 rounded px-1 py-0.5 text-[10px] text-white outline-none max-w-[70px]"
+                          >
+                            {months.slice(0, -1).map((mm) => (
+                              <option key={mm} value={mm} className="bg-slate-900 text-white">{monthLabel(mm)}</option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={handleCopyLastMonth}
+                            title="Copy số liệu từ tháng đã chọn sang tháng này (tháng thứ 4, chưa từng có số)"
+                            className="p-0.5 rounded hover:bg-blue-800/60"
+                          >
+                            <CopyPlus className="w-3 h-3" />
+                          </button>
+                        </div>
                       )}
-                    </div>
-                  </th>
-                ))}
+                    </th>
+                  );
+                })}
                 <th className="py-2.5 px-3 text-right w-32 bg-cyan-900/60">TỔNG CHU KỲ</th>
               </tr>
             </thead>

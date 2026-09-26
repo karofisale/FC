@@ -61,6 +61,17 @@ function normalizeMonth_(value) {
   return s;
 }
 
+/** Dịch một mốc tháng (YYYY-MM-...) đi `soThang` tháng — âm là lùi lại. */
+function dichThang_(month, soThang) {
+  var chuan = normalizeMonth_(month);
+  var m = chuan.match(/^(\d{4})-(\d{2})/);
+  if (!m) return chuan;
+  var nam = Number(m[1]), thang = Number(m[2]) + soThang;
+  while (thang < 1) { thang += 12; nam--; }
+  while (thang > 12) { thang -= 12; nam++; }
+  return nam + '-' + ('0' + thang).slice(-2) + '-01';
+}
+
 /**
  * Mã SKU quy về dạng chuẩn trước khi dùng làm khoá.
  *

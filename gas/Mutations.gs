@@ -21,6 +21,49 @@ function versionContext_(versionId) {
   return { version: version, cycle: cycle };
 }
 
+/**
+ * Nạp sẵn số liệu 3 THÁNG ĐẦU của chu kỳ mới, lấy từ bản MỚI NHẤT của chu kỳ
+ * liền trước (cùng đơn vị, tháng bắt đầu lùi đúng 1 tháng) — vì đây là forecast
+ * cuốn chiếu: 3 tháng đầu của chu kỳ mới CHÍNH LÀ tháng 2-4 của chu kỳ trước,
+ * đã có số sẵn ở đó rồi. Tháng thứ 4 (mới hoàn toàn với đơn vị, chưa từng có
+ * số ở đâu) KHÔNG nạp ở đây — người dùng tự bấm "Copy từ tháng" trên giao
+ * diện hoặc nhập tay/nhập file, đúng như yêu cầu chỉ populate 3 tháng đầu.
+ *
+ * Đây chỉ là NẠP SẴN để sửa tay, không phải khoá số: task Nhập từ file/Nhập
+ * từ app vẫn ghi đè toàn bộ (replaceAll) như cũ, không bị ảnh hưởng.
+ */
+function seedThangDauTuChuKyTruoc_(session, bu, baseMonth, versionId) {
+  var thangTruoc = dichThang_(baseMonth, -1);
+  var chuKyTruoc = readObjects_(SHEETS.CYCLES).filter(function (c) {
+    return String(c.business_unit_code) === String(bu) && normalizeMonth_(c.base_month) === thangTruoc;
+  })[0];
+  if (!chuKyTruoc) return 0; // Chu kỳ đầu tiên của đơn vị — không có gì để nạp.
+
+  var cacBan = getVersions_(chuKyTruoc.id);
+  var banMoiNhat = cacBan[cacBan.length - 1];
+  if (!banMoiNhat) return 0;
+
+  var baThangDau = [baseMonth, dichThang_(baseMonth, 1), dichThang_(baseMonth, 2)];
+  var nguon = readObjectsWhere_(SHEETS.MONTHLY_LINES, 'version_id', banMoiNhat.id)
+    .filter(function (l) { return baThangDau.indexOf(normalizeMonth_(l.forecast_month)) >= 0; });
+  if (!nguon.length) return 0;
+
+  var now = new Date().toISOString();
+  appendObjects_(SHEETS.MONTHLY_LINES, nguon.map(function (l) {
+    return {
+      id: Utilities.getUuid(),
+      version_id: versionId,
+      sku_code: l.sku_code,
+      forecast_month: normalizeMonth_(l.forecast_month),
+      quantity: Number(l.quantity) || 0,
+      note: l.note || '',
+      updated_at: now,
+      updated_by: session.userId
+    };
+  }));
+  return nguon.length;
+}
+
 function createCycle_(session, p) {
   assertRole_(session, ['bu_editor', 'central_admin']);
   var bu = p.businessUnitCode || session.bu;
@@ -73,6 +116,7 @@ function createCycle_(session, p) {
     }]);
     logAuth_(session.userId, 'cycle_repaired_missing_version',
       existing.id + ': tạo lại version W0 còn thiếu (chu kỳ mồ côi do lỗi ghi trước đó)');
+    seedThangDauTuChuKyTruoc_(session, bu, baseMonth, versionIdVa_);
     return {
       cycle: existing,
       initialVersionId: versionIdVa_
@@ -104,6 +148,8 @@ function createCycle_(session, p) {
     is_final: 1,
     created_at: now
   }]);
+
+  seedThangDauTuChuKyTruoc_(session, bu, baseMonth, versionId);
 
   return {
     cycle: findOne_(SHEETS.CYCLES, 'id', cycleId),
