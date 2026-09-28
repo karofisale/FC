@@ -31,7 +31,7 @@ export const KAROFI_APPS = [
     nhan: 'Xuất khẩu',
     href: '/export/pi-app.html',
     mo_ta: 'Lập PI, sinh chứng từ và theo dõi lô hàng xuất khẩu.',
-    api: 'https://script.google.com/macros/s/AKfycbxGn0bRwcl94jkxWCa6o_ONkdJm9IrxapT3PoNCSILN-HHLinoFIZQ4GBx8--MowF_S/exec'
+    api: 'https://zzbnxyvjpiuhxauagbgh.supabase.co/functions/v1/export-api'   // cắt luồng Export 29/09/2026
   }
 ];
 
