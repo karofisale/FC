@@ -13,8 +13,10 @@
  */
 
 var PREP_OEM_SHEET_ID = '1lSeQyfHmd-H0s7Qu7n9b8LAJ3Deap9hHFLEKf6F0Cnk';
-var PREP_OPS2026_ID   = '1fDUB6oqyMisV4NxId4JyGhmizgucit8zOdI38fBRZHA';
-var PREP_HUB_ID       = '16kDRbTffeSFSxwAZPCCpXGODUByEquCchnkqs1kyFrc';
+// Cắt luồng Export 29/09/2026: CẢ HAI trỏ BẢN SOI (1 file, đủ tab Details/PITotal/PIDetails/Clients/Dashboard, giữ
+// thứ tự cột cũ, ghi đè mỗi đêm từ Postgres). ExportSystem / Operation2026 cũ đã đóng băng.
+var PREP_OPS2026_ID   = '1fJjYeP6bFisUNVL7b6YCtd4Uz6Jql6kGX116CmVYyvA';
+var PREP_HUB_ID       = '1fJjYeP6bFisUNVL7b6YCtd4Uz6Jql6kGX116CmVYyvA';
 
 /** Mã hàng LUÔN ép chuỗi: getValues() trả mã toàn chữ số (1001050029) dạng
  *  number, so number với chuỗi thì không mã nào khớp và báo cáo sẽ nói dối. */

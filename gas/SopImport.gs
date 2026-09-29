@@ -21,8 +21,10 @@
  */
 
 var IMP_OEM_SHEET_ID = '1lSeQyfHmd-H0s7Qu7n9b8LAJ3Deap9hHFLEKf6F0Cnk';
-var IMP_OPS2026_ID   = '1fDUB6oqyMisV4NxId4JyGhmizgucit8zOdI38fBRZHA';
-var IMP_HUB_ID       = '16kDRbTffeSFSxwAZPCCpXGODUByEquCchnkqs1kyFrc';
+// Cắt luồng Export 29/09/2026: CẢ HAI trỏ BẢN SOI (1 file, đủ tab Details/PITotal/PIDetails/Clients/Dashboard, giữ
+// thứ tự cột cũ, ghi đè mỗi đêm từ Postgres). ExportSystem / Operation2026 cũ đã đóng băng.
+var IMP_OPS2026_ID   = '1fJjYeP6bFisUNVL7b6YCtd4Uz6Jql6kGX116CmVYyvA';
+var IMP_HUB_ID       = '1fJjYeP6bFisUNVL7b6YCtd4Uz6Jql6kGX116CmVYyvA';
 
 /** Tuần và miền quy ước cho tháng đầu kỳ — giống nhau ở cả OEM và Xuất khẩu. */
 // Giá trị của cột Channel (tab Clients, hub ExportSystem) cho hàng thuộc đơn vị
