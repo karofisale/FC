@@ -96,8 +96,35 @@ export function suaCoSo(state, key, m, v) {
   return thayDong(state, key, (l) => ({ ...l, qtyBase: l.qtyBase.map((x, i) => (i === m ? sl : x)), qty: l.qty.map((x, i) => (i === m ? sl : x)) }));
 }
 
+/** Chỉ số các dòng của cùng một khách (đơn vị một khách: customerKey '' -> mọi dòng). */
+const chiSoCungKhach = (state, customerKey) => state.lines.map((l, i) => (l.customerKey === customerKey ? i : -1)).filter((i) => i >= 0);
+const tenKhach = (state, key) => { const c = state.customers.find((x) => x.key === key); return (c && c.name) || key || 'đơn vị'; };
+
+const laKhachMoi = (state, customerKey) => { const c = state.customers.find((x) => x.key === customerKey); return !!(c && c.isNew); };
+
 /**
- * Sửa SL kế hoạch của một dòng trong một tháng. Đã Apply: các dòng còn lại co giãn để doanh thu tháng KHÔNG ĐỔI (ô bị sửa được khóa).
+ * KHÁCH MỚI (thêm sau khi lập): doanh thu của khách do người dùng nhập SL quyết định, nên phần chênh được BÙ bằng CÁC KHÁCH ĐANG CÓ
+ * (co giãn theo tỷ lệ) để tổng doanh thu tháng không đổi. Các dòng của khách mới khác (và ô đã chốt) giữ nguyên.
+ */
+function suaKhachMoi(state, goc, m, sl) {
+  const mt = mucTieuThang(state)[m];
+  const tatCa = dongBoMay(state, 'qty').map((d, i) => {
+    const l = state.lines[i];
+    const coDinh = l.key !== goc.key && laKhachMoi(state, l.customerKey);          // dòng khách mới khác: không dùng để bù
+    return coDinh ? { ...d, khoa: d.khoa.map((x, j) => (j === m ? true : x)) } : d;
+  });
+  const conBu = tatCa.filter((d) => d.key !== goc.key && !(d.khoa && d.khoa[m]) && so(d.price) > 0);
+  if (!conBu.length) throw new Error('Không còn khách nào đang có (chưa chốt) để bù doanh thu tháng ' + (m + 1) + '.');
+  const r = E.tinhChinhSku(tatCa, m, goc.key, sl, mt);
+  const buoc = E.BUOC_LAM_TRON * Math.min(...conBu.map((d) => so(d.price)));
+  if (Math.abs(r.lech) > Math.max(buoc, 1)) throw new Error('Không bù đủ bằng các khách đang có (lệch ' + Math.round(r.lech) + ' VNĐ).');
+  const lines = state.lines.map((l, i) => ({ ...l, qty: r.dong[i].qty, khoa: l.key === goc.key ? l.khoa.map((x, j) => (j === m ? true : x)) : l.khoa }));
+  return { state: { ...state, lines }, lech: r.lech };
+}
+
+/**
+ * Sửa SL kế hoạch của một dòng trong một tháng. Đã Apply: CHỈ các dòng còn lại CỦA CÙNG KHÁCH co giãn để doanh thu của khách đó trong
+ * tháng KHÔNG ĐỔI (nên tổng tháng và các khách khác cũng không đổi); ô bị sửa được khóa. Khách không còn SKU nào để bù -> báo lỗi.
  * Chưa Apply: sửa thẳng. Trả { state, lech }.
  */
 export function suaKeHoach(state, key, m, v) {
@@ -105,9 +132,26 @@ export function suaKeHoach(state, key, m, v) {
   if (!state.targetApplied) {
     return { state: thayDong(state, key, (l) => ({ ...l, qty: l.qty.map((x, i) => (i === m ? sl : x)) })), lech: 0 };
   }
-  const mt = mucTieuThang(state)[m];
-  const r = E.tinhChinhSku(dongBoMay(state, 'qty'), m, key, sl, mt);
-  const lines = state.lines.map((l, i) => ({ ...l, qty: r.dong[i].qty, khoa: l.key === key ? l.khoa.map((x, j) => (j === m ? true : x)) : l.khoa }));
+  const goc = state.lines.find((l) => l.key === key);
+  if (!goc) throw new Error('Không tìm thấy dòng ' + key);
+  if (laKhachMoi(state, goc.customerKey)) return suaKhachMoi(state, goc, m, sl);
+  const chiSo = chiSoCungKhach(state, goc.customerKey);
+  const tatCa = dongBoMay(state, 'qty');
+  const sub = chiSo.map((i) => tatCa[i]);
+  const tienKhach = E.doanhThuThang(sub, m);                 // doanh thu của khách trong tháng — GIỮ NGUYÊN
+  const bu = sub.filter((d) => d.key !== key && !(d.khoa && d.khoa[m]) && so(d.price) > 0);
+  if (!bu.length && Math.abs(sl * so(goc.priceVnd) - so(goc.qty[m]) * so(goc.priceVnd)) > 0.5) {
+    throw new Error('Khách "' + tenKhach(state, goc.customerKey) + '" không còn SKU nào (chưa chốt) để bù trong tháng ' + (m + 1) + '. Thêm SKU cho khách hoặc đổi Target / tỷ trọng rồi Apply lại.');
+  }
+  const r = E.tinhChinhSku(sub, m, key, sl, tienKhach);
+  const buoc = bu.length ? E.BUOC_LAM_TRON * Math.min(...bu.map((d) => so(d.price))) : 0;
+  if (Math.abs(r.lech) > Math.max(buoc, 1)) {
+    throw new Error('Không bù đủ trong các SKU còn lại của khách "' + tenKhach(state, goc.customerKey) + '" (lệch ' + Math.round(r.lech) + ' VNĐ).');
+  }
+  const qtyMoi = new Map(chiSo.map((i, k) => [i, r.dong[k].qty]));
+  const lines = state.lines.map((l, i) => (qtyMoi.has(i)
+    ? { ...l, qty: qtyMoi.get(i), khoa: l.key === key ? l.khoa.map((x, j) => (j === m ? true : x)) : l.khoa }
+    : l));
   return { state: { ...state, lines }, lech: r.lech };
 }
 
@@ -121,8 +165,15 @@ export function themKhach(state, { key, name, market = '' }) {
   if (state.customers.some((c) => c.key === key)) throw new Error('Khách "' + key + '" đã có trong bảng.');
   return { ...state, customers: state.customers.concat([{ key, name, market, isNew: true }]) };
 }
+/**
+ * Bớt một khách (kèm mọi SKU của khách). Đã Apply: doanh thu từng tháng của khách bị bỏ được PHÂN BỔ LẠI cho các khách còn lại
+ * (co giãn theo tỷ lệ, làm tròn chục) để tổng tháng không đổi. Chưa Apply: chỉ bỏ. Trả { state, lech }.
+ */
 export function xoaKhach(state, key) {
-  return { ...state, customers: state.customers.filter((c) => c.key !== key), lines: state.lines.filter((l) => l.customerKey !== key) };
+  const conLai = { ...state, customers: state.customers.filter((c) => c.key !== key), lines: state.lines.filter((l) => l.customerKey !== key) };
+  if (!state.targetApplied || !conLai.lines.length) return { state: conLai, lech: new Array(12).fill(0) };
+  const r = E.apDungMucTieu(dongBoMay(conLai, 'qty'), doanhThuKeHoach(state));
+  return { state: { ...conLai, lines: conLai.lines.map((l, i) => ({ ...l, qty: r.dong[i].qty })) }, lech: r.lech };
 }
 
 /** Thêm dòng SKU cho một khách. SKU có mã (skuCode) hoặc SKU mới nhập tay (tempSkuId + tên + giá). SL các tháng ban đầu = 0. */
@@ -136,22 +187,45 @@ export function themSku(state, customerKey, { skuCode = '', tempSkuId = '', skuN
   return { ...state, lines: state.lines.concat([dong]), newSkus: moi };
 }
 
-/** Bớt một dòng SKU. Đã Apply: doanh thu bị bỏ được dồn lại cho các dòng còn lại (giữ tổng tháng). Trả { state, lech }. */
+/**
+ * Bớt một dòng SKU. Đã Apply: doanh thu của dòng bị bỏ được dồn lại cho CÁC SKU CÒN LẠI CỦA CÙNG KHÁCH (giữ doanh thu từng tháng của khách).
+ * Khách không còn SKU nào thì doanh thu đó mất (tổng tháng giảm -> cần Apply lại). Trả { state, lech }.
+ */
 export function xoaSku(state, key) {
+  const goc = state.lines.find((l) => l.key === key);
+  if (!goc) return { state, lech: new Array(12).fill(0) };
   const conLai = state.lines.filter((l) => l.key !== key);
-  if (!state.targetApplied || !conLai.length) return { state: { ...state, lines: conLai }, lech: new Array(12).fill(0) };
-  const dt = doanhThuKeHoach(state);
-  const r = E.apDungMucTieu(dongBoMay({ ...state, lines: conLai }, 'qty'), dt);
-  return { state: { ...state, lines: conLai.map((l, i) => ({ ...l, qty: r.dong[i].qty })) }, lech: r.lech };
+  if (!state.targetApplied) return { state: { ...state, lines: conLai }, lech: new Array(12).fill(0) };
+  const cung = state.lines.filter((l) => l.customerKey === goc.customerKey);
+  const muc = NHAN_THANG.map((_, m) => E.doanhThuThang(dongBoMay({ ...state, lines: cung }, 'qty'), m));   // doanh thu khách trước khi bớt
+  const conLaiKhach = cung.filter((l) => l.key !== key);
+  if (!conLaiKhach.length) return { state: { ...state, lines: conLai }, lech: new Array(12).fill(0) };
+  const r = E.apDungMucTieu(dongBoMay({ ...state, lines: conLaiKhach }, 'qty'), muc);
+  const qtyMoi = new Map(conLaiKhach.map((l, i) => [l.key, r.dong[i].qty]));
+  return { state: { ...state, lines: conLai.map((l) => (qtyMoi.has(l.key) ? { ...l, qty: qtyMoi.get(l.key) } : l)) }, lech: r.lech };
 }
 
 /** Xóa hàng loạt mặt hàng nhỏ (máy tổng SL năm < 100, linh kiện < 1000, giá 0). laMay(line) -> boolean. Trả { state, xoa: [dòng bị xóa] }. */
 export function xoaMatHangNho(state, laMay, tuyChon) {
   const bangKey = new Map(state.lines.map((l) => [l.key, l]));
-  const r = E.xoaMatHangNho(dongBoMay(state, 'qty'), (d) => laMay(bangKey.get(d.key)), tuyChon);
-  const qtyMoi = new Map(r.dong.map((d) => [d.key, d.qty]));
-  const lines = state.lines.filter((l) => qtyMoi.has(l.key)).map((l) => ({ ...l, qty: qtyMoi.get(l.key) }));
-  return { state: { ...state, lines }, xoa: r.xoa.map((d) => bangKey.get(d.key)), loi: r.loi };
+  const qtyMoi = new Map(), xoa = [], loi = [];
+  // Làm TỪNG KHÁCH: doanh thu các dòng bị xóa dồn lại cho các SKU còn lại của đúng khách đó (giữ doanh thu từng tháng của khách).
+  const khachCo = Array.from(new Set(state.lines.map((l) => l.customerKey)));
+  khachCo.forEach((ck) => {
+    const cung = state.lines.filter((l) => l.customerKey === ck);
+    const r = E.xoaMatHangNho(dongBoMay({ ...state, lines: cung }, 'qty'), (d) => laMay(bangKey.get(d.key)), tuyChon);
+    r.dong.forEach((d) => qtyMoi.set(d.key, d.qty));
+    r.xoa.forEach((d) => xoa.push(bangKey.get(d.key)));
+    r.loi.forEach((t) => loi.push(t));
+  });
+  let lines = state.lines.filter((l) => qtyMoi.has(l.key)).map((l) => ({ ...l, qty: qtyMoi.get(l.key) }));
+  // Khách bị xóa HẾT dòng: doanh thu của khách đó phân bổ lại cho các khách còn lại (giữ tổng tháng), như khi bớt cả khách.
+  const conLaiKhach = new Set(lines.map((l) => l.customerKey));
+  if (state.targetApplied && lines.length && khachCo.some((ck) => !conLaiKhach.has(ck))) {
+    const r = E.apDungMucTieu(dongBoMay({ ...state, lines }, 'qty'), doanhThuKeHoach(state));
+    lines = lines.map((l, i) => ({ ...l, qty: r.dong[i].qty }));
+  }
+  return { state: { ...state, lines }, xoa, loi };
 }
 /** Quy ước máy: mã SAP bắt đầu bằng "1" (như Export). SKU mã tạm coi là linh kiện. */
 export const laMayMacDinh = (l) => /^1/.test(l.skuCode || '');

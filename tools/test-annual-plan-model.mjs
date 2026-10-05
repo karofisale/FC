@@ -82,7 +82,7 @@ check('thêm SKU có sẵn cho khách mới', sku1.lines.length === 6 && sku1.li
 const sku2 = M.themSku(k1, 'NEW:Gamma', { tempSkuId: 'NEW-1', skuName: 'Máy mới', priceVnd: 7000000 });
 check('thêm SKU mới nhập tay: ghi vào newSkus, dòng dùng mã tạm', sku2.newSkus.length === 1 && sku2.lines[5].tempSkuId === 'NEW-1' && sku2.lines[5].skuCode === '');
 check('SKU trùng trong cùng khách bị chặn', /đã có SKU/.test(loi(() => M.themSku(sku1, 'NEW:Gamma', { skuCode: '2002' }))));
-const xk = M.xoaKhach(sku1, 'NEW:Gamma');
+const xk = M.xoaKhach(sku1, 'NEW:Gamma').state;
 check('xóa khách kéo theo mọi dòng của khách', xk.customers.length === 2 && xk.lines.length === 5);
 const dtTruoc = M.doanhThuKeHoach(ap.state);
 const xs = M.xoaSku(ap.state, 'OEM:ALPHA|2003');
@@ -90,6 +90,60 @@ check('đã Apply: bớt 1 SKU -> doanh thu từng tháng được dồn lại c
   M.doanhThuKeHoach(xs.state).every((v, m) => v <= dtTruoc[m] + 1e-6 && dtTruoc[m] - v < 10 * 1000000 + 1), [dtTruoc, M.doanhThuKeHoach(xs.state)]);
 const nho = M.xoaMatHangNho(ap.state, M.laMayMacDinh, { nguongMay: 1e9, nguongLinhKien: 0 });
 check('xóa hàng loạt nhỏ: máy dưới ngưỡng bị xóa, trả danh sách bị xóa', nho.xoa.length === 2 && nho.xoa.every((l) => /^1/.test(l.skuCode)) && nho.state.lines.length === 3);
+
+console.log('--- bù theo từng khách / khách mới / xóa khách ---');
+{
+  const doanhThuKhach = (st, ck, m) => st.lines.filter((l) => l.customerKey === ck).reduce((a, l) => a + l.qty[m] * l.priceVnd, 0);
+  const dtThang = (st) => M.doanhThuKeHoach(st);
+  const base = ap.state;
+  const m = 4;
+  const r = M.suaKeHoach(base, 'OEM:ALPHA|1001', m, 200);
+  const lech = (a, b) => Math.abs(a - b);
+  check('sửa SKU của khách ALPHA: doanh thu ALPHA trong tháng KHÔNG ĐỔI (lệch < bước), các khách khác KHÔNG ĐỔI chút nào',
+    lech(doanhThuKhach(r.state, 'OEM:ALPHA', m), doanhThuKhach(base, 'OEM:ALPHA', m)) < 10 * 500000 &&
+    r.state.lines.filter((l) => l.customerKey === 'OEM:BETA').every((l, i) => JSON.stringify(l.qty) === JSON.stringify(base.lines.filter((x) => x.customerKey === 'OEM:BETA')[i].qty)),
+    [doanhThuKhach(r.state, 'OEM:ALPHA', m), doanhThuKhach(base, 'OEM:ALPHA', m)]);
+  check('tổng doanh thu tháng vẫn không đổi (lệch < bước)', lech(dtThang(r.state)[m], dtThang(base)[m]) < 10 * 500000);
+
+  // khách chỉ có một SKU: không có SKU nào để bù -> báo lỗi rõ; đặt đúng số cũ thì không sao
+  const mot = { ...base, customers: base.customers.concat([{ key: 'OEM:SOLO', name: 'Solo', market: '', isNew: false }]),
+    lines: base.lines.concat([{ key: 'OEM:SOLO|1001', customerKey: 'OEM:SOLO', skuCode: '1001', tempSkuId: '', skuName: 'Máy', priceVnd: 10000000, qtyBase: new Array(12).fill(10), qty: new Array(12).fill(10), khoa: new Array(12).fill(false) }]) };
+  check('khách chỉ có 1 SKU: sửa SL bị chặn (không có SKU nào để bù), thông báo nêu tên khách', /không còn SKU nào/.test(loi(() => M.suaKeHoach(mot, 'OEM:SOLO|1001', 2, 50))) && /Solo/.test(loi(() => M.suaKeHoach(mot, 'OEM:SOLO|1001', 2, 50))));
+  check('đặt đúng số hiện tại cho khách 1 SKU thì không lỗi', !loi(() => M.suaKeHoach(mot, 'OEM:SOLO|1001', 2, 10)));
+
+  // KHÁCH MỚI: nhập SL -> các khách đang có bù, tổng tháng không đổi, khách đang có co giãn theo tỷ lệ
+  let cs = M.themKhach(base, { key: 'NEW:Gamma', name: 'Gamma' });
+  cs = M.themSku(cs, 'NEW:Gamma', { skuCode: '1001', skuName: 'Máy', priceVnd: 10000000 });
+  const truocTong = dtThang(cs)[m];
+  const kmoi = M.suaKeHoach(cs, 'NEW:Gamma|1001', m, 20);
+  check('khách mới: nhập SL -> doanh thu khách mới đúng (20 × 10 triệu); tổng tháng không đổi (lệch < bước)', doanhThuKhach(kmoi.state, 'NEW:Gamma', m) === 200000000 && lech(dtThang(kmoi.state)[m], truocTong) < 10 * 500000,
+    [doanhThuKhach(kmoi.state, 'NEW:Gamma', m), dtThang(kmoi.state)[m], truocTong]);
+  check('khách mới: các khách đang có đều giảm (bù), không khách nào tăng', ['OEM:ALPHA', 'OEM:BETA'].every((k) => doanhThuKhach(kmoi.state, k, m) < doanhThuKhach(cs, k, m)));
+  check('khách mới: các tháng khác không đổi', [0, 1, 2, 3, 5, 11].every((mm) => dtThang(kmoi.state)[mm] === dtThang(cs)[mm]));
+  const kmoi2 = M.suaKeHoach(kmoi.state, 'NEW:Gamma|1001', m, 40);
+  check('sửa tiếp khách mới (20 -> 40): khách mới 400 triệu, tổng tháng vẫn không đổi', doanhThuKhach(kmoi2.state, 'NEW:Gamma', m) === 400000000 && lech(dtThang(kmoi2.state)[m], truocTong) < 10 * 500000);
+
+  // XÓA KHÁCH: doanh thu phân bổ lại cho khách còn lại, tổng từng tháng không đổi
+  const xk2 = M.xoaKhach(base, 'OEM:BETA');
+  check('xóa hẳn khách BETA (đã Apply): ALPHA nhận phần doanh thu, tổng từng tháng không đổi (lệch < bước), BETA biến mất',
+    xk2.state.customers.length === 1 && xk2.state.lines.every((l) => l.customerKey === 'OEM:ALPHA') &&
+    dtThang(xk2.state).every((v, mm) => lech(v, dtThang(base)[mm]) < 10 * 500000) && doanhThuKhach(xk2.state, 'OEM:ALPHA', m) > doanhThuKhach(base, 'OEM:ALPHA', m), dtThang(xk2.state));
+  check('xóa khách khi chưa Apply: chỉ bỏ (tổng giảm), không co giãn', (() => { const x = M.xoaKhach(s0, 'OEM:BETA').state; return x.lines.length === 3 && x.lines.every((l) => JSON.stringify(l.qty) === JSON.stringify(s0.lines.find((y) => y.key === l.key).qty)); })());
+
+  // BỚT SKU trong khách: dồn lại trong khách
+  const xs2 = M.xoaSku(base, 'OEM:BETA|2002').state;
+  check('bớt 1 SKU của BETA: doanh thu BETA từng tháng giữ (lệch < bước), ALPHA không đổi', M.NHAN_THANG.every((_, mm) => lech(doanhThuKhach(xs2, 'OEM:BETA', mm), doanhThuKhach(base, 'OEM:BETA', mm)) < 10 * 10000000) &&
+    xs2.lines.filter((l) => l.customerKey === 'OEM:ALPHA').every((l) => JSON.stringify(l.qty) === JSON.stringify(base.lines.find((y) => y.key === l.key).qty)));
+  // XÓA HÀNG LOẠT: từng khách
+  const nho2 = M.xoaMatHangNho(base, M.laMayMacDinh, { nguongMay: 1e9, nguongLinhKien: 0 });
+  check('xóa hàng loạt: doanh thu từng khách từng tháng được giữ (lệch < bước), không dồn sang khách khác', M.NHAN_THANG.every((_, mm) => ['OEM:ALPHA', 'OEM:BETA'].every((k) => lech(doanhThuKhach(nho2.state, k, mm), doanhThuKhach(base, k, mm)) < 10 * 1000000)));
+  // khách bị xóa hết dòng bởi xóa hàng loạt: dồn sang khách khác
+  const bm = M.xoaMatHangNho({ ...base, lines: base.lines.filter((l) => l.customerKey === 'OEM:ALPHA' || l.skuCode === '1001') }, M.laMayMacDinh, { nguongMay: 1e9, nguongLinhKien: 0 });
+  check('xóa hàng loạt làm một khách hết dòng: doanh thu khách đó dồn sang khách còn lại (tổng tháng giữ)', (() => {
+    const truoc = { ...base, lines: base.lines.filter((l) => l.customerKey === 'OEM:ALPHA' || l.skuCode === '1001') };
+    return bm.state.lines.every((l) => l.customerKey === 'OEM:ALPHA') && dtThang(bm.state).every((v, mm) => lech(v, dtThang(truoc)[mm]) < 10 * 500000);
+  })());
+}
 
 console.log('--- tổng hợp hiển thị ---');
 const tk = M.tomTatKhach(ap.state), dv = M.tomTatDonVi(ap.state);
