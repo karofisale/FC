@@ -247,13 +247,21 @@ export default function AnnualPlan({ currentBU, user }) {
 
   const nam = new Date().getFullYear();
   const banList = ws?.plans || [];
+  // Nguồn đơn giá theo đơn vị + tỷ giá đã chốt theo phiên bản (bản đang xem; chưa có bản thì tỷ giá hiện tại lúc dựng cơ sở)
+  const fx = (st && st.fxRate) || (ws && ws.baseline && ws.baseline.fxRate) || 0;
+  const taiFx = fx > 0 ? ' — tỷ giá chốt ' + fx.toLocaleString('vi-VN') : '';
+  const ghiChuGia = donVi?.source === 'fc'
+    ? 'Đơn giá = giá đề xuất của Export quy đổi VNĐ' + taiFx + ' (doanh thu theo giá đề xuất, không phải giá bán thực).'
+    : (donVi?.source === 'export'
+      ? 'Đơn giá = giá thực tế trên đơn hàng Export (USD) quy đổi VNĐ' + taiFx + '.'
+      : 'Đơn giá VNĐ theo doanh thu thực hiện.');
   const anhDau = (
     <div className="flex flex-wrap items-center gap-3 mb-4">
       <div>
         <h1 className="text-lg font-black text-slate-900">Kế hoạch năm {year} — {donVi?.name || currentBU}</h1>
         <p className="text-xs text-slate-500">
           {single ? 'Đơn vị một khách: bảng theo SKU.' : 'Bảng doanh thu theo khách (triệu VNĐ), bấm + để xem SKU.'}
-          {' '}Đơn giá VNĐ; tỷ giá Export theo bản đã chốt.
+          {' '}{ghiChuGia}
         </p>
       </div>
       <div className="ml-auto flex flex-wrap items-center gap-2">
