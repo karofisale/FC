@@ -289,6 +289,13 @@ export default function Actuals({ currentBU, user }) {
               </div>
             </div>
 
+            {comparison.annualPlan && (
+              <p className="text-[11px] text-slate-500">
+                Cột tham khảo theo <b className="text-violet-700">Kế hoạch năm ({comparison.annualPlan.refLabel})</b>: tổng {comparison.annualPlan.refTotal.toLocaleString('vi-VN')} cái
+                {!comparison.annualPlan.refIsBase && <> · bản gốc {comparison.annualPlan.baseTotal.toLocaleString('vi-VN')} cái</>}.
+                Chỉ để đối chiếu — không đổi Forecast hay độ lệch.
+              </p>
+            )}
             {comparison.rows.length > 0 && (
               <div className="max-h-52 overflow-y-auto border border-slate-100 rounded-lg">
                 <table className="w-full text-[11px] font-mono">
@@ -297,6 +304,12 @@ export default function Actuals({ currentBU, user }) {
                       <th className="text-left py-1.5 px-2 font-sans font-semibold">SKU</th>
                       <th className="text-left py-1.5 px-2 font-sans font-semibold">Tên SKU</th>
                       <th className="text-right py-1.5 px-2 font-sans font-semibold">FC</th>
+                      {comparison.annualPlan && (
+                        <th className="text-right py-1.5 px-2 font-sans font-semibold text-violet-700" title={'Kế hoạch năm: ' + comparison.annualPlan.refLabel}>KH năm</th>
+                      )}
+                      {comparison.annualPlan && !comparison.annualPlan.refIsBase && (
+                        <th className="text-right py-1.5 px-2 font-sans font-semibold text-slate-500" title="Bản gốc đã duyệt (mốc đo)">KH gốc</th>
+                      )}
                       <th className="text-right py-1.5 px-2 font-sans font-semibold">Thực hiện</th>
                       <th className="text-right py-1.5 px-2 font-sans font-semibold">Lệch</th>
                     </tr>
@@ -307,6 +320,8 @@ export default function Actuals({ currentBU, user }) {
                         <td className="py-1 px-2 font-bold text-slate-800">{r.sku_code}</td>
                         <td className="py-1 px-2 font-sans text-slate-600">{r.product_name && r.product_name !== r.sku_code ? r.product_name : ''}</td>
                         <td className="py-1 px-2 text-right text-slate-700">{r.forecast_qty.toLocaleString('vi-VN')}</td>
+                        {comparison.annualPlan && <td className="py-1 px-2 text-right text-violet-700">{(r.annual_ref_qty || 0).toLocaleString('vi-VN')}</td>}
+                        {comparison.annualPlan && !comparison.annualPlan.refIsBase && <td className="py-1 px-2 text-right text-slate-500">{(r.annual_base_qty || 0).toLocaleString('vi-VN')}</td>}
                         <td className="py-1 px-2 text-right text-blue-700">{r.actual_qty.toLocaleString('vi-VN')}</td>
                         <td className={`py-1 px-2 text-right font-bold ${r.variance_qty > 0 ? 'text-emerald-600' : r.variance_qty < 0 ? 'text-rose-600' : 'text-slate-400'}`}>
                           {r.variance_qty > 0 ? '+' : ''}{r.variance_qty.toLocaleString('vi-VN')}

@@ -7,7 +7,7 @@ import AddProductModal from '../components/AddProductModal';
 // người dùng không bấm "Nhập từ file" mỗi lần vào trang này.
 const ImportForecastModal = React.lazy(() => import('../components/ImportForecastModal'));
 const ImportFromSourceModal = React.lazy(() => import('../components/ImportFromSourceModal'));
-import { Save, Send, Search, Filter, AlertCircle, CheckCircle2, Loader2, ArrowDownToLine, PackagePlus, FileSpreadsheet, CopyPlus } from 'lucide-react';
+import { Save, Send, Search, Filter, AlertCircle, CheckCircle2, Loader2, ArrowDownToLine, PackagePlus, FileSpreadsheet, CopyPlus, Target } from 'lucide-react';
 import { monthsOfCycle, monthLabel, weeksOfMonth } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
 
@@ -221,6 +221,39 @@ export default function MonthlyForecast({ currentBU, user }) {
       type: 'success',
       text: `Đã copy số liệu từ ${monthLabel(copySrcMonth)} sang ${monthLabel(targetMonth)} — bấm "Lưu bản thảo" để lưu.`
     });
+  };
+
+  /**
+   * "Lấy từ kế hoạch năm" cho cột tháng CUỐI (tháng thứ 4, chưa có nguồn nào khác): điền số lượng SKU của tháng đó theo kế hoạch năm ĐÃ DUYỆT
+   * (Final -> điều chỉnh -> gốc), cộng gộp mọi khách của đơn vị. Không chia miền. Chỉ đánh dấu ô "chưa lưu" như gõ tay — vẫn phải bấm "Lưu bản thảo".
+   * SKU không có trong danh mục FC và SKU mã tạm chưa có mã SAP không nạp được -> báo riêng.
+   */
+  const handleLayTuKeHoachNam = async () => {
+    const targetMonth = months[months.length - 1];
+    if (!targetMonth) return;
+    setMessage(null);
+    try {
+      const r = await api.getAnnualPlanForMonth({ bu: currentBU, month: targetMonth });
+      if (!r.found) { setMessage({ type: 'error', text: r.ly || 'Chưa có kế hoạch năm đã duyệt.' }); return; }
+      const coSan = products.some((p) => (forecastMap[`${p.sku_code}_${targetMonth}`] || 0) > 0);
+      if (coSan && !window.confirm(`${monthLabel(targetMonth)} đang có số liệu. Ghi đè TOÀN BỘ cột này bằng kế hoạch năm (${r.plan.label})?`)) return;
+      const theoMa = new Map(r.rows.map((x) => [x.skuCode, x.quantity]));
+      const trongDs = new Set(products.map((p) => p.sku_code));
+      const ngoaiDs = r.rows.filter((x) => !trongDs.has(x.skuCode));
+      handleCellsChange(products.map((p) => ({ rowKey: p.sku_code, col: targetMonth, value: theoMa.get(p.sku_code) || 0 })));
+      const dem = r.rows.length - ngoaiDs.length;
+      const canhBao = [];
+      if (r.khongCoTrongDanhMuc.length) canhBao.push(`${r.khongCoTrongDanhMuc.length} mã không có trong danh mục FC (${r.khongCoTrongDanhMuc.slice(0, 4).map((x) => x.skuCode).join(', ')}${r.khongCoTrongDanhMuc.length > 4 ? '…' : ''})`);
+      if (ngoaiDs.length) canhBao.push(`${ngoaiDs.length} mã không thuộc danh sách SKU của đơn vị này`);
+      if (r.maTam.length) canhBao.push(`${r.maTam.length} SKU mã tạm chưa có mã SAP`);
+      setMessage({
+        type: canhBao.length ? 'error' : 'success',
+        text: `Đã điền ${dem} SKU (${r.tongSoLuong.toLocaleString('vi-VN')} cái) cho ${monthLabel(targetMonth)} từ kế hoạch năm ${r.year} — ${r.plan.label}.`
+          + (canhBao.length ? ' Chưa nạp được: ' + canhBao.join('; ') + '.' : '') + ' Bấm "Lưu bản thảo" để lưu.'
+      });
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message });
+    }
   };
 
   /** Chỉ gửi ô đã sửa. Ném lỗi ra ngoài để nút Gửi duyệt biết mà dừng lại. */
@@ -738,6 +771,14 @@ export default function MonthlyForecast({ currentBU, user }) {
                             className="p-0.5 rounded hover:bg-blue-800/60"
                           >
                             <CopyPlus className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleLayTuKeHoachNam}
+                            title="Lấy số lượng SKU của tháng này từ Kế hoạch năm đã duyệt (cộng gộp mọi khách, không chia miền)"
+                            className="p-0.5 rounded hover:bg-blue-800/60"
+                          >
+                            <Target className="w-3 h-3" />
                           </button>
                         </div>
                       )}

@@ -149,6 +149,8 @@ export const api = {
   submitAnnualPlan: (params) => callGAS('submitAnnualPlan', auth(params)),
   decideAnnualPlan: (params) => callGAS('decideAnnualPlan', auth(params)),
   saveAnnualPlanFinal: (params) => callGAS('saveAnnualPlanFinal', auth(params)),
+  // Số lượng SKU của MỘT tháng theo kế hoạch năm đã duyệt (Final -> điều chỉnh -> gốc) — nút "Lấy từ kế hoạch năm" ở Forecast tháng
+  getAnnualPlanForMonth: (params) => callGAS('getAnnualPlanForMonth', auth(params)),
   // Ghi đè KPI năm của OEM bằng bản kế hoạch đã duyệt (chỉ central_admin)
   applyAnnualPlanToKpi: (params) => callGAS('applyAnnualPlanToKpi', auth(params)),
 
