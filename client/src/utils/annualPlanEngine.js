@@ -388,8 +388,11 @@ export function kiemTraKeHoach(plan) {
       const dongGia = dong.map((l) => ({ price: l.priceVnd, qty: l.qty }));   // doanhThuThang đọc `price`, dòng kế hoạch lưu `priceVnd`
       for (let m = 0; m < 12; m++) {
         const tong = doanhThuThang(dongGia, m);
-        const g = dong.filter((l) => so(l.qty[m]) > 0 && so(l.priceVnd) > 0).map((l) => so(l.priceVnd));
-        const buoc = g.length ? BUOC_LAM_TRON * Math.min(...g) : 0;
+        // Bước làm tròn nhỏ nhất của TỪNG khách rồi cộng lại: sửa SKU / xóa hàng chỉ bù trong từng khách nên độ lệch của các khách cộng dồn
+        // (mỗi khách lệch < bước của khách đó). Với một khách (hoặc Apply toàn đơn vị) bằng đúng bước nhỏ nhất như trước.
+        const giaTheoKhach = new Map();
+        dong.forEach((l) => { if (so(l.qty[m]) > 0 && so(l.priceVnd) > 0) { const k = l.customerKey || ''; giaTheoKhach.set(k, Math.min(giaTheoKhach.has(k) ? giaTheoKhach.get(k) : Infinity, so(l.priceVnd))); } });
+        const buoc = BUOC_LAM_TRON * Array.from(giaTheoKhach.values()).reduce((x, y) => x + y, 0);
         if (Math.abs(mt[m] - tong) > Math.max(buoc, 1)) loi.push('Tháng ' + (m + 1) + ' lệch mục tiêu ' + Math.round(mt[m] - tong) + ' VNĐ (cho phép < ' + Math.round(buoc) + ').');
       }
     }

@@ -100,6 +100,7 @@ check('xóa hàng loạt nhỏ: máy dưới ngưỡng bị xóa, trả danh sá
   check('nhận diện nhóm thanh lý: không phân biệt hoa thường / dấu', ['Hàng thanh lý', 'THANH LÝ tồn kho', 'thanh ly', 'Thanh  Lý'].every(M.laNhomThanhLy) && !['', null, undefined, 'Máy lọc', 'Linh kiện OEM'].some(M.laNhomThanhLy));
   const tlNhom = M.xoaMatHangNho(ap.state, M.laMayMacDinh, { xoaNho: false, xoaGiaKhong: false, xoaTheo: M.laThanhLyTheoNhom({ '2003': 'Hàng thanh lý' }) });
   check('xóa hàng thanh lý theo skuNhom: chỉ SKU thuộc nhóm thanh lý (mọi khách) bị xóa', tlNhom.xoa.length > 0 && tlNhom.xoa.every((l) => l.skuCode === '2003') && tlNhom.state.lines.every((l) => l.skuCode !== '2003'));
+  check('sau xóa hàng loạt (bù từng khách) kế hoạch vẫn qua kiểm tra: không có lỗi lệch mục tiêu để Gửi duyệt', M.kiemTra(tlNhom.state).loi.length === 0, M.kiemTra(tlNhom.state).loi);
   const tl = M.xoaMatHangNho(ap.state, M.laMayMacDinh, { xoaNho: false, xoaGiaKhong: false, xoaTheo: (l) => l.skuCode === '2003' });
   check('xóa theo tiêu chí tùy biến (xoaTheo nhận dòng kế hoạch): chỉ dòng khớp bị xóa', tl.xoa.length > 0 && tl.xoa.every((l) => l.skuCode === '2003') && tl.state.lines.every((l) => l.skuCode !== '2003'));
 }

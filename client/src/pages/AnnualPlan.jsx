@@ -396,7 +396,7 @@ export default function AnnualPlan({ currentBU, user }) {
                 </select>
               )}
               <button className={nutPhu} onClick={() => setDlg({ loai: 'sku' })} disabled={!single && !themVaoKhach}><Plus className="w-3.5 h-3.5" /> Thêm SKU</button>
-              <button className={nutPhu} onClick={() => setDlg({ loai: 'nho' })}><Trash2 className="w-3.5 h-3.5" /> Xóa mặt hàng nhỏ</button>
+              <button className={nutPhu} onClick={() => setDlg({ loai: 'nho' })}><Trash2 className="w-3.5 h-3.5" /> Xóa hàng loạt</button>
               <span className="text-[11px] text-slate-400 ml-auto">Sửa SL một SKU: các SKU còn lại của cùng khách tự co giãn để doanh thu khách đó không đổi. Khách mới / bớt khách: các khách khác bù để tổng tháng không đổi.</span>
             </div>
           )}

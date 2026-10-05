@@ -277,7 +277,7 @@ export function skuTrongBang(state) {
 
 export function kiemTra(state) {
   return E.kiemTraKeHoach({ shares: state.shares, targetRevenueVnd: state.targetRevenueVnd, targetApplied: state.targetApplied,
-    lines: state.lines.map((l) => ({ key: l.key, skuCode: l.skuCode, tempSkuId: l.tempSkuId, priceVnd: l.priceVnd, qty: l.qty })) });
+    lines: state.lines.map((l) => ({ key: l.key, customerKey: l.customerKey, skuCode: l.skuCode, tempSkuId: l.tempSkuId, priceVnd: l.priceVnd, qty: l.qty })) });
 }
 
 /** Nội dung gửi API lưu. */

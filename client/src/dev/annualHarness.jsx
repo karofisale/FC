@@ -55,7 +55,7 @@ const tre = (v) => new Promise((r) => setTimeout(() => r(v), 80));
 api.getAnnualPlanWorkspace = async (p) => {
   const ds = kho.plans.filter((x) => x.planYear === Number(p.year));
   let chon = p.planId ? ds.find((x) => x.id === p.planId) : (ds.find((x) => x.status === 'draft' || x.status === 'submitted') || ds.find((x) => x.status === 'approved') || ds.find((x) => x.status === 'rejected'));
-  return tre({ unit: donVi, year: Number(p.year), plans: ds.map(tomTat), plan: chon ? sao(chon) : null, baseline: !chon ? dungCoSo() : null });
+  return tre({ unit: donVi, year: Number(p.year), plans: ds.map(tomTat), plan: chon ? sao(chon) : null, baseline: !chon ? dungCoSo() : null, skuNhom: { [SKU[1][0]]: 'Hàng thanh lý', [SKU[0][0]]: 'Máy lọc' } });
 };
 api.createAnnualPlan = async (p) => {
   const dangCo = kho.plans.find((x) => x.kind === (p.kind || 'base') && ['draft', 'submitted', 'rejected'].includes(x.status));
