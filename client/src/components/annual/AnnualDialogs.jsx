@@ -125,7 +125,7 @@ export function AddSkuDialog({ customerName, existing, onAdd, onClose }) {
  * Xóa hàng loạt: các tiêu chí là Ô TICK ĐỘC LẬP (dòng thỏa bất kỳ tiêu chí nào đang bật thì bị xóa), xem trước số dòng sẽ bị xóa.
  *  - Mặt hàng nhỏ: máy / linh kiện có tổng SL năm dưới ngưỡng (chỉnh được).
  *  - Hàng FOC: đơn giá = 0 hoặc tổng giá (doanh thu cả năm của dòng) = 0.
- *  - Hàng thanh lý (chỉ đơn vị OEM, khi có coThanhLy): SKU thuộc nhóm "thanh lý" (Category trong Products hoặc nhóm trong doanh thu).
+ *  - Hàng thanh lý (chỉ đơn vị OEM, khi có coThanhLy): SKU thuộc nhóm "thanh lý" (Nhóm sản phẩm trong Products hoặc trong doanh thu).
  */
 export function MassDeleteDialog({ preview, onConfirm, onClose, coThanhLy = false, soThanhLy = 0 }) {
   const [xoaNho, setXoaNho] = useState(true);
@@ -147,7 +147,7 @@ export function MassDeleteDialog({ preview, onConfirm, onClose, coThanhLy = fals
       {coThanhLy && (
         <>
           <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 mb-1"><input type="checkbox" checked={xoaThanhLy} onChange={(e) => setXoaThanhLy(e.target.checked)} /> Xóa hàng thanh lý</label>
-          <p className="text-[11px] text-slate-500 pl-6 mb-3">Hàng thanh lý = SKU có Category (nhóm sản phẩm) chứa "thanh lý" trong Products của OEM, hoặc nhóm trong dữ liệu doanh thu khi Products chưa có. Hiện có {soThanhLy} dòng thuộc nhóm này.</p>
+          <p className="text-[11px] text-slate-500 pl-6 mb-3">Hàng thanh lý = SKU có "Nhóm sản phẩm" chứa "thanh lý" trong Products của OEM, hoặc "Nhóm sản phẩm" trong dữ liệu doanh thu khi Products chưa có. Hiện có {soThanhLy} dòng thuộc nhóm này.</p>
         </>
       )}
       <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs">
