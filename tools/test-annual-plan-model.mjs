@@ -101,6 +101,24 @@ check('xóa hàng loạt nhỏ: máy dưới ngưỡng bị xóa, trả danh sá
   const tlNhom = M.xoaMatHangNho(ap.state, M.laMayMacDinh, { xoaNho: false, xoaGiaKhong: false, xoaTheo: M.laThanhLyTheoNhom({ '2003': 'Hàng thanh lý' }) });
   check('xóa hàng thanh lý theo skuNhom: chỉ SKU thuộc nhóm thanh lý (mọi khách) bị xóa', tlNhom.xoa.length > 0 && tlNhom.xoa.every((l) => l.skuCode === '2003') && tlNhom.state.lines.every((l) => l.skuCode !== '2003'));
   check('sau xóa hàng loạt (bù từng khách) kế hoạch vẫn qua kiểm tra: không có lỗi lệch mục tiêu để Gửi duyệt', M.kiemTra(tlNhom.state).loi.length === 0, M.kiemTra(tlNhom.state).loi);
+  // Giữ cơ sở gốc của dòng đã xóa: Cơ sở năm + tăng trưởng không co lại; thêm lại đúng dòng thì không đếm hai lần
+  const coSoTruoc = M.doanhThuCoSo(ap.state);
+  const sau = [['xóa hàng loạt', tlNhom.state], ['xóa SKU', M.xoaSku(ap.state, ap.state.lines[0].key).state], ['xóa khách', M.xoaKhach(ap.state, ap.state.lines[0].customerKey).state]];
+  sau.forEach(([ten, s2]) => check('giữ cơ sở gốc sau ' + ten + ': doanh thu cơ sở từng tháng KHÔNG đổi, ghi nhận phần đã xóa', M.doanhThuCoSo(s2).every((v, i) => Math.abs(v - coSoTruoc[i]) < 1) && M.tomTatDaXoa(s2).soDong > 0 && M.tomTatDonVi(s2).baseTotal === M.tomTatDonVi(ap.state).baseTotal));
+  const g0 = ap.state.lines[0];
+  const xs0 = M.xoaSku(ap.state, g0.key).state;
+  const lai = M.themSku(xs0, g0.customerKey, { skuCode: g0.skuCode, skuName: g0.skuName, priceVnd: g0.priceVnd });
+  check('thêm lại đúng dòng đã xóa: trả số cơ sở gốc về dòng, bỏ khỏi danh sách đã xóa, cơ sở tổng không đổi', lai.removedLines.length === 0 && lai.lines.find((l) => l.key === g0.key).qtyBase.every((v, i) => v === g0.qtyBase[i]) && M.doanhThuCoSo(lai).every((v, i) => Math.abs(v - coSoTruoc[i]) < 1));
+  check('khách còn trong bảng giữ cơ sở của dòng đã xóa (tăng trưởng theo khách so cơ sở gốc)', (() => {
+    const kt = M.tomTatKhach(xs0).find((c) => c.key === g0.customerKey), kg = M.tomTatKhach(ap.state).find((c) => c.key === g0.customerKey);
+    return Math.abs(kt.baseTotal - kg.baseTotal) < 1;
+  })());
+  check('payload gửi API có removedLines; dữ liệu cũ không có removedLines vẫn chạy', M.chuyenSangPayload(xs0).removedLines.length === 1 && M.doanhThuCoSo({ ...ap.state, removedLines: undefined }).length === 12);
+  check('Target theo tăng trưởng tính trên cơ sở gốc (đã gồm dòng đã xóa)', (() => {
+    const s3 = M.moKhoaTarget(xs0);
+    const t = M.datTarget(s3, { tangTruongPct: 10 });
+    return Math.abs(t.targetRevenueVnd - M.tong(coSoTruoc) * 1.1) < 1;
+  })());
   const tl = M.xoaMatHangNho(ap.state, M.laMayMacDinh, { xoaNho: false, xoaGiaKhong: false, xoaTheo: (l) => l.skuCode === '2003' });
   check('xóa theo tiêu chí tùy biến (xoaTheo nhận dòng kế hoạch): chỉ dòng khớp bị xóa', tl.xoa.length > 0 && tl.xoa.every((l) => l.skuCode === '2003') && tl.state.lines.every((l) => l.skuCode !== '2003'));
 }

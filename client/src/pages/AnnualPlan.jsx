@@ -102,6 +102,7 @@ export default function AnnualPlan({ currentBU, user }) {
   const kiemTra = useMemo(() => (st ? M.kiemTra(st) : { loi: [], canhBao: [] }), [st]);
   const trangThaiMt = useMemo(() => (st ? M.trangThaiMucTieu(st) : { lech: null, canApplyLai: false }), [st]);
   const coSoTong = useMemo(() => (st ? M.tong(M.doanhThuCoSo(st)) : 0), [st]);
+  const daXoa = useMemo(() => (st ? M.tomTatDaXoa(st) : { soDong: 0, base: 0 }), [st]);
 
   const baoLoi = (e) => setMsg({ loai: 'loi', text: e.message || String(e) });
   const capNhat = (fn) => {
@@ -358,7 +359,12 @@ export default function AnnualPlan({ currentBU, user }) {
           <div className="flex flex-wrap items-end gap-3 text-xs">
             <div>
               <div className="text-[11px] font-semibold text-slate-600 mb-1">Cơ sở năm {year - 1} (Tỷ VNĐ)</div>
-              <div className="font-mono font-bold text-sm text-slate-900 py-1.5">{M.dinhDangTy(coSoTong)}</div>
+              <div className="font-mono font-bold text-sm text-slate-900 pt-1.5">{M.dinhDangTy(coSoTong)}</div>
+              {daXoa.soDong > 0 && (
+                <div className="text-[10px] text-slate-500 pb-1" title="Các dòng đã xóa vẫn được giữ trong cơ sở để so sánh tăng trưởng và tính Target">
+                  gồm {M.dinhDangTy(daXoa.base)} của {daXoa.soDong} dòng đã xóa
+                </div>
+              )}
             </div>
             <div>
               <label className="text-[11px] font-semibold text-slate-600 mb-1 block">Target Grow Rate (%)</label>

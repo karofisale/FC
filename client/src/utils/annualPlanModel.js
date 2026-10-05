@@ -3,7 +3,9 @@
  * Dựa trên bộ máy tính annualPlanEngine.js (bản sao nguyên văn của fc-api/pure-annual-plan.js). Thiết kế: Projects/De-xuat-Ke-hoach-Nam-FC-2026-10.md.
  *
  * `state` = đúng hình dạng API trả về: { shares[12], targetGrowthPct, targetRevenueVnd, targetApplied, baselineLastMonth,
- *   customers: [{key, name, market, isNew}], lines: [{key, customerKey, skuCode, tempSkuId, skuName, priceVnd, qtyBase[12], qty[12], khoa[12]}], newSkus }.
+ *   customers: [{key, name, market, isNew}], lines: [{key, customerKey, skuCode, tempSkuId, skuName, priceVnd, qtyBase[12], qty[12], khoa[12]}], newSkus,
+ *   removedLines: [{key, customerKey, skuCode, tempSkuId, skuName, priceVnd, qtyBase[12]}] }.
+ * removedLines = các dòng ĐÃ XÓA: giữ số cơ sở gốc để "Cơ sở năm" + tăng trưởng + Target vẫn tính trên cơ sở ban đầu (không co lại sau khi xóa).
  * Mọi hàm trả state MỚI (không sửa đầu vào).
  */
 
@@ -19,8 +21,24 @@ export function dongBoMay(state, field = 'qty') {
   return state.lines.map((l) => ({ key: l.key, price: l.priceVnd, qty: l[field], khoa: l.khoa || khoaMacDinh() }));
 }
 
+/** Dòng đã xóa (còn giữ số cơ sở gốc). */
+export const dongDaXoa = (state) => state.removedLines || [];
+/** Thêm các dòng vừa bị xóa vào danh sách "đã xóa" (giữ số cơ sở gốc; trùng khóa thì lấy bản mới; bỏ dòng cơ sở bằng 0). */
+function themDaXoa(state, dongBiXoa) {
+  const m = new Map(dongDaXoa(state).map((l) => [l.key, l]));
+  dongBiXoa.forEach((l) => {
+    if (tong(l.qtyBase || []) > 0) m.set(l.key, { key: l.key, customerKey: l.customerKey, skuCode: l.skuCode, tempSkuId: l.tempSkuId || '', skuName: l.skuName, priceVnd: l.priceVnd, qtyBase: l.qtyBase.slice() });
+  });
+  return Array.from(m.values());
+}
+/** Tổng quan phần đã xóa: số dòng + doanh thu cơ sở cả năm của chúng (để ghi chú ở giao diện). */
+export function tomTatDaXoa(state) {
+  const ds = dongDaXoa(state);
+  return { soDong: ds.length, base: ds.reduce((s, l) => s + tong(l.qtyBase || []) * so(l.priceVnd), 0) };
+}
+
 export function doanhThuCoSo(state) {
-  const d = dongBoMay(state, 'qtyBase');
+  const d = dongBoMay(state, 'qtyBase').concat(dongDaXoa(state).map((l) => ({ key: l.key, price: l.priceVnd, qty: l.qtyBase, khoa: khoaMacDinh() })));
   return NHAN_THANG.map((_, m) => E.doanhThuThang(d, m));
 }
 export function doanhThuKeHoach(state) {
@@ -170,7 +188,8 @@ export function themKhach(state, { key, name, market = '' }) {
  * (co giãn theo tỷ lệ, làm tròn chục) để tổng tháng không đổi. Chưa Apply: chỉ bỏ. Trả { state, lech }.
  */
 export function xoaKhach(state, key) {
-  const conLai = { ...state, customers: state.customers.filter((c) => c.key !== key), lines: state.lines.filter((l) => l.customerKey !== key) };
+  const conLai = { ...state, customers: state.customers.filter((c) => c.key !== key), lines: state.lines.filter((l) => l.customerKey !== key),
+    removedLines: themDaXoa(state, state.lines.filter((l) => l.customerKey === key)) };
   if (!state.targetApplied || !conLai.lines.length) return { state: conLai, lech: new Array(12).fill(0) };
   const r = E.apDungMucTieu(dongBoMay(conLai, 'qty'), doanhThuKeHoach(state));
   return { state: { ...conLai, lines: conLai.lines.map((l, i) => ({ ...l, qty: r.dong[i].qty })) }, lech: r.lech };
@@ -181,10 +200,12 @@ export function themSku(state, customerKey, { skuCode = '', tempSkuId = '', skuN
   const key = customerKey + '|' + (skuCode || tempSkuId);
   if (state.lines.some((l) => l.key === key)) throw new Error('Khách này đã có SKU ' + (skuCode || tempSkuId) + '.');
   const q = (qty && qty.length === 12 ? qty : new Array(12).fill(0)).map((v) => Math.max(0, Math.round(so(v))));
-  const dong = { key, customerKey, skuCode, tempSkuId, skuName, priceVnd: Math.max(0, so(priceVnd)), qtyBase: new Array(12).fill(0), qty: q, khoa: khoaMacDinh() };
+  // Thêm lại đúng dòng đã xóa trước đó: trả số cơ sở gốc về dòng (không đếm hai lần)
+  const daXoa = dongDaXoa(state).find((l) => l.key === key);
+  const dong = { key, customerKey, skuCode, tempSkuId, skuName, priceVnd: Math.max(0, so(priceVnd)), qtyBase: daXoa ? daXoa.qtyBase.slice() : new Array(12).fill(0), qty: q, khoa: khoaMacDinh() };
   const moi = tempSkuId && !state.newSkus.some((n) => n.tempId === tempSkuId)
     ? state.newSkus.concat([{ tempId: tempSkuId, name: skuName, description: '', priceVnd: dong.priceVnd }]) : state.newSkus;
-  return { ...state, lines: state.lines.concat([dong]), newSkus: moi };
+  return { ...state, lines: state.lines.concat([dong]), newSkus: moi, removedLines: dongDaXoa(state).filter((l) => l.key !== key) };
 }
 
 /**
@@ -195,14 +216,15 @@ export function xoaSku(state, key) {
   const goc = state.lines.find((l) => l.key === key);
   if (!goc) return { state, lech: new Array(12).fill(0) };
   const conLai = state.lines.filter((l) => l.key !== key);
-  if (!state.targetApplied) return { state: { ...state, lines: conLai }, lech: new Array(12).fill(0) };
+  const daXoa = themDaXoa(state, [goc]);
+  if (!state.targetApplied) return { state: { ...state, lines: conLai, removedLines: daXoa }, lech: new Array(12).fill(0) };
   const cung = state.lines.filter((l) => l.customerKey === goc.customerKey);
   const muc = NHAN_THANG.map((_, m) => E.doanhThuThang(dongBoMay({ ...state, lines: cung }, 'qty'), m));   // doanh thu khách trước khi bớt
   const conLaiKhach = cung.filter((l) => l.key !== key);
-  if (!conLaiKhach.length) return { state: { ...state, lines: conLai }, lech: new Array(12).fill(0) };
+  if (!conLaiKhach.length) return { state: { ...state, lines: conLai, removedLines: daXoa }, lech: new Array(12).fill(0) };
   const r = E.apDungMucTieu(dongBoMay({ ...state, lines: conLaiKhach }, 'qty'), muc);
   const qtyMoi = new Map(conLaiKhach.map((l, i) => [l.key, r.dong[i].qty]));
-  return { state: { ...state, lines: conLai.map((l) => (qtyMoi.has(l.key) ? { ...l, qty: qtyMoi.get(l.key) } : l)) }, lech: r.lech };
+  return { state: { ...state, lines: conLai.map((l) => (qtyMoi.has(l.key) ? { ...l, qty: qtyMoi.get(l.key) } : l)), removedLines: daXoa }, lech: r.lech };
 }
 
 /**
@@ -230,7 +252,7 @@ export function xoaMatHangNho(state, laMay, tuyChon) {
     const r = E.apDungMucTieu(dongBoMay({ ...state, lines }, 'qty'), doanhThuKeHoach(state));
     lines = lines.map((l, i) => ({ ...l, qty: r.dong[i].qty }));
   }
-  return { state: { ...state, lines }, xoa, loi };
+  return { state: { ...state, lines, removedLines: themDaXoa(state, xoa) }, xoa, loi };
 }
 /** Nhóm sản phẩm có phải HÀNG THANH LÝ không: so khớp "thanh lý" không phân biệt hoa thường / dấu (Category trong Products OEM hoặc nhóm trong doanh thu). */
 export const laNhomThanhLy = (nhom) => /thanh\s*ly/.test(String(nhom || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase());
@@ -252,6 +274,11 @@ export function tomTatKhach(state) {
     c.base = cong12(c.base, l.qtyBase.map((q) => so(q) * so(l.priceVnd)));
     c.plan = cong12(c.plan, l.qty.map((q) => so(q) * so(l.priceVnd)));
     c.lines.push(l);
+  });
+  // Dòng đã xóa vẫn tính vào cơ sở của khách còn trong bảng (khách đã bị bớt hẳn thì chỉ còn trong tổng đơn vị)
+  dongDaXoa(state).forEach((l) => {
+    const c = th.get(l.customerKey);
+    if (c) c.base = cong12(c.base, l.qtyBase.map((q) => so(q) * so(l.priceVnd)));
   });
   return Array.from(th.values()).map((c) => ({ ...c, baseTotal: tong(c.base), planTotal: tong(c.plan),
     growth: c.plan.map((v, m) => (c.base[m] > 0 ? v / c.base[m] - 1 : null)), growthYear: tong(c.base) > 0 ? tong(c.plan) / tong(c.base) - 1 : null }));
@@ -285,7 +312,7 @@ export function chuyenSangPayload(state) {
   return { targetGrowthPct: state.targetGrowthPct, targetRevenueVnd: state.targetRevenueVnd, targetApplied: !!state.targetApplied, shares: state.shares,
     note: state.note || '', fxRate: state.fxRate === undefined ? null : state.fxRate, customers: state.customers,
     lines: state.lines.map((l) => ({ key: l.key, customerKey: l.customerKey, skuCode: l.skuCode, tempSkuId: l.tempSkuId, skuName: l.skuName, priceVnd: l.priceVnd,
-      qtyBase: l.qtyBase, qty: l.qty, khoa: l.khoa || khoaMacDinh() })), newSkus: state.newSkus };
+      qtyBase: l.qtyBase, qty: l.qty, khoa: l.khoa || khoaMacDinh() })), newSkus: state.newSkus, removedLines: dongDaXoa(state) };
 }
 
 /* ------------------------------ Định dạng ------------------------------ */
