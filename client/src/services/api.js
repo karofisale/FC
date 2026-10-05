@@ -141,6 +141,15 @@ export const api = {
   getFcVsActual: (bu, month) => callGAS('getFcVsActual', auth({ bu, month })),
   saveActuals: (rows) => callGAS('saveActuals', auth({ rows })),
 
+  // ----- kế hoạch năm (05/10/2026) -----
+  getAnnualPlanWorkspace: (params) => callGAS('getAnnualPlanWorkspace', auth(params)),
+  listAnnualPlans: (params) => callGAS('listAnnualPlans', auth(params)),
+  createAnnualPlan: (params) => callGAS('createAnnualPlan', auth(params)),
+  saveAnnualPlan: (params) => callGAS('saveAnnualPlan', auth(params)),
+  submitAnnualPlan: (params) => callGAS('submitAnnualPlan', auth(params)),
+  decideAnnualPlan: (params) => callGAS('decideAnnualPlan', auth(params)),
+  saveAnnualPlanFinal: (params) => callGAS('saveAnnualPlanFinal', auth(params)),
+
   // ----- tài khoản -----
   changeMyPin: (currentPin, newPin) => callGAS('changeMyPin', auth({ currentPin, newPin })),
   setUserPin: (userId, newPin) => callGAS('setUserPin', auth({ userId, newPin }))

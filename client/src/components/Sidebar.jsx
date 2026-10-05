@@ -8,6 +8,7 @@ import {
   HelpCircle,
   FileSpreadsheet,
   TrendingUp,
+  Target,
   Download,
   PanelLeftClose,
   PanelLeftOpen
@@ -42,6 +43,7 @@ export default function Sidebar({ activeTab, setActiveTab, pendingCount = 0, rol
     { id: 'weekly', label: 'Bảng 1: Forecast Tuần/Miền', icon: CalendarRange, badge: null },
     { id: 'approvals', label: 'Quy trình Phê duyệt', icon: CheckCircle2, badge: pendingCount > 0 ? pendingCount : null },
     { id: 'actuals', label: 'Sản lượng Thực hiện', icon: TrendingUp, badge: null },
+    { id: 'annual', label: 'Kế hoạch năm', icon: Target, badge: null },
     { id: 'products', label: 'Danh mục SKU', icon: Package, badge: null },
     ...(role === 'central_admin' || role === 'viewer'
       ? [{ id: 'exports', label: 'Xuất Báo cáo', icon: Download, badge: null }]
