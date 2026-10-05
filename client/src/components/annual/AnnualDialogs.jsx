@@ -125,14 +125,16 @@ export function AddSkuDialog({ customerName, existing, onAdd, onClose }) {
  * Xóa hàng loạt: các tiêu chí là Ô TICK ĐỘC LẬP (dòng thỏa bất kỳ tiêu chí nào đang bật thì bị xóa), xem trước số dòng sẽ bị xóa.
  *  - Mặt hàng nhỏ: máy / linh kiện có tổng SL năm dưới ngưỡng (chỉnh được).
  *  - Hàng FOC: đơn giá = 0 hoặc tổng giá (doanh thu cả năm của dòng) = 0.
+ *  - Hàng thanh lý (chỉ đơn vị OEM, khi có coThanhLy): SKU thuộc nhóm "thanh lý" (Category trong Products hoặc nhóm trong doanh thu).
  */
-export function MassDeleteDialog({ preview, onConfirm, onClose }) {
+export function MassDeleteDialog({ preview, onConfirm, onClose, coThanhLy = false, soThanhLy = 0 }) {
   const [xoaNho, setXoaNho] = useState(true);
   const [nguongMay, setNguongMay] = useState('100');
   const [nguongLk, setNguongLk] = useState('1000');
   const [xoaFoc, setXoaFoc] = useState(true);
-  const opts = { xoaNho, nguongMay: Number(nguongMay) || 0, nguongLinhKien: Number(nguongLk) || 0, xoaFoc, xoaGiaKhong: false };
-  const ds = (xoaNho || xoaFoc) ? preview(opts) : [];
+  const [xoaThanhLy, setXoaThanhLy] = useState(false);
+  const opts = { xoaNho, nguongMay: Number(nguongMay) || 0, nguongLinhKien: Number(nguongLk) || 0, xoaFoc, xoaGiaKhong: false, xoaThanhLy: coThanhLy && xoaThanhLy };
+  const ds = (xoaNho || xoaFoc || opts.xoaThanhLy) ? preview(opts) : [];
   return (
     <Khung title="Xóa hàng loạt" onClose={onClose}>
       <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 mb-2"><input type="checkbox" checked={xoaNho} onChange={(e) => setXoaNho(e.target.checked)} /> Xóa mặt hàng nhỏ</label>
@@ -142,6 +144,12 @@ export function MassDeleteDialog({ preview, onConfirm, onClose }) {
       </div>
       <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 mb-1"><input type="checkbox" checked={xoaFoc} onChange={(e) => setXoaFoc(e.target.checked)} /> Xóa hàng FOC</label>
       <p className="text-[11px] text-slate-500 pl-6 mb-3">FOC = đơn giá bằng 0, hoặc tổng giá (doanh thu cả năm của dòng) bằng 0.</p>
+      {coThanhLy && (
+        <>
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 mb-1"><input type="checkbox" checked={xoaThanhLy} onChange={(e) => setXoaThanhLy(e.target.checked)} /> Xóa hàng thanh lý</label>
+          <p className="text-[11px] text-slate-500 pl-6 mb-3">Hàng thanh lý = SKU có Category (nhóm sản phẩm) chứa "thanh lý" trong Products của OEM, hoặc nhóm trong dữ liệu doanh thu khi Products chưa có. Hiện có {soThanhLy} dòng thuộc nhóm này.</p>
+        </>
+      )}
       <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs">
         Sẽ xóa <b>{ds.length}</b> dòng. Doanh thu của chúng được dồn lại cho các dòng còn lại để tổng từng tháng không đổi.
         {ds.length > 0 && <div className="mt-2 max-h-32 overflow-y-auto font-mono text-[10px] text-slate-500">{ds.slice(0, 40).map((l) => <div key={l.key}>{l.key}</div>)}{ds.length > 40 ? <div>… và {ds.length - 40} dòng nữa</div> : null}</div>}

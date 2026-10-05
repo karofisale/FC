@@ -167,8 +167,11 @@ export default function AnnualPlan({ currentBU, user }) {
     })) { if (kh) setExpanded((e) => new Set(e).add(kh)); }
     setDlg(null);
   };
+  // Hàng thanh lý (đơn vị OEM): tiêu chí tùy biến theo nhóm sản phẩm của SKU (server trả skuNhom)
+  const coThanhLy = !!(ws && ws.unit && ws.unit.source === 'oem');
+  const optsXoa = (opts) => (opts && opts.xoaThanhLy && coThanhLy ? { ...opts, xoaTheo: M.laThanhLyTheoNhom(ws.skuNhom) } : opts);
   const xoaNho = (opts) => {
-    const kq = capNhat((s) => M.xoaMatHangNho(s, M.laMayMacDinh, opts));
+    const kq = capNhat((s) => M.xoaMatHangNho(s, M.laMayMacDinh, optsXoa(opts)));
     setDlg(null);
     if (kq) setMsg({ loai: 'ok', text: 'Đã xóa ' + kq.xoa.length + ' dòng; doanh thu được dồn lại cho các dòng còn lại của từng khách.' });
   };
@@ -421,7 +424,7 @@ export default function AnnualPlan({ currentBU, user }) {
       {dlg?.loai === 'final' && <ReasonDialog title="Lưu bản Final" label="Lý do điều chỉnh (top-down) *" confirmLabel="Lưu Final" onClose={() => { setDlg(null); setBusy(false); }} onConfirm={luuFinal} />}
       {dlg?.loai === 'khach' && <AddCustomerDialog market={donVi?.source === 'export'} onClose={() => setDlg(null)} onAdd={themKhach} />}
       {dlg?.loai === 'sku' && <AddSkuDialog customerName={single ? donVi?.name : (st.customers.find((c) => c.key === themVaoKhach)?.name || themVaoKhach)} existing={M.skuTrongBang(st)} onClose={() => setDlg(null)} onAdd={themSku} />}
-      {dlg?.loai === 'nho' && <MassDeleteDialog preview={(opts) => M.xoaMatHangNho(st, M.laMayMacDinh, opts).xoa} onClose={() => setDlg(null)} onConfirm={xoaNho} />}
+      {dlg?.loai === 'nho' && <MassDeleteDialog coThanhLy={coThanhLy} soThanhLy={st.lines.filter(M.laThanhLyTheoNhom(ws && ws.skuNhom)).length} preview={(opts) => M.xoaMatHangNho(st, M.laMayMacDinh, optsXoa(opts)).xoa} onClose={() => setDlg(null)} onConfirm={xoaNho} />}
     </div>
   );
 }

@@ -232,6 +232,10 @@ export function xoaMatHangNho(state, laMay, tuyChon) {
   }
   return { state: { ...state, lines }, xoa, loi };
 }
+/** Nhóm sản phẩm có phải HÀNG THANH LÝ không: so khớp "thanh lý" không phân biệt hoa thường / dấu (Category trong Products OEM hoặc nhóm trong doanh thu). */
+export const laNhomThanhLy = (nhom) => /thanh\s*ly/.test(String(nhom || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase());
+/** Bộ lọc cho xoaMatHangNho({ xoaTheo }): dòng có SKU thuộc nhóm thanh lý. skuNhom = { sku: nhóm } do server trả về. */
+export const laThanhLyTheoNhom = (skuNhom) => (l) => !!l && !!l.skuCode && laNhomThanhLy((skuNhom || {})[l.skuCode]);
 /** Quy ước máy: mã SAP bắt đầu bằng "1" (như Export). SKU mã tạm coi là linh kiện. */
 export const laMayMacDinh = (l) => /^1/.test(l.skuCode || '');
 

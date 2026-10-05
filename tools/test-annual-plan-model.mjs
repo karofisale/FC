@@ -97,6 +97,9 @@ check('xóa hàng loạt nhỏ: máy dưới ngưỡng bị xóa, trả danh sá
   check('xóa FOC: đơn giá 0 và tổng giá 0 (SL cả năm 0) đều bị xóa, dòng còn lại giữ', r.xoa.length === 2 && r.xoa.some((l) => l.key === foc.lines[0].key) && r.xoa.some((l) => l.key === foc.lines[1].key) && r.state.lines.length === foc.lines.length - 2);
   const r0 = M.xoaMatHangNho(foc, M.laMayMacDinh, { xoaNho: false, xoaGiaKhong: false, xoaFoc: false });
   check('tắt hết tiêu chí: không xóa dòng nào', r0.xoa.length === 0 && r0.state.lines.length === foc.lines.length);
+  check('nhận diện nhóm thanh lý: không phân biệt hoa thường / dấu', ['Hàng thanh lý', 'THANH LÝ tồn kho', 'thanh ly', 'Thanh  Lý'].every(M.laNhomThanhLy) && !['', null, undefined, 'Máy lọc', 'Linh kiện OEM'].some(M.laNhomThanhLy));
+  const tlNhom = M.xoaMatHangNho(ap.state, M.laMayMacDinh, { xoaNho: false, xoaGiaKhong: false, xoaTheo: M.laThanhLyTheoNhom({ '2003': 'Hàng thanh lý' }) });
+  check('xóa hàng thanh lý theo skuNhom: chỉ SKU thuộc nhóm thanh lý (mọi khách) bị xóa', tlNhom.xoa.length > 0 && tlNhom.xoa.every((l) => l.skuCode === '2003') && tlNhom.state.lines.every((l) => l.skuCode !== '2003'));
   const tl = M.xoaMatHangNho(ap.state, M.laMayMacDinh, { xoaNho: false, xoaGiaKhong: false, xoaTheo: (l) => l.skuCode === '2003' });
   check('xóa theo tiêu chí tùy biến (xoaTheo nhận dòng kế hoạch): chỉ dòng khớp bị xóa', tl.xoa.length > 0 && tl.xoa.every((l) => l.skuCode === '2003') && tl.state.lines.every((l) => l.skuCode !== '2003'));
 }
