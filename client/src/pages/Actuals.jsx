@@ -295,6 +295,7 @@ export default function Actuals({ currentBU, user }) {
                   <thead className="bg-slate-50 text-slate-500 sticky top-0">
                     <tr>
                       <th className="text-left py-1.5 px-2 font-sans font-semibold">SKU</th>
+                      <th className="text-left py-1.5 px-2 font-sans font-semibold">Tên SKU</th>
                       <th className="text-right py-1.5 px-2 font-sans font-semibold">FC</th>
                       <th className="text-right py-1.5 px-2 font-sans font-semibold">Thực hiện</th>
                       <th className="text-right py-1.5 px-2 font-sans font-semibold">Lệch</th>
@@ -304,6 +305,7 @@ export default function Actuals({ currentBU, user }) {
                     {comparison.rows.slice(0, 50).map((r) => (
                       <tr key={r.sku_code}>
                         <td className="py-1 px-2 font-bold text-slate-800">{r.sku_code}</td>
+                        <td className="py-1 px-2 font-sans text-slate-600">{r.product_name && r.product_name !== r.sku_code ? r.product_name : ''}</td>
                         <td className="py-1 px-2 text-right text-slate-700">{r.forecast_qty.toLocaleString('vi-VN')}</td>
                         <td className="py-1 px-2 text-right text-blue-700">{r.actual_qty.toLocaleString('vi-VN')}</td>
                         <td className={`py-1 px-2 text-right font-bold ${r.variance_qty > 0 ? 'text-emerald-600' : r.variance_qty < 0 ? 'text-rose-600' : 'text-slate-400'}`}>
