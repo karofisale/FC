@@ -149,6 +149,8 @@ export const api = {
   submitAnnualPlan: (params) => callGAS('submitAnnualPlan', auth(params)),
   decideAnnualPlan: (params) => callGAS('decideAnnualPlan', auth(params)),
   saveAnnualPlanFinal: (params) => callGAS('saveAnnualPlanFinal', auth(params)),
+  // Ghi đè KPI năm của OEM bằng bản kế hoạch đã duyệt (chỉ central_admin)
+  applyAnnualPlanToKpi: (params) => callGAS('applyAnnualPlanToKpi', auth(params)),
 
   // ----- tài khoản -----
   changeMyPin: (currentPin, newPin) => callGAS('changeMyPin', auth({ currentPin, newPin })),

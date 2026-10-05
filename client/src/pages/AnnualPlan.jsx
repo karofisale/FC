@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Save, Send, CheckCircle2, XCircle, Loader2, AlertCircle, Plus, Unlock, Lock, Wand2, Trash2, UserPlus, GitBranch, Crown, Info
+  Save, Send, CheckCircle2, XCircle, Loader2, AlertCircle, Plus, Unlock, Lock, Wand2, Trash2, UserPlus, GitBranch, Crown, Info, Target
 } from 'lucide-react';
 import { api } from '../services/api';
 import { setDirty } from '../services/dirtyState';
@@ -14,6 +14,15 @@ const MAU_TT = {
   draft: 'bg-slate-100 text-slate-700', submitted: 'bg-amber-100 text-amber-800', approved: 'bg-emerald-100 text-emerald-800',
   rejected: 'bg-rose-100 text-rose-800', superseded: 'bg-slate-200 text-slate-500'
 };
+
+/** Câu thông báo kết quả điền ngược KPI năm của OEM (server trả `kpi`); '' nếu không có gì để nói. */
+function thongBaoKpi(kpi) {
+  if (!kpi) return '';
+  if (kpi.trangThai === 'da-dien') return ' Đã điền ngược KPI năm ' + kpi.nam + ' của OEM (' + kpi.soKhach + ' khách, tổng ' + M.dinhDangTy(kpi.tongNam) + ' tỷ).';
+  if (kpi.trangThai === 'giu-ban-co') return ' KPI năm ' + kpi.nam + ' của OEM được GIỮ NGUYÊN (' + kpi.ly + ') — admin có thể bấm "Áp vào KPI OEM" để ghi đè.';
+  if (kpi.trangThai === 'loi') return ' Không điền được KPI OEM: ' + kpi.ly;
+  return '';
+}
 
 /** Năm kế hoạch mặc định: từ tháng 10 lập cho năm sau; trước đó là năm hiện tại (để xem / điều chỉnh). */
 function namMacDinh() {
@@ -188,9 +197,9 @@ export default function AnnualPlan({ currentBU, user }) {
   const quyetDinh = async (decision, comment) => {
     setBusy(true);
     try {
-      await api.decideAnnualPlan({ planId: st.id, decision, comment: comment || '' });
+      const r = await api.decideAnnualPlan({ planId: st.id, decision, comment: comment || '' });
       await nap(st.id);
-      setMsg({ loai: 'ok', text: decision === 'approved' ? 'Đã duyệt kế hoạch.' : 'Đã từ chối kế hoạch.' });
+      setMsg({ loai: 'ok', text: (decision === 'approved' ? 'Đã duyệt kế hoạch.' : 'Đã từ chối kế hoạch.') + thongBaoKpi(r && r.kpi) });
     } catch (e) { baoLoi(e); } finally { setBusy(false); setDlg(null); }
   };
   const luuFinal = async (lyDo) => {
@@ -198,7 +207,7 @@ export default function AnnualPlan({ currentBU, user }) {
     try {
       const r = await api.saveAnnualPlanFinal({ sourcePlanId: st.id, plan: M.chuyenSangPayload(st), reason: lyDo });
       await nap(r.planId);
-      setMsg({ loai: 'ok', text: 'Đã lưu bản Final.' });
+      setMsg({ loai: 'ok', text: 'Đã lưu bản Final.' + thongBaoKpi(r.kpi) });
     } catch (e) { baoLoi(e); } finally { setBusy(false); setDlg(null); }
   };
   const taoMoi = async (kind) => {
@@ -207,6 +216,14 @@ export default function AnnualPlan({ currentBU, user }) {
       const r = await api.createAnnualPlan({ bu: currentBU, year, kind });
       await nap(r.planId);
       setMsg({ loai: 'ok', text: r.existed ? 'Đã có bản đang soạn — mở lại bản đó.' : 'Đã tạo ' + (kind === 'adjust' ? 'bản điều chỉnh' : 'kế hoạch') + ' mới.' });
+    } catch (e) { baoLoi(e); } finally { setBusy(false); }
+  };
+  const apVaoKpi = async () => {
+    if (!window.confirm('Áp bản này vào KPI năm ' + year + ' của OEM? KPI hiện có (kể cả phần đã sửa tay) sẽ bị GHI ĐÈ.')) return;
+    setBusy(true);
+    try {
+      const r = await api.applyAnnualPlanToKpi({ planId: st.id });
+      setMsg({ loai: 'ok', text: 'Đã áp vào KPI.' + thongBaoKpi(r.kpi) });
     } catch (e) { baoLoi(e); } finally { setBusy(false); }
   };
   const vaoCheDoFinal = () => {
@@ -318,6 +335,9 @@ export default function AnnualPlan({ currentBU, user }) {
           {duocDuyet && <button className={nutPhu} onClick={() => setDlg({ loai: 'tuchoi' })} disabled={busy}><XCircle className="w-3.5 h-3.5" /> Từ chối</button>}
           {duocTaoDieuChinh && <button className={nutPhu} onClick={() => taoMoi('adjust')} disabled={busy}><GitBranch className="w-3.5 h-3.5" /> Lập bản điều chỉnh</button>}
           {duocFinal && <button className={nutPhu} onClick={vaoCheDoFinal}><Crown className="w-3.5 h-3.5" /> Điều chỉnh (Final)</button>}
+          {laAdmin && !finalMode && st.status === 'approved' && donVi?.source === 'oem' && (
+            <button className={nutPhu} onClick={apVaoKpi} disabled={busy} title="Ghi đè KPI năm của OEM bằng bản này"><Target className="w-3.5 h-3.5" /> Áp vào KPI OEM</button>
+          )}
         </div>
       </div>
 
