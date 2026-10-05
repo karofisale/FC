@@ -90,6 +90,16 @@ check('đã Apply: bớt 1 SKU -> doanh thu từng tháng được dồn lại c
   M.doanhThuKeHoach(xs.state).every((v, m) => v <= dtTruoc[m] + 1e-6 && dtTruoc[m] - v < 10 * 1000000 + 1), [dtTruoc, M.doanhThuKeHoach(xs.state)]);
 const nho = M.xoaMatHangNho(ap.state, M.laMayMacDinh, { nguongMay: 1e9, nguongLinhKien: 0 });
 check('xóa hàng loạt nhỏ: máy dưới ngưỡng bị xóa, trả danh sách bị xóa', nho.xoa.length === 2 && nho.xoa.every((l) => /^1/.test(l.skuCode)) && nho.state.lines.length === 3);
+{
+  // Tiêu chí độc lập: chỉ FOC (đơn giá 0 HOẶC tổng giá 0), không đụng mặt hàng nhỏ
+  const foc = { ...ap.state, lines: ap.state.lines.map((l, i) => (i === 0 ? { ...l, priceVnd: 0 } : i === 1 ? { ...l, qty: new Array(12).fill(0) } : l)) };
+  const r = M.xoaMatHangNho(foc, M.laMayMacDinh, { xoaNho: false, xoaGiaKhong: false, xoaFoc: true });
+  check('xóa FOC: đơn giá 0 và tổng giá 0 (SL cả năm 0) đều bị xóa, dòng còn lại giữ', r.xoa.length === 2 && r.xoa.some((l) => l.key === foc.lines[0].key) && r.xoa.some((l) => l.key === foc.lines[1].key) && r.state.lines.length === foc.lines.length - 2);
+  const r0 = M.xoaMatHangNho(foc, M.laMayMacDinh, { xoaNho: false, xoaGiaKhong: false, xoaFoc: false });
+  check('tắt hết tiêu chí: không xóa dòng nào', r0.xoa.length === 0 && r0.state.lines.length === foc.lines.length);
+  const tl = M.xoaMatHangNho(ap.state, M.laMayMacDinh, { xoaNho: false, xoaGiaKhong: false, xoaTheo: (l) => l.skuCode === '2003' });
+  check('xóa theo tiêu chí tùy biến (xoaTheo nhận dòng kế hoạch): chỉ dòng khớp bị xóa', tl.xoa.length > 0 && tl.xoa.every((l) => l.skuCode === '2003') && tl.state.lines.every((l) => l.skuCode !== '2003'));
+}
 
 console.log('--- bù theo từng khách / khách mới / xóa khách ---');
 {

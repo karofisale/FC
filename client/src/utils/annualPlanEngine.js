@@ -263,15 +263,22 @@ export function tinhChinhSku(dong, m, keyDong, slMoi, mucTieuThang) {
 /* ------------------------------ Xóa hàng loạt mặt hàng nhỏ (5.6) ------------------------------ */
 
 /**
- * Xóa dòng: máy có tổng SL năm < nguongMay (mặc định 100), linh kiện < nguongLinhKien (1000), dòng giá 0.
- * laMay(l) -> boolean. Phần doanh thu bị cắt được TRẢ LẠI cho các dòng còn lại (giữ tổng từng tháng).
+ * Xóa hàng loạt các dòng "không đáng giữ". Mỗi tiêu chí là MỘT lựa chọn độc lập (dòng thỏa BẤT KỲ tiêu chí nào đang bật thì bị xóa):
+ *  - xoaNho (mặc định bật): máy có tổng SL năm < nguongMay (100), linh kiện < nguongLinhKien (1000). laMay(l) -> boolean.
+ *  - xoaGiaKhong (mặc định bật, giữ hành vi cũ): đơn giá <= 0.
+ *  - xoaFoc: hàng FOC = đơn giá <= 0 HOẶC tổng giá (doanh thu cả năm của dòng) = 0.
+ *  - xoaTheo(l) -> boolean: tiêu chí tùy biến (vd hàng thanh lý đánh dấu ở dòng).
+ * Phần doanh thu bị cắt được TRẢ LẠI cho các dòng còn lại (giữ tổng từng tháng).
  */
-export function xoaMatHangNho(dong, laMay, { nguongMay = 100, nguongLinhKien = 1000, xoaGiaKhong = true } = {}) {
+export function xoaMatHangNho(dong, laMay, { nguongMay = 100, nguongLinhKien = 1000, xoaGiaKhong = true, xoaNho = true, xoaFoc = false, xoaTheo = null } = {}) {
   const giu = [], xoa = [];
   for (const l of dong) {
     const tong = l.qty.reduce((s, v) => s + so(v), 0);
-    const nho = (laMay(l) ? tong < nguongMay : tong < nguongLinhKien) || (xoaGiaKhong && so(l.price) <= 0);
-    (nho ? xoa : giu).push(l);
+    const nho = xoaNho && (laMay(l) ? tong < nguongMay : tong < nguongLinhKien);
+    const giaKhong = xoaGiaKhong && so(l.price) <= 0;
+    const foc = xoaFoc && (so(l.price) <= 0 || tong * so(l.price) === 0);
+    const tuyBien = !!xoaTheo && !!xoaTheo(l);
+    (nho || giaKhong || foc || tuyBien ? xoa : giu).push(l);
   }
   if (!xoa.length) return { dong: dong.map((l) => ({ ...l, qty: l.qty.slice() })), xoa: [], lech: new Array(12).fill(0), loi: [] };
   const mucTieu = []; for (let m = 0; m < 12; m++) mucTieu.push(doanhThuThang(dong, m));

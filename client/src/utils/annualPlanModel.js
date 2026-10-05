@@ -205,9 +205,14 @@ export function xoaSku(state, key) {
   return { state: { ...state, lines: conLai.map((l) => (qtyMoi.has(l.key) ? { ...l, qty: qtyMoi.get(l.key) } : l)) }, lech: r.lech };
 }
 
-/** Xóa hàng loạt mặt hàng nhỏ (máy tổng SL năm < 100, linh kiện < 1000, giá 0). laMay(line) -> boolean. Trả { state, xoa: [dòng bị xóa] }. */
+/**
+ * Xóa hàng loạt theo các tiêu chí độc lập (tuyChon): xoaNho (+ nguongMay / nguongLinhKien), xoaFoc (đơn giá = 0 hoặc tổng giá = 0),
+ * xoaGiaKhong, và xoaTheo(line) cho tiêu chí tùy biến (vd. hàng thanh lý; nhận dòng kế hoạch gốc). laMay(line) -> boolean.
+ * Trả { state, xoa: [dòng bị xóa] }.
+ */
 export function xoaMatHangNho(state, laMay, tuyChon) {
   const bangKey = new Map(state.lines.map((l) => [l.key, l]));
+  if (tuyChon && typeof tuyChon.xoaTheo === 'function') { const f = tuyChon.xoaTheo; tuyChon = { ...tuyChon, xoaTheo: (d) => f(bangKey.get(d.key)) }; }
   const qtyMoi = new Map(), xoa = [], loi = [];
   // Làm TỪNG KHÁCH: doanh thu các dòng bị xóa dồn lại cho các SKU còn lại của đúng khách đó (giữ doanh thu từng tháng của khách).
   const khachCo = Array.from(new Set(state.lines.map((l) => l.customerKey)));

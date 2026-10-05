@@ -170,7 +170,7 @@ export default function AnnualPlan({ currentBU, user }) {
   const xoaNho = (opts) => {
     const kq = capNhat((s) => M.xoaMatHangNho(s, M.laMayMacDinh, opts));
     setDlg(null);
-    if (kq) setMsg({ loai: 'ok', text: 'Đã xóa ' + kq.xoa.length + ' dòng nhỏ; doanh thu được dồn lại cho các dòng còn lại.' });
+    if (kq) setMsg({ loai: 'ok', text: 'Đã xóa ' + kq.xoa.length + ' dòng; doanh thu được dồn lại cho các dòng còn lại của từng khách.' });
   };
 
   /* ---------------- lưu / gửi / duyệt ---------------- */
