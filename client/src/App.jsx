@@ -230,7 +230,7 @@ export default function App() {
             <ErrorBoundary key={activeTab}>
               {activeTab === 'dashboard' && (
                 <React.Suspense fallback={<div className="text-xs text-slate-400 p-4">Đang tải...</div>}>
-                  <Dashboard currentBU={currentBU} />
+                  <Dashboard currentBU={currentBU} user={user} />
                 </React.Suspense>
               )}
               {activeTab === 'monthly' && <MonthlyForecast currentBU={currentBU} user={user} />}

@@ -67,7 +67,7 @@ const RETRY_DELAYS_MS = [1500, 3000];
  * khi mạng chập chờn.
  */
 const NON_IDEMPOTENT_ACTIONS = new Set([
-  'createCycle', 'createVersion', 'submitCycle', 'reopenCycle', 'decideApproval',
+  'createCycle', 'createVersion', 'submitCycle', 'reopenCycle', 'deleteCycle', 'decideApproval',
   'addProduct', 'addProducts', 'importProducts', 'changeMyPin', 'setUserPin',
   // Nhập SOP tạo ra một bản cập nhật mới. Gọi lại sau khi hết giờ chờ mà lần
   // trước thực ra đã chạy xong sẽ tạo bản THỨ HAI — đúng thứ danh sách này

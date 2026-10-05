@@ -3,28 +3,48 @@ import { api } from '../services/api';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell 
 } from 'recharts';
-import { Package, TrendingUp, Layers, AlertCircle } from 'lucide-react';
+import { Package, TrendingUp, Layers, AlertCircle, Trash2, Loader2 } from 'lucide-react';
 import { monthsOfCycle, monthLabel, normalizeMonth } from '../utils/period';
+import StatusBadge from '../components/StatusBadge';
 
 const COLORS = ['#0284c7', '#0d9488', '#f59e0b', '#8b5cf6', '#ec4899', '#64748b'];
 
-export default function Dashboard({ currentBU }) {
+/**
+ * Chu kỳ xoá được hay không — BẢN SAO của `chuKyXoaDuoc` ở fc-api/mutations.js (server mới là nơi quyết định; đây chỉ để ẩn/hiện nút):
+ * chu kỳ đang NHÁP (mọi năm), hoặc chu kỳ của các NĂM CŨ (trước năm hiện tại) ở mọi trạng thái.
+ */
+function chuKyXoaDuoc(cycle, namHienTai = new Date().getFullYear()) {
+  if (!cycle) return false;
+  if (cycle.status === 'draft') return true;
+  const nam = Number(normalizeMonth(cycle.base_month).slice(0, 4));
+  return !!nam && nam < namHienTai;
+}
+
+export default function Dashboard({ currentBU, user }) {
   const [b0Summary, setB0Summary] = useState([]);
   const [productsCount, setProductsCount] = useState(0);
   const [cycle, setCycle] = useState(null);
+  const [cycles, setCycles] = useState([]);          // mọi Kỳ của đơn vị — nguồn cho ô chọn Kỳ
+  const [selectedCycleId, setSelectedCycleId] = useState(''); // '' = để server chọn Kỳ mới nhất
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [notice, setNotice] = useState(null);
+
+  const isAdmin = user?.role === 'central_admin';
 
   // Chu kỳ và mốc tháng lấy từ dữ liệu thật, không gán cứng như bản cũ
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (cycleId = '') => {
     setLoading(true);
     setError(null);
     try {
       // Một lượt gọi thay cho (getCycles ‖ getProducts) rồi mới getB0Summary —
       // hai chặng nối tiếp, mà Apps Script xử lý tuần tự nên chúng cộng dồn.
-      const ws = await api.getDashboardWorkspace({ bu: currentBU });
+      const ws = await api.getDashboardWorkspace({ bu: currentBU, ...(cycleId ? { cycleId } : {}) });
       setProductsCount(ws.productCount || 0);
       setCycle(ws.cycle || null);
+      setCycles(ws.cycles || []);
+      setSelectedCycleId(ws.cycle?.id || '');
       setB0Summary(ws.b0Summary || []);
     } catch (err) {
       setError(err.message);
@@ -34,9 +54,32 @@ export default function Dashboard({ currentBU }) {
     }
   }, [currentBU]);
 
+  // Đổi đơn vị -> quay về Kỳ mới nhất của đơn vị đó
   useEffect(() => {
-    if (currentBU) loadData();
+    setNotice(null);
+    if (currentBU) loadData('');
   }, [currentBU, loadData]);
+
+  // Xoá Kỳ đang xem (admin). Server kiểm lại quyền + luật; nút chỉ hiện khi Kỳ thuộc loại xoá được.
+  const xoaKy = async () => {
+    if (!cycle || deleting) return;
+    const nhan = `${cycle.business_unit_code} · ${monthLabel(cycle.base_month)} (${cycle.status === 'draft' ? 'nháp' : 'năm cũ'})`;
+    if (!window.confirm(
+      `Xoá hẳn Kỳ ${nhan}?\n\nSẽ xoá luôn mọi bản cập nhật tuần, số liệu tháng, số tuần/miền và yêu cầu duyệt của Kỳ này. Không hoàn tác được.`
+    )) return;
+    setDeleting(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await api.deleteCycle(cycle.id);
+      setNotice(res?.message || `Đã xoá Kỳ ${nhan}.`);
+      await loadData('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   // Memo hoá: monthsOfCycle trả mảng mới mỗi lần render, mà bảng pivot bên dưới
   // phụ thuộc vào nó — không memo thì pivot tính lại sau mọi lần render.
@@ -128,6 +171,47 @@ export default function Dashboard({ currentBU }) {
           <span>{error}</span>
         </div>
       )}
+      {notice && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-lg p-3">{notice}</div>
+      )}
+
+      {/* Chọn Kỳ để xem Tổng quan; admin xoá được Kỳ nháp hoặc Kỳ năm cũ */}
+      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-3">
+        <span className="text-xs text-slate-500 whitespace-nowrap">Kỳ:</span>
+        {cycles.length > 0 ? (
+          <select
+            value={selectedCycleId}
+            onChange={(e) => loadData(e.target.value)}
+            disabled={loading || deleting}
+            className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500 disabled:opacity-60"
+          >
+            {cycles.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.business_unit_code} · {monthLabel(c.base_month)} · {String(c.base_month).slice(0, 4)}
+                {c.status === 'draft' ? ' (nháp)' : ''}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="text-xs text-slate-400 italic">Chưa có Kỳ nào cho {currentBU}</span>
+        )}
+        {cycle && <StatusBadge status={cycle.status} />}
+        {cycles.length > 0 && (
+          <span className="text-[11px] text-slate-400">{cycles.length} Kỳ</span>
+        )}
+
+        {isAdmin && cycle && chuKyXoaDuoc(cycle) && (
+          <button
+            onClick={xoaKy}
+            disabled={loading || deleting}
+            title="Chỉ xoá được Kỳ đang nháp hoặc Kỳ của các năm trước. Xoá luôn bản cập nhật, số liệu và yêu cầu duyệt của Kỳ."
+            className="ml-auto flex items-center gap-1.5 border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-800 px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50"
+          >
+            {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+            Xoá Kỳ này
+          </button>
+        )}
+      </div>
       
       {/* Top Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

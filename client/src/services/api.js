@@ -128,6 +128,8 @@ export const api = {
   // Mở lại chu kỳ đã duyệt để sửa số. Backend bắt buộc vai trò thẩm định và
   // có lý do, rồi ghi vào AuthLog.
   reopenCycle: (cycleId, reason) => callGAS('reopenCycle', auth({ cycleId, reason })),
+  // Xoá hẳn một chu kỳ (kèm bản cập nhật, số tháng/tuần, yêu cầu duyệt). Chỉ central_admin; server chỉ cho xoá chu kỳ NHÁP hoặc năm cũ.
+  deleteCycle: (cycleId) => callGAS('deleteCycle', auth({ cycleId })),
   decideApproval: (approvalId, decision, comment) =>
     callGAS('decideApproval', auth({ approvalId, decision, comment })),
 
