@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronRight, ChevronDown, Lock, Unlock, Trash2 } from 'lucide-react';
 import {
-  NHAN_THANG, tomTatKhach, tomTatDonVi, dinhDangTy, dinhDangTrieu, dinhDangSo, dinhDangPct, tyTrongPct
+  NHAN_THANG, tomTatKhach, tomTatDonVi, dinhDangSo, dinhDangPct, tyTrongPct, dinhDangGia, doiTuVnd
 } from '../../utils/annualPlanModel';
 
 const COT1 = 'w-72 min-w-72 max-w-72';          // cột Khách / SKU (cố định khi kéo sang phải)
@@ -51,11 +51,37 @@ function PctInput({ value, onCommit, disabled }) {
 }
 
 /**
+ * Ô TỔNG DOANH THU THÁNG sửa được (bảng Cơ sở, tháng dự kiến): nhập theo đơn vị đang hiển thị (triệu VNĐ / USD); doanh thu khách và SL các SKU của tháng đó
+ * tự co giãn theo tỷ lệ. Chốt khi rời ô / Enter. Số hiển thị dạng vi-VN (dấu . ngăn nghìn, dấu , thập phân).
+ */
+function TongThangInput({ value, onCommit, title }) {
+  const fmt = (x) => Math.round(x).toLocaleString('vi-VN');
+  const [v, setV] = useState(fmt(value));
+  useEffect(() => { setV(fmt(value)); }, [value]);
+  return (
+    <input
+      value={v}
+      title={title}
+      onChange={(e) => setV(e.target.value.replace(/[^\d.,]/g, ''))}
+      onBlur={() => {
+        const n = parseFloat(String(v).replace(/\./g, '').replace(',', '.'));
+        if (isFinite(n) && Math.round(n) !== Math.round(value)) onCommit(n);
+        else setV(fmt(value));
+      }}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+      className="w-full text-right font-mono text-[11px] font-bold px-1.5 py-1 rounded border bg-white border-blue-300 focus:border-blue-600 focus:outline-none"
+    />
+  );
+}
+
+/**
  * Bảng khách × tháng. view 'base' = cơ sở năm hiện tại, 'plan' = kế hoạch năm sau.
- * Khách: doanh thu (triệu VNĐ); bấm + mở danh sách SKU (SL từng tháng, sửa được). Đơn vị MỘT khách: hiện thẳng theo SKU.
+ * Khách: doanh thu (fmt = triệu VNĐ hoặc USD); bấm + mở danh sách SKU (SL từng tháng, sửa được). Đơn vị MỘT khách: hiện thẳng theo SKU.
+ * `state` là phần ĐANG HIỂN THỊ (đã lọc khách + đổi tên hiển thị); mọi thao tác dùng khóa nên vẫn đúng khi đang lọc.
  */
 export default function AnnualGrid({
-  state, view, editable, expanded, onToggle, onEditCell, onToggleLock, onDeleteSku, onDeleteCustomer, onShareChange, single
+  state, view, editable, expanded, onToggle, onEditCell, onToggleLock, onDeleteSku, onDeleteCustomer, onShareChange, single,
+  fmt, nhan, tien, dangLoc, onEditMonthTotal
 }) {
   const kh = tomTatKhach(state);
   const dv = tomTatDonVi(state);
@@ -64,6 +90,7 @@ export default function AnnualGrid({
   const doanhThuDv = view === 'base' ? dv.base : dv.plan;
   const lastMonth = state.baselineLastMonth;
   const choPhepSuaCoSo = editable && !state.targetApplied;
+  const choSuaTongThang = view === 'base' && choPhepSuaCoSo && !dangLoc && !!onEditMonthTotal;      // đang lọc khách thì không sửa tổng (không rõ co giãn phần nào)
   const tyPct = tyTrongPct(state);
 
   const ocSku = (l, m) => {
@@ -104,7 +131,7 @@ export default function AnnualGrid({
               <div className="font-mono text-[11px] font-bold text-slate-800 truncate">
                 {l.skuCode || l.tempSkuId}{l.tempSkuId ? <span className="ml-1 text-[9px] font-sans bg-amber-100 text-amber-700 rounded px-1">mã tạm</span> : null}
               </div>
-              <div className="text-[10px] text-slate-500 truncate" title={l.skuName}>{l.skuName} · {dinhDangSo(l.priceVnd)}đ</div>
+              <div className="text-[10px] text-slate-500 truncate" title={l.skuName}>{l.skuName} · {dinhDangGia(l.priceVnd, tien.loai, tien.fx)}</div>
             </div>
             {editable && view === 'plan' && (
               <button onClick={() => onDeleteSku(l.key)} title="Bớt SKU này" className="text-slate-300 hover:text-rose-600 shrink-0 mt-0.5">
@@ -125,7 +152,7 @@ export default function AnnualGrid({
         <thead>
           <tr className="bg-slate-800 text-slate-200">
             <th className={`sticky top-0 left-0 z-30 bg-slate-800 ${COT1} text-left px-3 py-2 font-semibold`}>
-              {single ? 'SKU (SL cái)' : 'Khách hàng (doanh thu, triệu VNĐ)'}
+              {single ? 'SKU (SL cái)' : 'Khách hàng (doanh thu, ' + nhan + ')'}
             </th>
             <th className={`sticky top-0 ${TONG_LEFT} z-30 bg-slate-800 w-24 min-w-24 text-right px-2 py-2 font-semibold`}>Tổng năm</th>
             {NHAN_THANG.map((t, m) => (
@@ -138,9 +165,16 @@ export default function AnnualGrid({
         </thead>
         <tbody>
           <tr className="bg-blue-50 font-bold text-slate-900">
-            <td className={`sticky left-0 z-10 bg-blue-50 ${COT1} px-3 py-1.5`}>Tổng doanh thu (Tỷ VNĐ)</td>
-            <td className={`sticky ${TONG_LEFT} z-10 bg-blue-50 text-right px-2 py-1.5 font-mono`}>{dinhDangTy(soTong)}</td>
-            {doanhThuDv.map((v, m) => <td key={m} className="text-right px-2 py-1.5 font-mono">{dinhDangTy(v)}</td>)}
+            <td className={`sticky left-0 z-10 bg-blue-50 ${COT1} px-3 py-1.5`}>
+              Tổng doanh thu ({nhan}){dangLoc ? <span className="ml-1 text-[9px] font-semibold text-blue-700">đang lọc</span> : null}
+              {choSuaTongThang ? <span className="text-[9px] font-normal text-slate-400 ml-1">(tháng dự kiến sửa được)</span> : null}
+            </td>
+            <td className={`sticky ${TONG_LEFT} z-10 bg-blue-50 text-right px-2 py-1.5 font-mono`}>{fmt(soTong)}</td>
+            {doanhThuDv.map((v, m) => (
+              choSuaTongThang && m > lastMonth
+                ? <td key={m} className="px-0.5 py-0.5"><TongThangInput value={doiTuVnd(v, tien.loai, tien.fx)} title="Sửa tổng doanh thu tháng: khách và SL các SKU tự co giãn theo tỷ lệ" onCommit={(n) => onEditMonthTotal(m, n)} /></td>
+                : <td key={m} className="text-right px-2 py-1.5 font-mono">{fmt(v)}</td>
+            ))}
           </tr>
           <tr className="bg-blue-50/60 text-slate-700">
             <td className={`sticky left-0 z-10 bg-blue-50 ${COT1} px-3 py-1`}>
@@ -186,8 +220,8 @@ export default function AnnualGrid({
                         )}
                       </div>
                     </td>
-                    <td className={`sticky ${TONG_LEFT} z-10 bg-slate-50 text-right px-2 py-1.5 font-mono text-[11px]`}>{dinhDangTrieu(tongNam)}</td>
-                    {c[arr].map((v, m) => <td key={m} className="text-right px-2 py-1.5 font-mono text-[11px]">{dinhDangTrieu(v)}</td>)}
+                    <td className={`sticky ${TONG_LEFT} z-10 bg-slate-50 text-right px-2 py-1.5 font-mono text-[11px]`}>{fmt(tongNam)}</td>
+                    {c[arr].map((v, m) => <td key={m} className="text-right px-2 py-1.5 font-mono text-[11px]">{fmt(v)}</td>)}
                   </tr>
                   {mo && c.lines.map((l) => dongSku(l, false))}
                 </React.Fragment>

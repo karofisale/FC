@@ -114,6 +114,43 @@ export function suaCoSo(state, key, m, v) {
   return thayDong(state, key, (l) => ({ ...l, qtyBase: l.qtyBase.map((x, i) => (i === m ? sl : x)), qty: l.qty.map((x, i) => (i === m ? sl : x)) }));
 }
 
+/**
+ * Sửa TỔNG DOANH THU của một tháng ở bảng Cơ sở (tháng chưa có số thực hiện, chưa Apply): doanh thu khách và SL từng SKU trong tháng đó tự co giãn THEO TỶ LỆ
+ * (mọi dòng nhân cùng hệ số, làm tròn ĐẾN TỪNG ĐƠN VỊ rồi chia phần dư theo phần lẻ lớn nhất để tổng sát giá trị nhập — không làm tròn chục như bảng kế hoạch, vì
+ * làm tròn chục sẽ làm lệch tỷ lệ của SKU nhỏ). Tổng tháng ở bảng cơ sở gồm cả phần cơ sở của các dòng đã xóa
+ * (xem removedLines) — phần đó cũng co giãn cùng tỷ lệ. Các tháng khác không đổi. Trước Apply SL kế hoạch đi theo cơ sở.
+ * Trả { state, lech } — lech = chênh còn lại do làm tròn chục (< bước mịn nhất).
+ */
+export function suaTongThangCoSo(state, m, tongMoiVnd) {
+  if (state.targetApplied) throw new Error('Target đã Apply — mở khóa trước khi sửa số cơ sở.');
+  if (m <= state.baselineLastMonth) throw new Error('Tháng ' + (m + 1) + ' đã có số thực hiện, không sửa được.');
+  const moi = so(tongMoiVnd);
+  if (!(moi >= 0)) throw new Error('Doanh thu tháng phải là số không âm.');
+  const daXoa = dongDaXoa(state);
+  const dtXoa = daXoa.reduce((s, l) => s + so(l.qtyBase[m]) * so(l.priceVnd), 0);
+  const dtCon = state.lines.reduce((s, l) => s + so(l.qtyBase[m]) * so(l.priceVnd), 0);
+  const hienTai = dtCon + dtXoa;
+  if (!(hienTai > 0)) throw new Error('Tháng ' + (m + 1) + ' chưa có doanh thu nào để co giãn — nhập số lượng ở từng SKU trước.');
+  const heSo = moi / hienTai;
+  const mucTieuCon = dtCon * heSo;
+  // co giãn từng dòng theo hệ số, làm tròn xuống đơn vị; phần doanh thu còn thiếu chia cho các dòng có phần lẻ lớn nhất (mỗi lần +1 đơn vị nếu còn đủ tiền)
+  const raw = state.lines.map((l) => so(l.qtyBase[m]) * heSo);
+  const q = raw.map((v, i) => (so(state.lines[i].priceVnd) > 0 ? Math.floor(v + 1e-9) : Math.round(v)));
+  const gia = state.lines.map((l) => so(l.priceVnd));
+  let thieu = mucTieuCon - q.reduce((s, v, i) => s + v * gia[i], 0);
+  const thuTu = raw.map((v, i) => i).filter((i) => gia[i] > 0).sort((a, b) => (raw[b] - Math.floor(raw[b])) - (raw[a] - Math.floor(raw[a])) || a - b);
+  let them = true;
+  while (them && thuTu.length) {
+    them = false;
+    for (const i of thuTu) {
+      if (gia[i] <= thieu + 1e-6 && raw[i] > 0) { q[i] += 1; thieu -= gia[i]; them = true; }
+    }
+  }
+  const lines = state.lines.map((l, i) => ({ ...l, qtyBase: l.qtyBase.map((x, k) => (k === m ? q[i] : x)), qty: l.qty.map((x, k) => (k === m ? q[i] : x)) }));
+  const removedLines = daXoa.map((l) => ({ ...l, qtyBase: l.qtyBase.map((x, k) => (k === m ? so(x) * heSo : x)) }));
+  return { state: { ...state, lines, removedLines }, lech: thieu };
+}
+
 /** Chỉ số các dòng của cùng một khách (đơn vị một khách: customerKey '' -> mọi dòng). */
 const chiSoCungKhach = (state, customerKey) => state.lines.map((l, i) => (l.customerKey === customerKey ? i : -1)).filter((i) => i >= 0);
 const tenKhach = (state, key) => { const c = state.customers.find((x) => x.key === key); return (c && c.name) || key || 'đơn vị'; };
@@ -313,6 +350,74 @@ export function chuyenSangPayload(state) {
     note: state.note || '', fxRate: state.fxRate === undefined ? null : state.fxRate, customers: state.customers,
     lines: state.lines.map((l) => ({ key: l.key, customerKey: l.customerKey, skuCode: l.skuCode, tempSkuId: l.tempSkuId, skuName: l.skuName, priceVnd: l.priceVnd,
       qtyBase: l.qtyBase, qty: l.qty, khoa: l.khoa || khoaMacDinh() })), newSkus: state.newSkus, removedLines: dongDaXoa(state) };
+}
+
+/* ------------------------------ Tiền tệ hiển thị (triệu VNĐ / USD) ------------------------------ */
+
+/** Đổi giữa số tiền VNĐ gốc và đơn vị đang hiển thị: 'VND' = triệu VNĐ, 'USD' = USD theo tỷ giá chốt của phiên bản. */
+export const doiTuVnd = (vnd, loai, fx) => (loai === 'USD' && fx > 0 ? so(vnd) / fx : so(vnd) / 1e6);
+export const doiSangVnd = (x, loai, fx) => (loai === 'USD' && fx > 0 ? so(x) * fx : so(x) * 1e6);
+export const nhanTien = (loai) => (loai === 'USD' ? 'USD' : 'triệu VNĐ');
+/** Hàm định dạng số tiền (VNĐ gốc -> chữ theo đơn vị hiển thị, làm tròn nguyên). */
+export function taoDinhDangTien(loai, fx) {
+  return (vnd) => Math.round(doiTuVnd(vnd, loai, fx)).toLocaleString('vi-VN');
+}
+/** Đơn giá theo đơn vị hiển thị: VNĐ nguyên đồng; USD hai số lẻ. */
+export function dinhDangGia(priceVnd, loai, fx) {
+  if (loai === 'USD' && fx > 0) return (so(priceVnd) / fx).toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USD';
+  return Math.round(so(priceVnd)).toLocaleString('vi-VN') + 'đ';
+}
+
+/* ------------------------------ Tên hiển thị + lọc khách (Thị trường / Sale / Khách hàng) ------------------------------ */
+
+/** Tên khách hiển thị: OEM chỉ hiện Search Code (mã chữ), Export hiện Short Name (đều là phần sau tiền tố khóa); nguồn khác dùng tên đã có. */
+export function tenKhachHienThi(ckey, tenGoc, nguon) {
+  const k = String(ckey || '');
+  if (nguon === 'oem' && /^OEM:/.test(k)) return k.slice(4);
+  if (nguon === 'export' && /^XK:/.test(k)) return k.slice(3);
+  return tenGoc || k;
+}
+
+const chuanLoc = (v) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** Các giá trị có thể chọn ở bộ lọc: thị trường (Export) và sale (OEM, Export), lấy từ thông tin khách + thị trường nhập tay của khách mới. */
+export function giaTriLoc(state, info) {
+  const tt = new Set(), sale = new Set();
+  state.customers.forEach((c) => {
+    const i = (info || {})[c.key] || {};
+    const m = i.market || c.market, s = i.sale;
+    if (m) tt.add(m);
+    if (s) sale.add(s);
+  });
+  const vi = (a, b) => a.localeCompare(b, 'vi');
+  return { thiTruong: Array.from(tt).sort(vi), sale: Array.from(sale).sort(vi) };
+}
+
+/**
+ * Lọc theo khách: loc = { thiTruong, sale, tuKhoa } (rỗng = không lọc). Trả { state, dangLoc, soKhach, tong }:
+ * state chỉ còn khách thỏa (kèm dòng SKU + phần cơ sở đã xóa của họ) và mọi tên khách đã đổi sang tên hiển thị — nên các tổng / tăng trưởng
+ * tính từ state này là của phần đang lọc. Thao tác sửa vẫn dùng state GỐC (khóa khách không đổi).
+ */
+export function locTheoKhach(state, loc, info, nguon) {
+  const l = loc || {};
+  const tt = chuanLoc(l.thiTruong), sale = chuanLoc(l.sale), kw = chuanLoc(l.tuKhoa);
+  const dangLoc = !!(tt || sale || kw);
+  const ten = (c) => tenKhachHienThi(c.key, c.name, nguon);
+  const khop = (c) => {
+    const i = (info || {})[c.key] || {};
+    if (tt && chuanLoc(i.market || c.market) !== tt) return false;
+    if (sale && chuanLoc(i.sale) !== sale) return false;
+    if (kw && ![ten(c), c.key, c.name, i.code, i.name].some((x) => chuanLoc(x).indexOf(kw) >= 0)) return false;
+    return true;
+  };
+  const giu = new Set(state.customers.filter(khop).map((c) => c.key));
+  const nhomDonVi = !state.customers.length;                 // đơn vị một khách: không có cấp khách -> không lọc
+  if (nhomDonVi) return { state, dangLoc: false, soKhach: 0, tong: 0 };
+  return {
+    state: { ...state, customers: state.customers.filter((c) => giu.has(c.key)).map((c) => ({ ...c, name: ten(c) })),
+      lines: state.lines.filter((x) => giu.has(x.customerKey)), removedLines: dongDaXoa(state).filter((x) => giu.has(x.customerKey)) },
+    dangLoc, soKhach: giu.size, tong: state.customers.length
+  };
 }
 
 /* ------------------------------ Định dạng ------------------------------ */

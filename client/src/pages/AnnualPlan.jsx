@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Save, Send, CheckCircle2, XCircle, Loader2, AlertCircle, Plus, Unlock, Lock, Wand2, Trash2, UserPlus, GitBranch, Crown, Info, Target
+  Save, Send, CheckCircle2, XCircle, Loader2, AlertCircle, Plus, Unlock, Lock, Wand2, Trash2, UserPlus, GitBranch, Crown, Info, Target, FileSpreadsheet
 } from 'lucide-react';
 import { api } from '../services/api';
 import { setDirty } from '../services/dirtyState';
 import AnnualGrid from '../components/annual/AnnualGrid';
+import { ThanhLoc, ChonTien } from '../components/annual/AnnualFilter';
 import { ReasonDialog, AddCustomerDialog, AddSkuDialog, MassDeleteDialog, ShareModeBar } from '../components/annual/AnnualDialogs';
 import * as M from '../utils/annualPlanModel';
 
@@ -18,7 +19,7 @@ const MAU_TT = {
 /** Câu thông báo kết quả điền ngược KPI năm của OEM (server trả `kpi`); '' nếu không có gì để nói. */
 function thongBaoKpi(kpi) {
   if (!kpi) return '';
-  if (kpi.trangThai === 'da-dien') return ' Đã điền ngược KPI năm ' + kpi.nam + ' của OEM (' + kpi.soKhach + ' khách, tổng ' + M.dinhDangTy(kpi.tongNam) + ' tỷ).';
+  if (kpi.trangThai === 'da-dien') return ' Đã điền ngược KPI năm ' + kpi.nam + ' của OEM (' + kpi.soKhach + ' khách, tổng ' + M.dinhDangTrieu(kpi.tongNam) + ' triệu VNĐ).';
   if (kpi.trangThai === 'giu-ban-co') return ' KPI năm ' + kpi.nam + ' của OEM được GIỮ NGUYÊN (' + kpi.ly + ') — admin có thể bấm "Áp vào KPI OEM" để ghi đè.';
   if (kpi.trangThai === 'loi') return ' Không điền được KPI OEM: ' + kpi.ly;
   return '';
@@ -57,6 +58,8 @@ export default function AnnualPlan({ currentBU, user }) {
   const [bao, setBao] = useState(false);       // có thay đổi chưa lưu
   const [tangText, setTangText] = useState('');
   const [doanhThuText, setDoanhThuText] = useState('');
+  const [tienTe, setTienTe] = useState('VND');                       // 'VND' = triệu VNĐ | 'USD' (chỉ Export OEM + Brand)
+  const [loc, setLoc] = useState({ thiTruong: '', sale: '', tuKhoa: '' });
 
   const role = user?.role;
   const laSoan = role === 'bu_editor' || role === 'central_admin';
@@ -84,7 +87,8 @@ export default function AnnualPlan({ currentBU, user }) {
       setThemVaoKhach(p && p.customers[0] ? p.customers[0].key : '');
       setView(p && p.targetApplied ? 'plan' : 'base');
       setTangText(p && p.targetGrowthPct !== null && p.targetGrowthPct !== undefined ? String(p.targetGrowthPct) : '');
-      setDoanhThuText(p && p.targetRevenueVnd ? String(Math.round(p.targetRevenueVnd / 1e7) / 100) : '');
+      setDoanhThuText(p && p.targetRevenueVnd ? String(Math.round(p.targetRevenueVnd / 1e4) / 100) : '');
+      setLoc({ thiTruong: '', sale: '', tuKhoa: '' });
     } catch (e) {
       setWs(null);
       setSt(null);
@@ -103,6 +107,21 @@ export default function AnnualPlan({ currentBU, user }) {
   const trangThaiMt = useMemo(() => (st ? M.trangThaiMucTieu(st) : { lech: null, canApplyLai: false }), [st]);
   const coSoTong = useMemo(() => (st ? M.tong(M.doanhThuCoSo(st)) : 0), [st]);
   const daXoa = useMemo(() => (st ? M.tomTatDaXoa(st) : { soDong: 0, base: 0 }), [st]);
+  // Tỷ giá đã chốt theo phiên bản (chưa có bản thì tỷ giá hiện tại lúc dựng cơ sở) + tiền tệ hiển thị: USD chỉ cho Export OEM + Brand (có tỷ giá);
+  // bảng chờ duyệt (đã gửi duyệt) luôn Triệu VNĐ.
+  const fx = (st && st.fxRate) || (ws && ws.baseline && ws.baseline.fxRate) || 0;
+  const choUsd = (donVi?.source === 'export' || donVi?.source === 'fc') && fx > 0;
+  const khoaVnd = st?.status === 'submitted';
+  const tienHienThi = choUsd && tienTe === 'USD' && !khoaVnd ? 'USD' : 'VND';
+  const fmt = M.taoDinhDangTien(tienHienThi, fx);
+  const nhan = M.nhanTien(tienHienThi);
+  const tien = { loai: tienHienThi, fx };
+  const chuoiTarget = (vnd) => String(Math.round(M.doiTuVnd(vnd, tienHienThi, fx) * 100) / 100);
+  // đổi tiền tệ: ô Target doanh thu đổi theo đơn vị mới
+  useEffect(() => { if (st && st.targetRevenueVnd) setDoanhThuText(chuoiTarget(st.targetRevenueVnd)); }, [tienHienThi]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // Phần ĐANG HIỂN THỊ: lọc theo Thị trường / Sale / Khách hàng + tên khách hiển thị (OEM: Search Code, Export: Short Name)
+  const locKq = useMemo(() => (st ? M.locTheoKhach(st, loc, ws && ws.customerInfo, donVi && donVi.source) : null), [st, loc, ws, donVi]);
+  const giaTriLoc = useMemo(() => (st ? M.giaTriLoc(st, ws && ws.customerInfo) : { thiTruong: [], sale: [] }), [st, ws]);
 
   const baoLoi = (e) => setMsg({ loai: 'loi', text: e.message || String(e) });
   const capNhat = (fn) => {
@@ -119,6 +138,10 @@ export default function AnnualPlan({ currentBU, user }) {
   const suaO = (key, m, v) => {
     capNhat((s) => (view === 'base' ? M.suaCoSo(s, key, m, v) : M.suaKeHoach(s, key, m, v)));
   };
+  const suaTongThang = (m, giaTri) => {
+    const kq = capNhat((s) => M.suaTongThangCoSo(s, m, M.doiSangVnd(giaTri, tienHienThi, fx)));
+    if (kq) setMsg({ loai: 'ok', text: 'Đã sửa tổng doanh thu T' + (m + 1) + ': doanh thu từng khách và SL các SKU của tháng đó co giãn theo tỷ lệ.' });
+  };
   const suaTyTrong = (m, pct) => {
     if (cheDo === 'chiDinh' && !thangChon.filter((x) => x !== m).length) { baoLoi(new Error('Chọn ít nhất một tháng khác để nhận phần chênh.')); return; }
     capNhat((s) => M.suaTyTrong(s, { [m]: pct }, cheDo, thangChon));
@@ -127,12 +150,12 @@ export default function AnnualPlan({ currentBU, user }) {
     const n = parseFloat(String(tangText).replace(',', '.'));
     if (!isFinite(n)) return;
     const kq = capNhat((s) => M.datTarget(s, { tangTruongPct: n }));
-    if (kq) setDoanhThuText(String(Math.round(kq.targetRevenueVnd / 1e7) / 100));
+    if (kq) setDoanhThuText(chuoiTarget(kq.targetRevenueVnd));
   };
   const datDoanhThu = () => {
     const n = parseFloat(String(doanhThuText).replace(',', '.'));
     if (!isFinite(n)) return;
-    const kq = capNhat((s) => M.datTarget(s, { doanhThuMucTieu: Math.round(n * 1e9) }));
+    const kq = capNhat((s) => M.datTarget(s, { doanhThuMucTieu: Math.round(M.doiSangVnd(n, tienHienThi, fx)) }));
     if (kq) setTangText(String(kq.targetGrowthPct));
   };
   const apDung = () => {
@@ -178,6 +201,13 @@ export default function AnnualPlan({ currentBU, user }) {
   };
 
   /* ---------------- lưu / gửi / duyệt ---------------- */
+  const xuatExcel = async () => {
+    try {
+      const X = await import('../utils/annualPlanExcel');
+      X.xuatExcel({ state: st, donVi, year, info: ws && ws.customerInfo, skuInfo: ws && ws.skuInfo, status: st.status });
+      setMsg({ loai: 'ok', text: 'Đã xuất Excel (2 tab: Plan_Per_Client, Plan_SKU) — toàn bộ kế hoạch' + (bao ? ', theo số đang hiển thị (có thay đổi chưa lưu)' : '') + '.' });
+    } catch (e) { baoLoi(e); }
+  };
   const luu = async () => {
     setBusy(true);
     try {
@@ -195,6 +225,7 @@ export default function AnnualPlan({ currentBU, user }) {
       await api.saveAnnualPlan({ planId: st.id, plan: M.chuyenSangPayload(st) });
       await api.submitAnnualPlan({ planId: st.id });
       await nap(st.id);
+      setTienTe('VND');                          // bảng gửi duyệt luôn Triệu VNĐ
       setMsg({ loai: 'ok', text: 'Đã gửi duyệt.' });
     } catch (e) { baoLoi(e); } finally { setBusy(false); }
   };
@@ -252,7 +283,6 @@ export default function AnnualPlan({ currentBU, user }) {
   const nam = new Date().getFullYear();
   const banList = ws?.plans || [];
   // Nguồn đơn giá theo đơn vị + tỷ giá đã chốt theo phiên bản (bản đang xem; chưa có bản thì tỷ giá hiện tại lúc dựng cơ sở)
-  const fx = (st && st.fxRate) || (ws && ws.baseline && ws.baseline.fxRate) || 0;
   const taiFx = fx > 0 ? ' — tỷ giá chốt ' + fx.toLocaleString('vi-VN') : '';
   const ghiChuGia = donVi?.source === 'fc'
     ? 'Đơn giá = giá đề xuất của Export quy đổi VNĐ' + taiFx + ' (doanh thu theo giá đề xuất, không phải giá bán thực).'
@@ -264,7 +294,7 @@ export default function AnnualPlan({ currentBU, user }) {
       <div>
         <h1 className="text-lg font-black text-slate-900">Kế hoạch năm {year} — {donVi?.name || currentBU}</h1>
         <p className="text-xs text-slate-500">
-          {single ? 'Đơn vị một khách: bảng theo SKU.' : 'Bảng doanh thu theo khách (triệu VNĐ), bấm + để xem SKU.'}
+          {single ? 'Đơn vị một khách: bảng theo SKU.' : 'Bảng doanh thu theo khách (' + nhan + '), bấm + để xem SKU.'}
           {' '}{ghiChuGia}
         </p>
       </div>
@@ -338,7 +368,11 @@ export default function AnnualPlan({ currentBU, user }) {
             <button key={k} onClick={() => setView(k)} className={`px-3 py-1.5 ${view === k ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>{t}</button>
           ))}
         </div>
+        {choUsd && <ChonTien tien={tienHienThi} setTien={setTienTe} khoa={khoaVnd} fx={fx} />}
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          {(view === 'preview' || st.status === 'submitted' || st.status === 'approved' || st.status === 'superseded') && (
+            <button className={nutPhu} onClick={xuatExcel} title="Xuất Excel 2 tab: Plan_Per_Client, Plan_SKU"><FileSpreadsheet className="w-3.5 h-3.5" /> Xuất Excel</button>
+          )}
           {editable && !finalMode && <button className={nutPhu} onClick={luu} disabled={busy || !bao}>{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Lưu</button>}
           {editable && !finalMode && <button className={nutChinh} onClick={guiDuyet} disabled={busy}><Send className="w-3.5 h-3.5" /> Gửi duyệt</button>}
           {finalMode && <button className={nutChinh} onClick={luu} disabled={busy}><Crown className="w-3.5 h-3.5" /> Lưu bản Final</button>}
@@ -358,11 +392,11 @@ export default function AnnualPlan({ currentBU, user }) {
         <div className="bg-white border border-slate-200 rounded-xl p-3 mb-3 space-y-2">
           <div className="flex flex-wrap items-end gap-3 text-xs">
             <div>
-              <div className="text-[11px] font-semibold text-slate-600 mb-1">Cơ sở năm {year - 1} (Tỷ VNĐ)</div>
-              <div className="font-mono font-bold text-sm text-slate-900 pt-1.5">{M.dinhDangTy(coSoTong)}</div>
+              <div className="text-[11px] font-semibold text-slate-600 mb-1">Cơ sở năm {year - 1} ({nhan})</div>
+              <div className="font-mono font-bold text-sm text-slate-900 pt-1.5">{fmt(coSoTong)}</div>
               {daXoa.soDong > 0 && (
                 <div className="text-[10px] text-slate-500 pb-1" title="Các dòng đã xóa vẫn được giữ trong cơ sở để so sánh tăng trưởng và tính Target">
-                  gồm {M.dinhDangTy(daXoa.base)} của {daXoa.soDong} dòng đã xóa
+                  gồm {fmt(daXoa.base)} của {daXoa.soDong} dòng đã xóa
                 </div>
               )}
             </div>
@@ -373,10 +407,10 @@ export default function AnnualPlan({ currentBU, user }) {
                 className="w-28 border border-slate-300 rounded-lg px-2 py-1.5 font-mono text-xs disabled:bg-slate-50" placeholder="vd 15" />
             </div>
             <div>
-              <label className="text-[11px] font-semibold text-slate-600 mb-1 block">Target doanh thu năm {year} (Tỷ VNĐ)</label>
+              <label className="text-[11px] font-semibold text-slate-600 mb-1 block">Target doanh thu năm {year} ({nhan})</label>
               <input value={doanhThuText} disabled={!editable || st.targetApplied} onChange={(e) => setDoanhThuText(e.target.value)} onBlur={datDoanhThu}
                 onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-                className="w-36 border border-slate-300 rounded-lg px-2 py-1.5 font-mono text-xs disabled:bg-slate-50" placeholder="vd 120,5" />
+                className="w-36 border border-slate-300 rounded-lg px-2 py-1.5 font-mono text-xs disabled:bg-slate-50" placeholder={tienHienThi === 'USD' ? 'vd 5000000' : 'vd 120500'} />
             </div>
             {editable && !st.targetApplied && <button className={nutChinh} onClick={apDung} disabled={!(st.targetRevenueVnd > 0)}><Wand2 className="w-3.5 h-3.5" /> Apply</button>}
             {editable && st.targetApplied && trangThaiMt.canApplyLai && <button className={nutChinh} onClick={apDung}><Wand2 className="w-3.5 h-3.5" /> Apply lại (tỷ trọng đã đổi)</button>}
@@ -389,8 +423,13 @@ export default function AnnualPlan({ currentBU, user }) {
         </div>
       )}
 
+      {!single && (
+        <ThanhLoc loc={loc} setLoc={setLoc} giaTri={giaTriLoc} coThiTruong={donVi?.source === 'export'} coSale={donVi?.source === 'export' || donVi?.source === 'oem'}
+          soKhach={locKq.soKhach} tong={locKq.tong} dangLoc={locKq.dangLoc} />
+      )}
+
       {view === 'preview' ? (
-        <PreviewTable state={st} single={single} />
+        <PreviewTable state={locKq.state} single={single} fmt={fmt} nhan={nhan} dangLoc={locKq.dangLoc} />
       ) : (
         <>
           {editable && view === 'plan' && (
@@ -398,7 +437,7 @@ export default function AnnualPlan({ currentBU, user }) {
               {!single && <button className={nutPhu} onClick={() => setDlg({ loai: 'khach' })}><UserPlus className="w-3.5 h-3.5" /> Thêm khách</button>}
               {!single && (
                 <select value={themVaoKhach} onChange={(e) => setThemVaoKhach(e.target.value)} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white max-w-56">
-                  {st.customers.map((c) => <option key={c.key} value={c.key}>{c.name || c.key}</option>)}
+                  {st.customers.map((c) => <option key={c.key} value={c.key}>{M.tenKhachHienThi(c.key, c.name, donVi?.source)}</option>)}
                 </select>
               )}
               <button className={nutPhu} onClick={() => setDlg({ loai: 'sku' })} disabled={!single && !themVaoKhach}><Plus className="w-3.5 h-3.5" /> Thêm SKU</button>
@@ -407,7 +446,8 @@ export default function AnnualPlan({ currentBU, user }) {
             </div>
           )}
           <AnnualGrid
-            state={st} view={view} editable={editable} single={single}
+            state={locKq.state} view={view} editable={editable} single={single}
+            fmt={fmt} nhan={nhan} tien={tien} dangLoc={locKq.dangLoc} onEditMonthTotal={suaTongThang}
             expanded={expanded}
             onToggle={(k) => setExpanded((e) => { const n = new Set(e); if (n.has(k)) n.delete(k); else n.add(k); return n; })}
             onEditCell={suaO}
@@ -436,7 +476,7 @@ export default function AnnualPlan({ currentBU, user }) {
 }
 
 /** Preview: thu gọn theo khách (đơn vị một khách: theo SKU) — doanh thu 12 tháng + cột tổng năm ở đầu, tăng trưởng cả năm và từng tháng so cơ sở. */
-function PreviewTable({ state, single }) {
+function PreviewTable({ state, single, fmt, nhan, dangLoc }) {
   const dv = M.tomTatDonVi(state);
   const hang = single
     ? state.lines.map((l) => {
@@ -450,22 +490,22 @@ function PreviewTable({ state, single }) {
       <table className="border-separate border-spacing-0 text-xs">
         <thead>
           <tr className="bg-slate-800 text-slate-200">
-            <th className="sticky top-0 left-0 z-30 bg-slate-800 w-72 min-w-72 text-left px-3 py-2">{single ? 'SKU' : 'Khách hàng'} (triệu VNĐ)</th>
+            <th className="sticky top-0 left-0 z-30 bg-slate-800 w-72 min-w-72 text-left px-3 py-2">{single ? 'SKU' : 'Khách hàng'} ({nhan})</th>
             <th className="sticky top-0 left-72 z-30 bg-slate-800 w-28 min-w-28 text-right px-2 py-2">Tổng năm</th>
             {M.NHAN_THANG.map((t) => <th key={t} className="sticky top-0 z-20 bg-slate-800 w-20 min-w-20 text-right px-2 py-2">{t}</th>)}
           </tr>
         </thead>
         <tbody>
           <tr className="bg-blue-50 font-bold">
-            <td className="sticky left-0 z-10 bg-blue-50 px-3 py-1.5">Tổng đơn vị (Tỷ VNĐ)</td>
-            <td className="sticky left-72 z-10 bg-blue-50 text-right px-2 py-1.5 font-mono">{M.dinhDangTy(dv.planTotal)}<div className="text-[10px] font-normal">{M.dinhDangPct(dv.growthYear)}</div></td>
-            {dv.plan.map((v, m) => <td key={m} className="text-right px-2 py-1.5 font-mono">{M.dinhDangTy(v)}<div className={`text-[10px] font-normal ${dv.growth[m] !== null && dv.growth[m] < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{M.dinhDangPct(dv.growth[m])}</div></td>)}
+            <td className="sticky left-0 z-10 bg-blue-50 px-3 py-1.5">{dangLoc ? 'Tổng (đang lọc)' : 'Tổng đơn vị'} ({nhan})</td>
+            <td className="sticky left-72 z-10 bg-blue-50 text-right px-2 py-1.5 font-mono">{fmt(dv.planTotal)}<div className="text-[10px] font-normal">{M.dinhDangPct(dv.growthYear)}</div></td>
+            {dv.plan.map((v, m) => <td key={m} className="text-right px-2 py-1.5 font-mono">{fmt(v)}<div className={`text-[10px] font-normal ${dv.growth[m] !== null && dv.growth[m] < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{M.dinhDangPct(dv.growth[m])}</div></td>)}
           </tr>
           {hang.map((h) => (
             <tr key={h.key} className="border-b border-slate-100">
               <td className="sticky left-0 z-10 bg-white px-3 py-1 truncate max-w-72">{h.name}</td>
-              <td className="sticky left-72 z-10 bg-white text-right px-2 py-1 font-mono font-semibold">{M.dinhDangTrieu(h.planTotal)}<div className="text-[10px] font-normal text-slate-500">{M.dinhDangPct(h.growthYear)}</div></td>
-              {h.plan.map((v, m) => <td key={m} className="text-right px-2 py-1 font-mono">{M.dinhDangTrieu(v)}<div className={`text-[10px] ${h.growth[m] !== null && h.growth[m] < 0 ? 'text-rose-600' : 'text-slate-500'}`}>{M.dinhDangPct(h.growth[m], 0)}</div></td>)}
+              <td className="sticky left-72 z-10 bg-white text-right px-2 py-1 font-mono font-semibold">{fmt(h.planTotal)}<div className="text-[10px] font-normal text-slate-500">{M.dinhDangPct(h.growthYear)}</div></td>
+              {h.plan.map((v, m) => <td key={m} className="text-right px-2 py-1 font-mono">{fmt(v)}<div className={`text-[10px] ${h.growth[m] !== null && h.growth[m] < 0 ? 'text-rose-600' : 'text-slate-500'}`}>{M.dinhDangPct(h.growth[m], 0)}</div></td>)}
             </tr>
           ))}
         </tbody>

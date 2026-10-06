@@ -123,6 +123,54 @@ check('xóa hàng loạt nhỏ: máy dưới ngưỡng bị xóa, trả danh sá
   check('xóa theo tiêu chí tùy biến (xoaTheo nhận dòng kế hoạch): chỉ dòng khớp bị xóa', tl.xoa.length > 0 && tl.xoa.every((l) => l.skuCode === '2003') && tl.state.lines.every((l) => l.skuCode !== '2003'));
 }
 
+console.log('--- sửa tổng tháng cơ sở / tiền tệ / lọc khách ---');
+{
+  const goc = taoState();                      // chưa Apply, tháng cuối có số = T9 (chỉ số 8)
+  const m = 10;                                // T11 (dự kiến)
+  const truoc = M.doanhThuCoSo(goc);
+  const dich = Math.round(truoc[m] * 1.25);
+  const r = M.suaTongThangCoSo(goc, m, dich);
+  const sau = M.doanhThuCoSo(r.state);
+  const buoc = 500000;                         // làm tròn đến từng đơn vị: lệch < giá thấp nhất
+  check('sửa tổng tháng cơ sở: tổng tháng = giá trị nhập (lệch < giá của SKU rẻ nhất, không dư), các tháng khác KHÔNG đổi', sau[m] <= dich + 1e-6 && dich - sau[m] < buoc && sau.every((v, i) => i === m || Math.abs(v - truoc[i]) < 1), [sau[m], dich]);
+  const tl = (r.state.lines[0].qtyBase[m] / goc.lines[0].qtyBase[m]);
+  check('SL từng SKU co giãn THEO TỶ LỆ (±1 đơn vị so với ×1,25) và doanh thu từng khách ≈ ×1,25', r.state.lines.every((l, i) => Math.abs(l.qtyBase[m] - goc.lines[i].qtyBase[m] * 1.25) <= 1.0001) && Math.abs(tl - 1.25) < 0.05 &&
+    ['OEM:ALPHA', 'OEM:BETA'].every((ck) => { const a1 = M.tomTatKhach(goc).find((c) => c.key === ck).base[m], a2 = M.tomTatKhach(r.state).find((c) => c.key === ck).base[m]; return Math.abs(a2 / a1 - 1.25) < 0.02; }), r.state.lines.map((l) => l.qtyBase[m]));
+  check('trước Apply SL kế hoạch đi theo cơ sở ở tháng đã sửa; ô khác không đổi', r.state.lines.every((l, i) => l.qty[m] === l.qtyBase[m] && l.qty.every((x, k) => k === m || x === goc.lines[i].qty[k])));
+  check('tháng đã có số thực hiện / đã Apply / số âm / tháng không có doanh thu bị chặn rõ ràng', /đã có số thực hiện/.test(loi(() => M.suaTongThangCoSo(goc, 3, 1e9))) && /Apply/.test(loi(() => M.suaTongThangCoSo(M.apDung(M.datTarget(goc, { tangTruongPct: 5 })).state, m, 1e9))) &&
+    /không âm/.test(loi(() => M.suaTongThangCoSo(goc, m, -5))) && /chưa có doanh thu/.test(loi(() => M.suaTongThangCoSo({ ...goc, lines: goc.lines.map((l) => ({ ...l, qtyBase: new Array(12).fill(0), qty: new Array(12).fill(0) })) }, m, 1e9))));
+  // dòng đã xóa: phần cơ sở của chúng cũng co giãn cùng tỷ lệ, tổng tháng (gồm phần đã xóa) = giá trị nhập
+  const xs = M.xoaSku(goc, goc.lines[2].key).state;
+  const dich2 = Math.round(M.doanhThuCoSo(xs)[m] * 0.8);
+  const r2 = M.suaTongThangCoSo(xs, m, dich2);
+  check('có dòng đã xóa: tổng tháng cơ sở (gồm phần đã xóa) = giá trị nhập (lệch < giá thấp nhất); phần đã xóa co giãn cùng tỷ lệ', Math.abs(M.doanhThuCoSo(r2.state)[m] - dich2) < buoc && Math.abs(r2.state.removedLines[0].qtyBase[m] / xs.removedLines[0].qtyBase[m] - 0.8) < 1e-9);
+  check('không sửa đầu vào', JSON.stringify(goc) === JSON.stringify(taoState()));
+
+  // tiền tệ
+  check('triệu VNĐ / USD: đổi qua lại đúng; USD theo tỷ giá; nhãn', M.doiTuVnd(25000000, 'VND', 25000) === 25 && M.doiTuVnd(25000000, 'USD', 25000) === 1000 && M.doiSangVnd(2, 'VND', 25000) === 2e6 && M.doiSangVnd(2, 'USD', 25000) === 50000 &&
+    M.nhanTien('VND') === 'triệu VNĐ' && M.nhanTien('USD') === 'USD' && M.taoDinhDangTien('VND', 0)(1234567890) === (1235).toLocaleString('vi-VN') && M.taoDinhDangTien('USD', 25000)(50000000) === (2000).toLocaleString('vi-VN') &&
+    M.dinhDangGia(250000, 'USD', 25000) === '10,00 USD' && M.dinhDangGia(250000, 'VND', 25000) === '250.000đ' && M.taoDinhDangTien('USD', 0)(5e6) === (5).toLocaleString('vi-VN'));
+  // tên hiển thị + lọc
+  check('tên hiển thị: OEM chỉ Search Code, Export Short Name, nguồn khác giữ tên', M.tenKhachHienThi('OEM:ALPHA', 'Alpha Co', 'oem') === 'ALPHA' && M.tenKhachHienThi('XK:Brafco', 'Brafco', 'export') === 'Brafco' && M.tenKhachHienThi('NEW:Gamma', 'Gamma', 'oem') === 'Gamma' && M.tenKhachHienThi('', 'Đơn vị', 'fc') === 'Đơn vị');
+  const info = { 'OEM:ALPHA': { code: '1001', sale: 'Luyến', market: '' }, 'OEM:BETA': { code: '1002', sale: 'Thúy', market: '' } };
+  const loc0 = M.locTheoKhach(goc, {}, info, 'oem');
+  check('không lọc: đủ khách, tên đổi sang Search Code, tổng không đổi', !loc0.dangLoc && loc0.state.customers.map((c) => c.name).join() === 'ALPHA,BETA' && M.tong(M.doanhThuCoSo(loc0.state)) === M.tong(M.doanhThuCoSo(goc)));
+  const locSale = M.locTheoKhach(goc, { sale: ' luyến ' }, info, 'oem');
+  check('lọc theo Sale (không phân biệt hoa thường / khoảng trắng): chỉ khách của sale đó, tổng = tổng khách đó', locSale.dangLoc && locSale.soKhach === 1 && locSale.state.lines.every((l) => l.customerKey === 'OEM:ALPHA') &&
+    M.tong(M.doanhThuCoSo(locSale.state)) === M.tomTatKhach(goc).find((c) => c.key === 'OEM:ALPHA').baseTotal);
+  check('lọc theo khách (từ khóa theo Search Code / mã số / khóa): "bet" và "1002" cùng ra Beta; từ khóa không khớp -> rỗng', M.locTheoKhach(goc, { tuKhoa: 'bet' }, info, 'oem').state.customers.map((c) => c.key).join() === 'OEM:BETA' &&
+    M.locTheoKhach(goc, { tuKhoa: '1002' }, info, 'oem').soKhach === 1 && M.locTheoKhach(goc, { tuKhoa: 'zzz' }, info, 'oem').soKhach === 0);
+  const infoXk = { 'XK:A': { market: 'Brazil', sale: 'Ashley' }, 'XK:B': { market: 'Chile', sale: 'Tom' } };
+  const sx = { ...goc, customers: [{ key: 'XK:A', name: 'A', market: '' }, { key: 'XK:B', name: 'B', market: '' }, { key: 'NEW:C', name: 'C', market: 'Brazil', isNew: true }],
+    lines: goc.lines.slice(0, 3).map((l, i) => ({ ...l, customerKey: ['XK:A', 'XK:B', 'NEW:C'][i], key: ['XK:A', 'XK:B', 'NEW:C'][i] + '|' + l.skuCode })) };
+  const lx = M.locTheoKhach(sx, { thiTruong: 'brazil', sale: '' }, infoXk, 'export');
+  check('lọc theo Thị trường (Export): khách mới nhập tay dùng thị trường nhập tay; kết hợp nhiều bộ lọc là VÀ', lx.state.customers.map((c) => c.key).join() === 'XK:A,NEW:C' && M.locTheoKhach(sx, { thiTruong: 'brazil', sale: 'tom' }, infoXk, 'export').soKhach === 0 &&
+    M.locTheoKhach(sx, { thiTruong: 'brazil', sale: 'ashley' }, infoXk, 'export').state.customers.map((c) => c.key).join() === 'XK:A');
+  const gt = M.giaTriLoc(sx, infoXk);
+  check('giá trị chọn ở bộ lọc: thị trường + sale duy nhất, có thị trường nhập tay', gt.thiTruong.join() === 'Brazil,Chile' && gt.sale.join() === 'Ashley,Tom', gt);
+  check('đơn vị một khách: không lọc (không có cấp khách)', !M.locTheoKhach({ ...goc, customers: [] }, { sale: 'x' }, {}, 'fc').dangLoc);
+}
+
 console.log('--- bù theo từng khách / khách mới / xóa khách ---');
 {
   const doanhThuKhach = (st, ck, m) => st.lines.filter((l) => l.customerKey === ck).reduce((a, l) => a + l.qty[m] * l.priceVnd, 0);

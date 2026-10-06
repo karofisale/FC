@@ -313,20 +313,33 @@ export function khoiTaoTuMotThang(dong, thangGoc, ty) {
  * (năm cơ sở = năm kế hoạch − 1 và năm trước nữa). Trả bảng cơ sở năm hiện tại: tháng đã có số = thực hiện, tháng còn lại = dự báo (5.1).
  * Khách "active" = có số lượng trong năm cơ sở; sắp từ doanh thu cao xuống thấp; trong khách, SKU từ SL nhiều xuống ít.
  * Giá = doanh thu ÷ SL của năm cơ sở (không có thì của năm trước); 0 nếu không suy ra được.
+ *
+ * tuyChon.duBaoTuDon (Export OEM, 06/10/2026): các tháng CHƯA có số thực hiện lấy từ ĐƠN đã mở / nháp / mục tiêu thay vì ngoại suy xu hướng.
+ * Những dòng đó nằm chung `rows` nhưng gắn `dk: true` (cùng hình dạng { ckey, cname, sku, sname, y, m, qty, rev }); chỉ năm cơ sở và chỉ tháng sau tháng
+ * thực hiện cuối được dùng. Tháng không có đơn nào = 0. Khách / SKU chỉ có đơn (chưa từng bán trong năm cơ sở) vẫn được đưa vào bảng.
  */
-export function xayDungCoSo(rows, namKeHoach) {
+export function xayDungCoSo(rows, namKeHoach, tuyChon) {
+  const duBaoTuDon = !!(tuyChon && tuyChon.duBaoTuDon);
   const nCs = namKeHoach - 1, nTruoc = namKeHoach - 2;
-  const coThang = (y) => { const s = new Set(); rows.forEach((r) => { if (r.y === y) s.add(r.m - 1); }); return s; };
+  const coThang = (y) => { const s = new Set(); rows.forEach((r) => { if (r.y === y && !r.dk) s.add(r.m - 1); }); return s; };
   const csThang = coThang(nCs), trThang = coThang(nTruoc);
   const lastMonth = csThang.size ? Math.max(...csThang) : -1;
   const map = new Map();
   rows.forEach((r) => {
     if (r.y !== nCs && r.y !== nTruoc) return;
+    if (r.dk && (!duBaoTuDon || r.y !== nCs || r.m - 1 <= lastMonth)) return;      // dòng đơn dự kiến: chỉ năm cơ sở, chỉ tháng chưa có số thực hiện
     const k = r.ckey + '\u0001' + r.sku;
     let g = map.get(k);
     if (!g) {
-      g = { ckey: r.ckey, cname: r.cname || '', sku: r.sku, sname: r.sname || '', cs: new Array(12).fill(0), tr: new Array(12).fill(0), revCs: 0, qtyCs: 0, revTr: 0, qtyTr: 0 };
+      g = { ckey: r.ckey, cname: r.cname || '', sku: r.sku, sname: r.sname || '', cs: new Array(12).fill(0), tr: new Array(12).fill(0), dk: new Array(12).fill(0),
+        revCs: 0, qtyCs: 0, revTr: 0, qtyTr: 0, revDk: 0, qtyDk: 0 };
       map.set(k, g);
+    }
+    if (r.dk) {
+      g.dk[r.m - 1] += so(r.qty); g.qtyDk += so(r.qty); g.revDk += so(r.rev);
+      if (!g.sname && r.sname) g.sname = r.sname;
+      if (r.cname && !g.cname) g.cname = r.cname;
+      return;
     }
     if (r.y === nCs) { g.cs[r.m - 1] += so(r.qty); g.qtyCs += so(r.qty); g.revCs += so(r.rev); if (!g.sname && r.sname) g.sname = r.sname; }
     else { g.tr[r.m - 1] += so(r.qty); g.qtyTr += so(r.qty); g.revTr += so(r.rev); }
@@ -335,18 +348,18 @@ export function xayDungCoSo(rows, namKeHoach) {
   const lines = [], revKhach = new Map(), tenKhach = new Map();
   const doanhThuTruoc = new Array(12).fill(0);
   // doanh thu năm trước theo tháng của đơn vị (cho mẫu mùa vụ)
-  rows.forEach((r) => { if (r.y === nTruoc) doanhThuTruoc[r.m - 1] += so(r.rev); });
+  rows.forEach((r) => { if (r.y === nTruoc && !r.dk) doanhThuTruoc[r.m - 1] += so(r.rev); });
   map.forEach((g) => {
-    if (g.qtyCs <= 0) return;
+    if (g.qtyCs <= 0 && !(duBaoTuDon && g.qtyDk > 0)) return;
     const known = new Array(12).fill(null);
     for (let m = 0; m <= lastMonth; m++) known[m] = Math.max(0, g.cs[m]);
     const prev = new Array(12).fill(null);
     for (let m = 0; m < 12; m++) if (trThang.has(m)) prev[m] = g.tr[m];
-    const qtyBase = known.map((v, m) => (v !== null ? v : Math.max(0, Math.round(duBaoThang(known, prev, m)))));
-    const gia = g.qtyCs > 0 ? g.revCs / g.qtyCs : (g.qtyTr > 0 ? g.revTr / g.qtyTr : 0);
+    const qtyBase = known.map((v, m) => (v !== null ? v : (duBaoTuDon ? Math.max(0, Math.round(g.dk[m])) : Math.max(0, Math.round(duBaoThang(known, prev, m))))));
+    const gia = g.qtyCs > 0 ? g.revCs / g.qtyCs : (g.qtyTr > 0 ? g.revTr / g.qtyTr : (g.qtyDk > 0 ? g.revDk / g.qtyDk : 0));
     const price = Math.max(0, Math.round(gia));
     lines.push({ key: g.ckey + '|' + g.sku, customerKey: g.ckey, skuCode: g.sku, skuName: g.sname, priceVnd: price, qtyBase, tongCs: g.qtyCs });
-    revKhach.set(g.ckey, (revKhach.get(g.ckey) || 0) + g.revCs);
+    revKhach.set(g.ckey, (revKhach.get(g.ckey) || 0) + g.revCs + (duBaoTuDon ? g.revDk : 0));
     if (!tenKhach.has(g.ckey)) tenKhach.set(g.ckey, g.cname);
   });
   const khach = Array.from(revKhach.keys()).map((k) => ({ key: k, name: tenKhach.get(k) || k, doanhThu: revKhach.get(k) }))

@@ -12,6 +12,9 @@ import * as E from '../utils/annualPlanEngine';
 const q = new URLSearchParams(window.location.search);
 const ROLE = q.get('role') || 'central_admin';
 const SINGLE = q.get('single') === '1';
+const SOURCE = q.get('source') === 'export' ? 'export' : 'oem';          // &source=export: thử Export OEM (USD, thị trường, sale)
+const PREFIX = SOURCE === 'export' ? 'XK:' : 'OEM:';
+const FX = SOURCE === 'export' ? 25000 : 0;
 const YEAR = new Date().getFullYear() + 1;
 
 // ---- dữ liệu lịch sử giả (năm YEAR-1 có T1–T9, YEAR-2 đủ 12 tháng) ----
@@ -28,10 +31,10 @@ function rows() {
       const heSo = (ki === 0 ? 3 : 1) * (si < 2 ? 1 : 12);
       for (let m = 1; m <= 12; m++) {
         const base = Math.round((20 + rnd() * 60) * heSo);
-        out.push({ ckey: SINGLE ? '' : 'OEM:' + k, cname: SINGLE ? '' : 'Khách ' + k, sku: s[0], sname: s[1], y: YEAR - 2, m, qty: base, rev: base * s[2] });
+        out.push({ ckey: SINGLE ? '' : PREFIX + k, cname: SINGLE ? '' : 'Khách ' + k, sku: s[0], sname: s[1], y: YEAR - 2, m, qty: base, rev: base * s[2] });
         if (m <= 9) {
           const q2 = Math.round(base * (1.05 + rnd() * 0.2));
-          out.push({ ckey: SINGLE ? '' : 'OEM:' + k, cname: SINGLE ? '' : 'Khách ' + k, sku: s[0], sname: s[1], y: YEAR - 1, m, qty: q2, rev: q2 * s[2] });
+          out.push({ ckey: SINGLE ? '' : PREFIX + k, cname: SINGLE ? '' : 'Khách ' + k, sku: s[0], sname: s[1], y: YEAR - 1, m, qty: q2, rev: q2 * s[2] });
         }
       }
     });
@@ -39,14 +42,20 @@ function rows() {
   return out;
 }
 const LICH_SU = rows();
-const donVi = { code: 'OEM', name: 'Domestic OEM', source: 'oem', single: SINGLE };
+const donVi = SOURCE === 'export' ? { code: 'XK', name: 'Export OEM', source: 'export', single: SINGLE } : { code: 'OEM', name: 'Domestic OEM', source: 'oem', single: SINGLE };
+// thông tin khách (thị trường / sale) để thử bộ lọc
+const THI_TRUONG = ['Brazil', 'Chile', 'Peru', 'Brazil', 'India', 'Chile'], SALE = ['Ashley', 'Tom', 'Ashley', 'Lan', 'Tom', ''];
+const customerInfo = {};
+KHACH.forEach((k, i) => { customerInfo[PREFIX + k] = { code: 'C' + (100 + i), name: k, market: SOURCE === 'export' ? THI_TRUONG[i] : '', sale: SALE[i] }; });
+const skuInfo = {};
+SKU.forEach((x) => { skuInfo[x[0]] = { name: x[1], category: /^1/.test(x[0]) ? 'Machine' : 'Component' }; });
 const kho = { plans: [], seq: 0 };
 const sao = (x) => JSON.parse(JSON.stringify(x));
 
 function dungCoSo() {
   const cs = E.xayDungCoSo(LICH_SU, YEAR);
   const mua = E.tyTrongMuaVu(cs.doanhThuNamTruoc, null);
-  return { ...cs, tyTrongMuaVu: mua, soDongLichSu: LICH_SU.length };
+  return { ...cs, tyTrongMuaVu: mua, soDongLichSu: LICH_SU.length, fxRate: FX };
 }
 const tomTat = (p) => ({ id: p.id, year: p.planYear, kind: p.kind, revisionNo: p.revisionNo, status: p.status, parentPlanId: p.parentPlanId || '', targetGrowthPct: p.targetGrowthPct, targetRevenueVnd: p.targetRevenueVnd, createdBy: 'harness', updatedAt: new Date().toISOString() });
 const tim = (id) => { const p = kho.plans.find((x) => x.id === id); if (!p) throw new Error('Không tìm thấy kế hoạch ' + id); return p; };
@@ -55,7 +64,7 @@ const tre = (v) => new Promise((r) => setTimeout(() => r(v), 80));
 api.getAnnualPlanWorkspace = async (p) => {
   const ds = kho.plans.filter((x) => x.planYear === Number(p.year));
   let chon = p.planId ? ds.find((x) => x.id === p.planId) : (ds.find((x) => x.status === 'draft' || x.status === 'submitted') || ds.find((x) => x.status === 'approved') || ds.find((x) => x.status === 'rejected'));
-  return tre({ unit: donVi, year: Number(p.year), plans: ds.map(tomTat), plan: chon ? sao(chon) : null, baseline: !chon ? dungCoSo() : null, skuNhom: { [SKU[1][0]]: 'Hàng thanh lý', [SKU[0][0]]: 'Máy lọc' } });
+  return tre({ unit: donVi, year: Number(p.year), plans: ds.map(tomTat), plan: chon ? sao(chon) : null, baseline: !chon ? dungCoSo() : null, customerInfo, skuInfo, skuNhom: { [SKU[1][0]]: 'Hàng thanh lý', [SKU[0][0]]: 'Máy lọc' } });
 };
 api.createAnnualPlan = async (p) => {
   const dangCo = kho.plans.find((x) => x.kind === (p.kind || 'base') && ['draft', 'submitted', 'rejected'].includes(x.status));
@@ -65,7 +74,7 @@ api.createAnnualPlan = async (p) => {
   const goc = kho.plans.find((x) => x.status === 'approved' && x.kind !== 'adjust');
   const plan = p.kind === 'adjust' && goc
     ? { ...sao(goc), id, kind: 'adjust', status: 'draft', parentPlanId: goc.id, revisionNo: 1 }
-    : { id, businessUnitCode: 'OEM', planYear: Number(p.year), kind: 'base', revisionNo: 1, parentPlanId: '', status: 'draft', targetGrowthPct: null, targetRevenueVnd: null, targetApplied: false,
+    : { id, businessUnitCode: donVi.code, planYear: Number(p.year), kind: 'base', fxRate: FX || null, revisionNo: 1, parentPlanId: '', status: 'draft', targetGrowthPct: null, targetRevenueVnd: null, targetApplied: false,
       baselineLastMonth: cs.lastMonth, shares: cs.tyTrongMuaVu, note: '', decisionComment: '',
       customers: cs.customers.map((c) => ({ key: c.key, name: c.name, market: '', isNew: false })),
       lines: cs.lines.map((l) => ({ key: l.key, customerKey: l.customerKey, skuCode: l.skuCode, tempSkuId: '', skuName: l.skuName, priceVnd: l.priceVnd, qtyBase: l.qtyBase, qty: l.qtyBase.slice(), khoa: new Array(12).fill(false) })), newSkus: [] };
