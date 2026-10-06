@@ -83,6 +83,7 @@ api.createAnnualPlan = async (p) => {
   return tre({ planId: id, existed: false, plan: sao(plan) });
 };
 api.discardAnnualPlan = async ({ planId }) => { const i = kho.plans.findIndex((x) => x.id === planId); if (i >= 0) kho.plans.splice(i, 1); return tre({ ok: true, planId }); };
+api.searchAnnualSku = async ({ q }) => { const t = String(q || '').toLowerCase(); return tre({ items: SKU.filter((x) => x[0].includes(t) || x[1].toLowerCase().includes(t)).map((x) => ({ code: x[0], name: x[1], category: /^1/.test(x[0]) ? 'Machine' : 'Component', model: '', priceVnd: x[2] })), fxRate: FX, canhBao: '' }); };
 api.saveAnnualPlan = async ({ planId, plan }) => { const p = tim(planId); Object.assign(p, sao(plan), { status: 'draft' }); return tre({ ok: true, planId, canhBao: [] }); };
 api.submitAnnualPlan = async ({ planId }) => { const p = tim(planId); p.status = 'submitted'; return tre({ ok: true, planId, canhBao: [] }); };
 api.decideAnnualPlan = async ({ planId, decision, comment }) => { const p = tim(planId); p.status = decision; p.decisionComment = comment || ''; return tre({ ok: true, planId, status: decision }); };

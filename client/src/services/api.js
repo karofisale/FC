@@ -147,6 +147,7 @@ export const api = {
   createAnnualPlan: (params) => callGAS('createAnnualPlan', auth(params)),
   saveAnnualPlan: (params) => callGAS('saveAnnualPlan', auth(params)),
   discardAnnualPlan: (params) => callGAS('discardAnnualPlan', auth(params)),
+  searchAnnualSku: (params) => callGAS('searchAnnualSku', auth(params)),
   submitAnnualPlan: (params) => callGAS('submitAnnualPlan', auth(params)),
   decideAnnualPlan: (params) => callGAS('decideAnnualPlan', auth(params)),
   saveAnnualPlanFinal: (params) => callGAS('saveAnnualPlanFinal', auth(params)),

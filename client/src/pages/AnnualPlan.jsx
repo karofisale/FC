@@ -199,6 +199,7 @@ export default function AnnualPlan({ currentBU, user }) {
   // Hàng thanh lý (đơn vị OEM): tiêu chí tùy biến theo nhóm sản phẩm của SKU (server trả skuNhom)
   const coThanhLy = !!(ws && ws.unit && ws.unit.source === 'oem');
   const optsXoa = (opts) => (opts && opts.xoaThanhLy && coThanhLy ? { ...opts, xoaTheo: M.laThanhLyTheoNhom(ws.skuNhom) } : opts);
+  const timSku = useCallback((q) => api.searchAnnualSku({ bu: currentBU, q }), [currentBU]);
   const xoaNho = (opts) => {
     const kq = capNhat((s) => M.xoaMatHangNho(s, M.laMayMacDinh, optsXoa(opts)));
     setDlg(null);
@@ -535,7 +536,7 @@ export default function AnnualPlan({ currentBU, user }) {
       {dlg?.loai === 'tuchoi' && <ReasonDialog title="Từ chối kế hoạch" label="Lý do từ chối *" confirmLabel="Từ chối" onClose={() => setDlg(null)} onConfirm={(t) => quyetDinh('rejected', t)} />}
       {dlg?.loai === 'final' && <ReasonDialog title="Lưu bản Final" label="Lý do điều chỉnh (top-down) *" confirmLabel="Lưu Final" onClose={() => { setDlg(null); setBusy(false); }} onConfirm={luuFinal} />}
       {dlg?.loai === 'khach' && <AddCustomerDialog market={donVi?.source === 'export' || donVi?.source === 'krf'} onClose={() => setDlg(null)} onAdd={themKhach} />}
-      {dlg?.loai === 'sku' && <AddSkuDialog tien={tien} customerName={single ? donVi?.name : (st.customers.find((c) => c.key === themVaoKhach)?.name || themVaoKhach)} existing={M.skuTrongBang(st)} onClose={() => setDlg(null)} onAdd={themSku} />}
+      {dlg?.loai === 'sku' && <AddSkuDialog tien={tien} tim={timSku} customerName={single ? donVi?.name : (st.customers.find((c) => c.key === themVaoKhach)?.name || themVaoKhach)} existing={M.skuTrongBang(st)} onClose={() => setDlg(null)} onAdd={themSku} />}
       {dlg?.loai === 'nho' && <MassDeleteDialog coThanhLy={coThanhLy} soThanhLy={st.lines.filter(M.laThanhLyTheoNhom(ws && ws.skuNhom)).length} preview={(opts) => M.xoaMatHangNho(st, M.laMayMacDinh, optsXoa(opts)).xoa} onClose={() => setDlg(null)} onConfirm={xoaNho} />}
     </div>
   );

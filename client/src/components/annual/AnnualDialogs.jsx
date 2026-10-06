@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
-import { X, Search } from 'lucide-react';
-import { dinhDangSo } from '../../utils/annualPlanModel';
+import React, { useEffect, useMemo, useState } from 'react';
+import { X, Search, Loader2 } from 'lucide-react';
+import { dinhDangSo, dinhDangGia } from '../../utils/annualPlanModel';
 
 function Khung({ title, onClose, children, rong }) {
   return (
@@ -57,9 +57,35 @@ export function AddCustomerDialog({ market, onAdd, onClose }) {
 }
 
 /** Thêm SKU cho một khách: chọn SKU tương tự đã có trong bảng, hoặc tạo SKU mới (tên, mô tả, đơn giá VNĐ). */
-export function AddSkuDialog({ customerName, existing, onAdd, onClose, tien }) {
+export function AddSkuDialog({ customerName, existing, onAdd, onClose, tien, tim }) {
   const usd = !!(tien && tien.loai === 'USD' && tien.fx > 0);
-  const [tab, setTab] = useState('co');
+  const [tab, setTab] = useState(tim ? 'dm' : 'co');
+  // --- tab "Danh mục": tìm SKU trong danh mục (Export / OEM Products), chọn rồi chỉnh đơn giá nếu cần
+  const [qDm, setQDm] = useState('');
+  const [kqDm, setKqDm] = useState({ items: [], canhBao: '' });
+  const [dangTim, setDangTim] = useState(false);
+  const [loiTim, setLoiTim] = useState('');
+  const [chonDm, setChonDm] = useState(null);
+  const [giaDm, setGiaDm] = useState('');
+  useEffect(() => {
+    if (tab !== 'dm' || !tim) return undefined;
+    const t = qDm.trim();
+    if (t.length < 2) { setKqDm({ items: [], canhBao: '' }); setLoiTim(''); return undefined; }
+    let huy = false;
+    const h = setTimeout(async () => {
+      setDangTim(true); setLoiTim('');
+      try { const r = await tim(t); if (!huy) setKqDm({ items: r.items || [], canhBao: r.canhBao || '' }); }
+      catch (e) { if (!huy) setLoiTim(e.message || String(e)); }
+      finally { if (!huy) setDangTim(false); }
+    }, 300);
+    return () => { huy = true; clearTimeout(h); };
+  }, [qDm, tab, tim]);
+  const chonSkuDm = (s) => {
+    setChonDm(s);
+    setGiaDm(usd ? String(Math.round((s.priceVnd / tien.fx) * 100) / 100) : String(Math.round(s.priceVnd)));
+  };
+  const giaDmNum = parseFloat(String(giaDm).replace(',', '.'));
+  const giaDmVnd = usd ? Math.round(giaDmNum * tien.fx) : Math.round(giaDmNum);
   const [q, setQ] = useState('');
   const [chon, setChon] = useState(null);
   const [moi, setMoi] = useState({ code: '', name: '', description: '', price: '' });
@@ -73,11 +99,44 @@ export function AddSkuDialog({ customerName, existing, onAdd, onClose, tien }) {
   return (
     <Khung title={'Thêm SKU cho ' + (customerName || 'đơn vị')} onClose={onClose} rong>
       <div className="flex gap-1 mb-3">
-        {[['co', 'Chọn SKU có trong bảng'], ['moi', 'SKU mới']].map(([k, t]) => (
+        {[...(tim ? [['dm', 'Tìm trong danh mục']] : []), ['co', 'SKU có trong bảng'], ['moi', 'SKU mới (nhập tay)']].map(([k, t]) => (
           <button key={k} onClick={() => setTab(k)} className={`text-xs font-semibold px-3 py-1.5 rounded-lg ${tab === k ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>{t}</button>
         ))}
       </div>
-      {tab === 'co' ? (
+      {tab === 'dm' ? (
+        <>
+          <div className="relative mb-2">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+            <input className={o + ' pl-8'} placeholder="Gõ mã, tên, model hoặc nhóm sản phẩm (từ 2 ký tự)…" value={qDm} onChange={(e) => setQDm(e.target.value)} autoFocus />
+            {dangTim && <Loader2 className="w-3.5 h-3.5 absolute right-2.5 top-2.5 text-slate-400 animate-spin" />}
+          </div>
+          {loiTim && <div className="text-xs text-rose-600 mb-2">{loiTim}</div>}
+          {kqDm.canhBao && <div className="text-[11px] text-amber-700 mb-2">{kqDm.canhBao}</div>}
+          <div className="border border-slate-200 rounded-lg max-h-64 overflow-y-auto divide-y divide-slate-100">
+            {kqDm.items.map((s) => (
+              <button key={s.code} onClick={() => chonSkuDm(s)} className={`w-full text-left px-3 py-1.5 text-xs flex justify-between gap-2 ${chonDm && chonDm.code === s.code ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
+                <span className="truncate">
+                  <b className="font-mono">{s.code}</b> {s.name}
+                  {s.category ? <span className="ml-1.5 text-[10px] bg-slate-100 text-slate-600 rounded px-1">{s.category}</span> : null}
+                </span>
+                <span className="font-mono text-slate-500 shrink-0">{s.priceVnd > 0 ? dinhDangGia(s.priceVnd, tien ? tien.loai : 'VND', tien ? tien.fx : 0) : 'chưa có giá'}</span>
+              </button>
+            ))}
+            {!kqDm.items.length && <div className="text-xs text-slate-400 p-3">{qDm.trim().length < 2 ? 'Gõ ít nhất 2 ký tự để tìm.' : (dangTim ? 'Đang tìm…' : 'Không có SKU phù hợp.')}</div>}
+          </div>
+          {chonDm && (
+            <div className="mt-3 flex items-end gap-3">
+              <div className="grow min-w-0"><div className="text-[11px] text-slate-500">Đã chọn</div><div className="text-xs font-semibold truncate"><span className="font-mono">{chonDm.code}</span> {chonDm.name}</div></div>
+              <div className="w-40"><label className={nhan}>Đơn giá ({usd ? 'USD' : 'VNĐ'}) — sửa được</label><input className={o} inputMode="decimal" value={giaDm} onChange={(e) => setGiaDm(e.target.value.replace(/[^\d.,]/g, ''))} /></div>
+            </div>
+          )}
+          <p className="text-[11px] text-slate-500 mt-2">Đơn giá gợi ý là giá đề xuất trong danh mục; sửa lại nếu giá bán thực khác.</p>
+          <div className="flex justify-end gap-2 mt-3">
+            <button className={nutPhu} onClick={onClose}>Hủy</button>
+            <button className={nutChinh} disabled={!chonDm || !isFinite(giaDmNum) || giaDmNum < 0 || giaDm === ''} onClick={() => onAdd({ skuCode: chonDm.code, tempSkuId: '', skuName: chonDm.name, priceVnd: giaDmVnd })}>Thêm SKU</button>
+          </div>
+        </>
+      ) : tab === 'co' ? (
         <>
           <div className="relative mb-2">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
