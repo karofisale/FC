@@ -40,7 +40,11 @@ check('đúng hai tab, đúng tên và thứ tự', rd.SheetNames.join() === 'Pl
 console.log('--- Plan_Per_Client ---');
 const pc = aoa('Plan_Per_Client');
 check('tiêu đề dòng 2: Mã khách, Tên khách, Sale ID, DT năm nay (dự kiến), DT kế hoạch năm sau, 12 cột tháng', pc[1].length === 17 && pc[1].slice(0, 5).join('|') === 'Mã khách|Tên khách|Sale ID|DT năm 2026 (dự kiến)|DT kế hoạch năm 2027' && pc[1][5] === 'DT KH T1/2027' && pc[1][16] === 'DT KH T12/2027', pc[1]);
-check('OEM: tên khách = Search Code (không phải "Alpha Co"); mã khách = mã số SAP; sale; khách không có sale để trống', pc[2][0] === '1001' && pc[2][1] === 'ALPHA' && pc[2][2] === 'Luyến' && pc[3][1] === 'BETA' && pc[3][2] === '', pc.slice(2));
+check('OEM: tên khách VÀ mã khách đều là Search Code (không phải "Alpha Co", không dùng mã số SAP "1001"); sale; khách không có sale để trống', pc[2][0] === 'ALPHA' && pc[2][1] === 'ALPHA' && pc[2][2] === 'Luyến' && pc[3][0] === 'BETA' && pc[3][1] === 'BETA' && pc[3][2] === '', pc.slice(2));
+const wbXk = X.taoWorkbook({ state: { ...st, customers: [{ key: 'XK:Brafco', name: 'Brafco' }], lines: st.lines.filter((l) => l.customerKey === 'OEM:ALPHA').map((l) => ({ ...l, customerKey: 'XK:Brafco' })) }, donVi: { code: 'XK', name: 'Export OEM', source: 'export' }, year: 2027,
+  info: { 'XK:Brafco': { code: 'C001', sale: 'Ashley', market: 'Brazil' } }, skuInfo: {} });
+const pcXk = XLSX.utils.sheet_to_json(wbXk.Sheets.Plan_Per_Client, { header: 1, defval: '' });
+check('Export: mã khách = client_id (C001), tên = Short Name, Sale ID = Sale_ID của khách', pcXk[2][0] === 'C001' && pcXk[2][1] === 'Brafco' && pcXk[2][2] === 'Ashley', pcXk[2]);
 const alphaBase = 12 * (10 * 10e6 + 100 * 1e6), alphaPlan = alphaBase * 2;
 check('DT năm nay (dự kiến) = cơ sở; DT kế hoạch năm sau = kế hoạch; 12 tháng cộng lại = DT kế hoạch (VNĐ đầy đủ)', pc[2][3] === alphaBase && pc[2][4] === alphaPlan && pc[2].slice(5).reduce((a, b) => a + b, 0) === pc[2][4] && pc[2][5] === alphaPlan / 12, pc[2]);
 check('dòng TỔNG ở trên cùng (dòng 1): bằng tổng các khách, cột tháng cũng vậy', pc[0][0] === 'TỔNG' && pc[0][3] === pc[2][3] + pc[3][3] && pc[0][4] === pc[2][4] + pc[3][4] && pc[0][16] === pc[2][16] + pc[3][16], pc[0]);
@@ -62,6 +66,23 @@ check('khối bên phải (sau 1 cột trống) là năm hiện tại: SL + DT c
 check('dòng TỔNG đầu bảng = tổng mọi SKU (SL + DT, cả hai khối); đơn giá không cộng', sk[0][0] === 'TỔNG' && sk[0][6] === sk[2][6] + sk[3][6] && sk[0][33] === sk[2][33] + sk[3][33] && sk[0][32] === sk[2][32] + sk[3][32] && sk[0][4] === '', [sk[0].slice(0, 8)]);
 const wsSku = rd.Sheets['Plan_SKU'];
 check('SUBTOTAL theo cột + bộ lọc bao hết bảng; cột phân cách không có công thức', wsSku.G1.f === 'SUBTOTAL(109,G3:G4)' && wsSku['!autofilter'].ref === 'A2:BF4' && !(wsSku.AF1 && wsSku.AF1.f), [wsSku.G1, wsSku['!autofilter']]);
+
+console.log('--- mỗi SKU đúng một dòng ---');
+{
+  // cùng một SKU ở 4 khách (mã lệch khoảng trắng / hoa thường) + 1 SKU khác + SKU mã tạm trùng nhau ở 2 khách
+  const mk = (ck, ma, gia, sl) => ({ key: ck + '|' + ma, customerKey: ck, skuCode: ma, tempSkuId: '', skuName: 'Máy ' + ma.trim(), priceVnd: gia, qtyBase: new Array(12).fill(sl), qty: new Array(12).fill(sl * 2), khoa: [] });
+  const tam = (ck) => ({ key: ck + '|NEW-9', customerKey: ck, skuCode: '', tempSkuId: 'NEW-9', skuName: 'Máy mới', priceVnd: 3000000, qtyBase: new Array(12).fill(0), qty: new Array(12).fill(10), khoa: [] });
+  const s2 = { ...st, customers: ['K1', 'K2', 'K3', 'K4'].map((k) => ({ key: k, name: k })), lines: [mk('K1', '1001', 10e6, 10), mk('K2', '1001 ', 10e6, 20), mk('K3', ' 1001', 12e6, 30), mk('K4', '1001', 10e6, 40), mk('K1', '2002', 1e6, 5), tam('K1'), tam('K2')], removedLines: [] };
+  const dong = X.dongSku(s2, donVi, {});
+  const maSku = dong.map((r) => r[1]);
+  check('mỗi SKU đúng MỘT dòng dù nằm ở nhiều khách / mã lệch khoảng trắng: 3 dòng (1001, 2002, NEW-9)', dong.length === 3 && new Set(maSku.map((x) => String(x).trim().toLowerCase())).size === 3, maSku);
+  const d1001 = dong.find((r) => r[1] === '1001');
+  check('dòng gộp cộng đủ cả 4 khách: SL kế hoạch năm = 12 × 2 × (10+20+30+40) = 2.400; DT = Σ SL × giá từng khách; đơn giá = bình quân gia quyền', d1001[5] === 2400 && d1001[6] === 12 * 2 * (10 * 10e6 + 20 * 10e6 + 30 * 12e6 + 40 * 10e6) && d1001[4] === Math.round(d1001[6] / d1001[5]), d1001.slice(0, 8));
+  check('SKU mã tạm ở 2 khách cũng gộp một dòng (SL 12 × 20 = 240)', dong.find((r) => r[1] === 'NEW-9')[5] === 240);
+  const bangTong = X.taoWorkbook({ state: s2, donVi, year: 2027, info: {}, skuInfo: {} });
+  const sk4 = XLSX.utils.sheet_to_json(bangTong.Sheets.Plan_SKU, { header: 1, defval: '' }).slice(2);
+  check('trong file: cột Mã SKU không trùng nhau; tổng SL năm ở dòng TỔNG = tổng các dòng SKU', new Set(sk4.map((r) => r[1])).size === sk4.length && XLSX.utils.sheet_to_json(bangTong.Sheets.Plan_SKU, { header: 1, defval: '' })[0][5] === sk4.reduce((s, r) => s + r[5], 0));
+}
 
 console.log('--- ca biên ---');
 const brand = { ...st, customers: [], lines: st.lines.map((l) => ({ ...l, customerKey: '', key: '|' + l.skuCode })).slice(0, 2) };

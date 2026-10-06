@@ -1,7 +1,7 @@
 /**
  * annualPlanExcel.js — XUẤT EXCEL KẾ HOẠCH NĂM (06/10/2026). Hai tab:
  *
- *  Plan_Per_Client — Mã khách | Tên khách (OEM: Search Code; Export: Short Name) | Sale ID | DT năm nay (dự kiến) | DT kế hoạch năm sau | 12 cột DT kế hoạch tháng.
+ *  Plan_Per_Client — Mã khách (OEM: Search Code; Export: client_id) | Tên khách (OEM: Search Code; Export: Short Name) | Sale ID | DT năm nay (dự kiến) | DT kế hoạch năm sau | 12 cột DT kế hoạch tháng.
  *    Dòng TỔNG trên cùng (SUBTOTAL — đổi theo bộ lọc), tiêu đề ở dòng 2, tự lọc (autofilter) theo mọi cột, trong đó Sale ID.
  *  Plan_SKU — Kênh | Mã SKU | Tên SKU | Category | Đơn giá (VNĐ) | Sản lượng + Doanh thu kế hoạch NĂM và 12 THÁNG (năm: 2 cột, mỗi tháng 2 cột) |
  *    cột trống | cùng bảng đó cho NĂM HIỆN TẠI (không lặp 5 cột đầu). Dòng TỔNG đầu bảng.
@@ -29,7 +29,9 @@ export function dongPerClient(state, donVi, info) {
   }
   return tomTatKhach(state).map((c) => {
     const i = (info || {})[c.key] || {};
-    return [i.code || tenKhachHienThi(c.key, c.name, nguon), tenKhachHienThi(c.key, c.name, nguon), i.sale || '', lam(c.baseTotal), lam(c.planTotal)].concat(c.plan.map(lam));
+    const ten = tenKhachHienThi(c.key, c.name, nguon);
+    const ma = nguon === 'oem' ? ten : (i.code || ten);          // OEM: mã khách cũng là Search Code (không dùng mã số SAP)
+    return [ma, ten, i.sale || '', lam(c.baseTotal), lam(c.planTotal)].concat(c.plan.map(lam));
   });
 }
 
@@ -38,13 +40,18 @@ export function tieuDePerClient(year) {
     .concat(NHAN_THANG.map((t, m) => 'DT KH T' + (m + 1) + '/' + year));
 }
 
-/** Gom theo SKU (cộng mọi khách). Trả [{ ma, ten, category, gia, planQty[12], planRev[12], baseQty[12], baseRev[12] }] xếp theo doanh thu kế hoạch giảm dần. */
+/**
+ * Gom theo SKU (cộng mọi khách): MỖI SKU ĐÚNG MỘT DÒNG. Khóa gom = mã SKU đã bỏ khoảng trắng đầu/cuối và không phân biệt hoa thường, nên cùng một SKU ở
+ * nhiều khách (hoặc mã lệch khoảng trắng / hoa thường) vẫn chỉ ra một dòng. Trả [{ ma, ten, category, gia, planQty[12], planRev[12], baseQty[12], baseRev[12] }]
+ * xếp theo doanh thu kế hoạch giảm dần.
+ */
 export function gomTheoSku(state, skuInfo) {
   const m = new Map();
   state.lines.forEach((l) => {
-    const ma = l.skuCode || l.tempSkuId || '';
-    let g = m.get(ma);
-    if (!g) { g = { ma, ten: l.skuName || '', giaDau: so(l.priceVnd), planQty: new Array(12).fill(0), planRev: new Array(12).fill(0), baseQty: new Array(12).fill(0), baseRev: new Array(12).fill(0) }; m.set(ma, g); }
+    const ma = String(l.skuCode || l.tempSkuId || '').trim();
+    const khoa = ma.toLowerCase();
+    let g = m.get(khoa);
+    if (!g) { g = { ma, ten: l.skuName || '', giaDau: so(l.priceVnd), planQty: new Array(12).fill(0), planRev: new Array(12).fill(0), baseQty: new Array(12).fill(0), baseRev: new Array(12).fill(0) }; m.set(khoa, g); }
     for (let k = 0; k < 12; k++) {
       g.planQty[k] += so(l.qty[k]); g.planRev[k] += so(l.qty[k]) * so(l.priceVnd);
       g.baseQty[k] += so(l.qtyBase[k]); g.baseRev[k] += so(l.qtyBase[k]) * so(l.priceVnd);

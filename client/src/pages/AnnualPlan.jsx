@@ -297,6 +297,12 @@ export default function AnnualPlan({ currentBU, user }) {
           {single ? 'Đơn vị một khách: bảng theo SKU.' : 'Bảng doanh thu theo khách (' + nhan + '), bấm + để xem SKU.'}
           {' '}{ghiChuGia}
         </p>
+        {donVi?.source === 'export' && ws?.khachLoai?.length > 0 && (
+          <details className="text-[11px] text-slate-500 mt-0.5">
+            <summary className="cursor-pointer">Export OEM = khách Export không phải Brand — đã loại {ws.khachLoai.length} khách Brand (bấm để xem)</summary>
+            <div className="mt-1 max-w-3xl leading-relaxed">{ws.khachLoai.map((k) => k.name + ' (' + k.ly + ')').join(' · ')}</div>
+          </details>
+        )}
       </div>
       <div className="ml-auto flex flex-wrap items-center gap-2">
         <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold bg-white">
