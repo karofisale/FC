@@ -57,7 +57,8 @@ export function AddCustomerDialog({ market, onAdd, onClose }) {
 }
 
 /** Thêm SKU cho một khách: chọn SKU tương tự đã có trong bảng, hoặc tạo SKU mới (tên, mô tả, đơn giá VNĐ). */
-export function AddSkuDialog({ customerName, existing, onAdd, onClose }) {
+export function AddSkuDialog({ customerName, existing, onAdd, onClose, tien }) {
+  const usd = !!(tien && tien.loai === 'USD' && tien.fx > 0);
   const [tab, setTab] = useState('co');
   const [q, setQ] = useState('');
   const [chon, setChon] = useState(null);
@@ -66,7 +67,9 @@ export function AddSkuDialog({ customerName, existing, onAdd, onClose }) {
     const t = q.trim().toLowerCase();
     return existing.filter((s) => !t || (s.skuCode || s.tempSkuId).toLowerCase().includes(t) || (s.skuName || '').toLowerCase().includes(t)).slice(0, 60);
   }, [existing, q]);
-  const hopLeMoi = moi.name.trim() && Number(moi.price) >= 0 && moi.price !== '';
+  const gia = parseFloat(String(moi.price).replace(',', '.'));
+  const hopLeMoi = moi.name.trim() && isFinite(gia) && gia >= 0 && moi.price !== '';
+  const giaVnd = usd ? Math.round(gia * tien.fx) : Math.round(gia);
   return (
     <Khung title={'Thêm SKU cho ' + (customerName || 'đơn vị')} onClose={onClose} rong>
       <div className="flex gap-1 mb-3">
@@ -102,7 +105,7 @@ export function AddSkuDialog({ customerName, existing, onAdd, onClose }) {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div><label className={nhan}>Mã SAP (nếu đã có)</label><input className={o} value={moi.code} onChange={(e) => setMoi({ ...moi, code: e.target.value })} placeholder="để trống = mã tạm" /></div>
-              <div><label className={nhan}>Đơn giá (VNĐ) *</label><input className={o} inputMode="numeric" value={moi.price} onChange={(e) => setMoi({ ...moi, price: e.target.value.replace(/[^\d]/g, '') })} /></div>
+              <div><label className={nhan}>Đơn giá ({usd ? 'USD' : 'VNĐ'}) *</label><input className={o} inputMode="decimal" value={moi.price} onChange={(e) => setMoi({ ...moi, price: e.target.value.replace(/[^\d.,]/g, '') })} /></div>
             </div>
             <div><label className={nhan}>Tên SKU *</label><input className={o} value={moi.name} onChange={(e) => setMoi({ ...moi, name: e.target.value })} /></div>
             <div><label className={nhan}>Mô tả ngắn</label><input className={o} value={moi.description} onChange={(e) => setMoi({ ...moi, description: e.target.value })} /></div>
@@ -112,7 +115,7 @@ export function AddSkuDialog({ customerName, existing, onAdd, onClose }) {
             <button className={nutPhu} onClick={onClose}>Hủy</button>
             <button className={nutChinh} disabled={!hopLeMoi} onClick={() => onAdd({
               skuCode: moi.code.trim(), tempSkuId: moi.code.trim() ? '' : 'NEW-' + Date.now().toString(36).toUpperCase(),
-              skuName: moi.name.trim(), priceVnd: Number(moi.price), description: moi.description.trim()
+              skuName: moi.name.trim(), priceVnd: giaVnd, description: moi.description.trim()
             })}>Thêm SKU</button>
           </div>
         </>

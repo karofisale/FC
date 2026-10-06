@@ -41,7 +41,7 @@ function rows() {
   });
   return out;
 }
-const LICH_SU = rows();
+const LICH_SU = q.get('rong') === '1' ? [] : rows();     // &rong=1: chưa có số liệu cũ
 const donVi = SOURCE === 'export' ? { code: 'XK', name: 'Export OEM', source: 'export', single: SINGLE }
   : (SOURCE === 'fc' ? { code: 'GT2', name: 'Brand GT2', source: 'fc', single: true } : { code: 'OEM', name: 'Domestic OEM', source: 'oem', single: SINGLE });
 // thông tin khách (thị trường / sale) để thử bộ lọc

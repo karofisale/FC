@@ -81,7 +81,7 @@ export default function AnnualPlan({ currentBU, user }) {
       setWs(r);
       let p = r.plan ? chuanHoa(r.plan) : null;
       // Sau khi bỏ nháp: vào thẳng bản CHƯA LƯU dựng từ dữ liệu nguồn mới nhất (chỉ lưu khi bấm Lưu nháp)
-      const chuaLuu = !p && tuBatDau && r.baseline && r.baseline.lines.length > 0;
+      const chuaLuu = !p && tuBatDau && !!r.baseline;
       if (chuaLuu) p = M.taoStateTuCoSo(r.baseline, { bu: currentBU, year });
       setSt(p);
       setBao(!!chuaLuu);
@@ -242,13 +242,16 @@ export default function AnnualPlan({ currentBU, user }) {
   };
   const batDauKhongLuu = () => {
     const b = ws && ws.baseline;
-    if (!b || !b.lines.length) return;
+    if (!b) return;
     const p = M.taoStateTuCoSo(b, { bu: currentBU, year });
+    const trong = !p.lines.length;
     setSt(p);
     setBao(true);
-    setView('base');
+    setView(trong ? 'plan' : 'base');
     setThemVaoKhach(p.customers[0] ? p.customers[0].key : '');
-    setMsg({ loai: 'ok', text: 'Bảng Cơ sở đã dựng từ dữ liệu nguồn — CHƯA lưu. Chỉnh sửa rồi bấm "Lưu nháp" để lưu vào hệ thống.' });
+    setMsg({ loai: 'ok', text: trong
+      ? 'Chưa có số liệu cũ — vẫn lập được: dùng "Thêm khách" / "Thêm SKU" rồi nhập số lượng từng tháng. Bản CHƯA lưu, bấm "Lưu nháp" để lưu.'
+      : 'Bảng Cơ sở đã dựng từ dữ liệu nguồn — CHƯA lưu. Chỉnh sửa rồi bấm "Lưu nháp" để lưu vào hệ thống.' });
   };
   const chepThang = (nguon, dich) => {
     if (capNhat((s) => M.saoChepThang(s, nguon, dich))) setMsg({ loai: 'ok', text: 'Đã copy SL của T' + (nguon + 1) + ' sang ' + (dich.length > 1 ? dich.length + ' tháng dự kiến' : 'T' + (dich[0] + 1)) + '.' });
@@ -378,10 +381,11 @@ export default function AnnualPlan({ currentBU, user }) {
                 : (donVi?.source === 'fc' || donVi?.source === 'krf' ? 'các tháng còn lại để TRỐNG — điền tay hoặc dùng nút Copy từ tháng n.'
                   : 'các tháng còn lại tự dự báo theo trung bình và xu hướng cùng kỳ.')}
               {' '}Bảng chỉ được lưu vào hệ thống khi bạn bấm <b>Lưu nháp</b>.
+              {!b.lines.length && <> <b>Chưa có số liệu cũ</b> — vẫn lập được kế hoạch mới bằng cách thêm khách / thêm SKU rồi nhập số lượng từng tháng.</>}
             </p>
           )}
           {laSoan
-            ? <button className={nutChinh} disabled={busy || !b || !b.lines.length} onClick={batDauKhongLuu}><Plus className="w-3.5 h-3.5" /> Bắt đầu lập kế hoạch năm {year}</button>
+            ? <button className={nutChinh} disabled={busy || !b} onClick={batDauKhongLuu}><Plus className="w-3.5 h-3.5" /> Bắt đầu lập kế hoạch năm {year}</button>
             : <p className="text-xs text-slate-500">Chỉ người lập kế hoạch (Editor) của đơn vị mới bắt đầu được.</p>}
         </div>
       </div>
@@ -488,6 +492,11 @@ export default function AnnualPlan({ currentBU, user }) {
         <PreviewTable state={locKq.state} single={single} fmt={fmt} nhan={nhan} dangLoc={locKq.dangLoc} />
       ) : (
         <>
+          {editable && !st.lines.length && (
+            <div className="mb-2 text-xs rounded-lg px-3 py-2 bg-sky-50 border border-sky-200 text-sky-800 flex items-center gap-2">
+              <Info className="w-4 h-4 shrink-0" /> Chưa có dòng nào: {single ? '' : 'thêm khách (nếu chưa có) rồi '}bấm <b>Thêm SKU</b>, nhập đơn giá và số lượng từng tháng ở bảng Kế hoạch. Không cần Target / Apply nếu lập tay.
+            </div>
+          )}
           {editable && view === 'plan' && (
             <div className="flex flex-wrap items-center gap-2 mb-2">
               {!single && <button className={nutPhu} onClick={() => setDlg({ loai: 'khach' })}><UserPlus className="w-3.5 h-3.5" /> Thêm khách</button>}
@@ -526,7 +535,7 @@ export default function AnnualPlan({ currentBU, user }) {
       {dlg?.loai === 'tuchoi' && <ReasonDialog title="Từ chối kế hoạch" label="Lý do từ chối *" confirmLabel="Từ chối" onClose={() => setDlg(null)} onConfirm={(t) => quyetDinh('rejected', t)} />}
       {dlg?.loai === 'final' && <ReasonDialog title="Lưu bản Final" label="Lý do điều chỉnh (top-down) *" confirmLabel="Lưu Final" onClose={() => { setDlg(null); setBusy(false); }} onConfirm={luuFinal} />}
       {dlg?.loai === 'khach' && <AddCustomerDialog market={donVi?.source === 'export' || donVi?.source === 'krf'} onClose={() => setDlg(null)} onAdd={themKhach} />}
-      {dlg?.loai === 'sku' && <AddSkuDialog customerName={single ? donVi?.name : (st.customers.find((c) => c.key === themVaoKhach)?.name || themVaoKhach)} existing={M.skuTrongBang(st)} onClose={() => setDlg(null)} onAdd={themSku} />}
+      {dlg?.loai === 'sku' && <AddSkuDialog tien={tien} customerName={single ? donVi?.name : (st.customers.find((c) => c.key === themVaoKhach)?.name || themVaoKhach)} existing={M.skuTrongBang(st)} onClose={() => setDlg(null)} onAdd={themSku} />}
       {dlg?.loai === 'nho' && <MassDeleteDialog coThanhLy={coThanhLy} soThanhLy={st.lines.filter(M.laThanhLyTheoNhom(ws && ws.skuNhom)).length} preview={(opts) => M.xoaMatHangNho(st, M.laMayMacDinh, optsXoa(opts)).xoa} onClose={() => setDlg(null)} onConfirm={xoaNho} />}
     </div>
   );

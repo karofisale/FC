@@ -317,6 +317,9 @@ export function khoiTaoTuMotThang(dong, thangGoc, ty) {
  * tuyChon.duBaoTuDon (Export OEM, 06/10/2026): các tháng CHƯA có số thực hiện lấy từ ĐƠN đã mở / nháp / mục tiêu thay vì ngoại suy xu hướng.
  * Những dòng đó nằm chung `rows` nhưng gắn `dk: true` (cùng hình dạng { ckey, cname, sku, sname, y, m, qty, rev }); chỉ năm cơ sở và chỉ tháng sau tháng
  * thực hiện cuối được dùng. Tháng không có đơn nào = 0. Khách / SKU chỉ có đơn (chưa từng bán trong năm cơ sở) vẫn được đưa vào bảng.
+ *
+ * tuyChon.khachThem [{ key, name }] (Brand KRF-*): khách THUỘC đơn vị nhưng chưa có dòng nào (chưa có số liệu cũ) vẫn được đưa vào danh sách khách (doanh thu 0, xếp cuối,
+ * không có SKU) để người lập thêm SKU / nhập số bằng tay. So khớp khóa bỏ khoảng trắng / ký hiệu, không phân biệt hoa thường — khách đã có dòng thì không thêm lần nữa.
  */
 export function xayDungCoSo(rows, namKeHoach, tuyChon) {
   const duBaoTuDon = !!(tuyChon && tuyChon.duBaoTuDon);
@@ -364,6 +367,11 @@ export function xayDungCoSo(rows, namKeHoach, tuyChon) {
   });
   const khach = Array.from(revKhach.keys()).map((k) => ({ key: k, name: tenKhach.get(k) || k, doanhThu: revKhach.get(k) }))
     .sort((a, b) => b.doanhThu - a.doanhThu || (a.key < b.key ? -1 : 1));
+  if (tuyChon && Array.isArray(tuyChon.khachThem)) {
+    const chuan = (k) => String(k == null ? '' : k).toLowerCase().replace(/[^a-z0-9]/g, '');
+    const co = new Set(khach.map((c) => chuan(c.key)));
+    tuyChon.khachThem.forEach((c) => { if (c && c.key && !co.has(chuan(c.key))) { khach.push({ key: c.key, name: c.name || c.key, doanhThu: 0 }); co.add(chuan(c.key)); } });
+  }
   const thuTuKhach = new Map(khach.map((c, i) => [c.key, i]));
   lines.sort((a, b) => thuTuKhach.get(a.customerKey) - thuTuKhach.get(b.customerKey) || b.tongCs - a.tongCs || (a.key < b.key ? -1 : 1));
   lines.forEach((l, i) => { l.ord = i; delete l.tongCs; });
