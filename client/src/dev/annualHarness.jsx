@@ -11,10 +11,10 @@ import * as E from '../utils/annualPlanEngine';
 
 const q = new URLSearchParams(window.location.search);
 const ROLE = q.get('role') || 'central_admin';
-const SINGLE = q.get('single') === '1';
-const SOURCE = q.get('source') === 'export' ? 'export' : 'oem';          // &source=export: thử Export OEM (USD, thị trường, sale)
+const SOURCE = q.get('source') === 'export' ? 'export' : (q.get('source') === 'fc' ? 'fc' : 'oem');   // &source=export: Export OEM (USD, thị trường, sale); &source=fc: Brand (một khách, USD, Copy từ tháng n)
+const SINGLE = q.get('single') === '1' || SOURCE === 'fc';
 const PREFIX = SOURCE === 'export' ? 'XK:' : 'OEM:';
-const FX = SOURCE === 'export' ? 25000 : 0;
+const FX = SOURCE === 'oem' ? 0 : 25000;
 const YEAR = new Date().getFullYear() + 1;
 
 // ---- dữ liệu lịch sử giả (năm YEAR-1 có T1–T9, YEAR-2 đủ 12 tháng) ----
@@ -42,7 +42,8 @@ function rows() {
   return out;
 }
 const LICH_SU = rows();
-const donVi = SOURCE === 'export' ? { code: 'XK', name: 'Export OEM', source: 'export', single: SINGLE } : { code: 'OEM', name: 'Domestic OEM', source: 'oem', single: SINGLE };
+const donVi = SOURCE === 'export' ? { code: 'XK', name: 'Export OEM', source: 'export', single: SINGLE }
+  : (SOURCE === 'fc' ? { code: 'GT2', name: 'Brand GT2', source: 'fc', single: true } : { code: 'OEM', name: 'Domestic OEM', source: 'oem', single: SINGLE });
 // thông tin khách (thị trường / sale) để thử bộ lọc
 const THI_TRUONG = ['Brazil', 'Chile', 'Peru', 'Brazil', 'India', 'Chile'], SALE = ['Ashley', 'Tom', 'Ashley', 'Lan', 'Tom', ''];
 const customerInfo = {};
@@ -53,7 +54,7 @@ const kho = { plans: [], seq: 0 };
 const sao = (x) => JSON.parse(JSON.stringify(x));
 
 function dungCoSo() {
-  const cs = E.xayDungCoSo(LICH_SU, YEAR);
+  const cs = E.xayDungCoSo(LICH_SU, YEAR, { duBaoTuDon: SOURCE !== 'oem' });     // Export / Brand: tháng dự kiến không ngoại suy (không có dòng đơn trong dữ liệu giả -> 0)
   const mua = E.tyTrongMuaVu(cs.doanhThuNamTruoc, null);
   return { ...cs, tyTrongMuaVu: mua, soDongLichSu: LICH_SU.length, fxRate: FX };
 }
@@ -81,6 +82,7 @@ api.createAnnualPlan = async (p) => {
   kho.plans.push(plan);
   return tre({ planId: id, existed: false, plan: sao(plan) });
 };
+api.discardAnnualPlan = async ({ planId }) => { const i = kho.plans.findIndex((x) => x.id === planId); if (i >= 0) kho.plans.splice(i, 1); return tre({ ok: true, planId }); };
 api.saveAnnualPlan = async ({ planId, plan }) => { const p = tim(planId); Object.assign(p, sao(plan), { status: 'draft' }); return tre({ ok: true, planId, canhBao: [] }); };
 api.submitAnnualPlan = async ({ planId }) => { const p = tim(planId); p.status = 'submitted'; return tre({ ok: true, planId, canhBao: [] }); };
 api.decideAnnualPlan = async ({ planId, decision, comment }) => { const p = tim(planId); p.status = decision; p.decisionComment = comment || ''; return tre({ ok: true, planId, status: decision }); };

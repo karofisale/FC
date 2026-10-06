@@ -344,6 +344,39 @@ export function kiemTra(state) {
     lines: state.lines.map((l) => ({ key: l.key, customerKey: l.customerKey, skuCode: l.skuCode, tempSkuId: l.tempSkuId, priceVnd: l.priceVnd, qty: l.qty })) });
 }
 
+/**
+ * Dựng kế hoạch NHÁP TRONG BỘ NHỚ (chưa lưu, id rỗng) từ bảng cơ sở server dựng (workspace.baseline). Chỉ khi người dùng bấm "Lưu nháp" mới tạo bản trên server
+ * và ghi các bảng Cơ sở / Kế hoạch vào đó. Hình dạng giống bản server tạo (createAnnualPlan): SL kế hoạch = cơ sở, tỷ trọng = mẫu mùa vụ, chưa Target.
+ */
+export function taoStateTuCoSo(b, { bu, year }) {
+  return {
+    id: '', businessUnitCode: bu, planYear: year, kind: 'base', revisionNo: 1, parentPlanId: '', status: 'draft',
+    targetGrowthPct: null, targetRevenueVnd: null, targetApplied: false, fxRate: b.fxRate > 0 ? b.fxRate : null,
+    baselineLastMonth: b.lastMonth, shares: b.tyTrongMuaVu.slice(), note: '',
+    customers: b.customers.map((c) => ({ key: c.key, name: c.name, market: '', isNew: false })),
+    lines: b.lines.map((l) => ({ key: l.key, customerKey: l.customerKey, skuCode: l.skuCode, tempSkuId: '', skuName: l.skuName, priceVnd: l.priceVnd,
+      qtyBase: l.qtyBase.slice(), qty: l.qtyBase.slice(), khoa: khoaMacDinh() })),
+    newSkus: [], removedLines: []
+  };
+}
+
+/**
+ * COPY từ tháng n: chép SL của MỌI dòng ở tháng nguồn sang các tháng đích (chỉ tháng chưa có số thực hiện, chưa Apply). Dùng cho đơn vị Brand — tháng dự kiến để
+ * trống vì thiếu dữ liệu các tháng cũ, người lập điền tay hoặc copy. Trước Apply SL kế hoạch đi theo cơ sở.
+ */
+export function saoChepThang(state, nguon, dich) {
+  if (state.targetApplied) throw new Error('Target đã Apply — mở khóa trước khi sửa số cơ sở.');
+  const ds = Array.from(new Set(dich)).filter((m) => m !== nguon);
+  if (!ds.length) throw new Error('Chọn tháng đích khác tháng nguồn.');
+  const sai = ds.find((m) => m <= state.baselineLastMonth);
+  if (sai !== undefined) throw new Error('Tháng ' + (sai + 1) + ' đã có số thực hiện, không ghi đè được.');
+  const d = new Set(ds);
+  return { ...state, lines: state.lines.map((l) => {
+    const q = Math.max(0, so(l.qtyBase[nguon]));
+    return { ...l, qtyBase: l.qtyBase.map((x, m) => (d.has(m) ? q : x)), qty: l.qty.map((x, m) => (d.has(m) ? q : x)) };
+  }) };
+}
+
 /** Nội dung gửi API lưu. */
 export function chuyenSangPayload(state) {
   return { targetGrowthPct: state.targetGrowthPct, targetRevenueVnd: state.targetRevenueVnd, targetApplied: !!state.targetApplied, shares: state.shares,

@@ -171,6 +171,24 @@ console.log('--- sửa tổng tháng cơ sở / tiền tệ / lọc khách ---')
   check('đơn vị một khách: không lọc (không có cấp khách)', !M.locTheoKhach({ ...goc, customers: [] }, { sale: 'x' }, {}, 'fc').dangLoc);
 }
 
+console.log('--- bản chưa lưu + copy từ tháng n ---');
+{
+  const b = { lastMonth: 3, fxRate: 25000, tyTrongMuaVu: E.tyTrongMuaVu(null, null), customers: [{ key: '', name: '' }].slice(0, 0),
+    lines: [{ key: '|S1', customerKey: '', skuCode: 'S1', skuName: 'Máy S1', priceVnd: 1000000, qtyBase: [10, 20, 30, 40, 0, 0, 0, 0, 0, 0, 0, 0] },
+      { key: '|S2', customerKey: '', skuCode: 'S2', skuName: 'Lõi S2', priceVnd: 50000, qtyBase: [100, 200, 300, 400, 0, 0, 0, 0, 0, 0, 0, 0] }] };
+  const n0 = M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 });
+  check('bản chưa lưu dựng từ cơ sở: id rỗng, draft, SL kế hoạch = cơ sở, tỷ trọng mẫu mùa vụ, tỷ giá + tháng cuối có số', n0.id === '' && n0.status === 'draft' && n0.kind === 'base' && n0.targetApplied === false &&
+    n0.lines.every((l, i) => JSON.stringify(l.qty) === JSON.stringify(b.lines[i].qtyBase) && l.khoa.length === 12) && n0.baselineLastMonth === 3 && n0.fxRate === 25000 && n0.shares.length === 12 && n0.removedLines.length === 0 && M.chuyenSangPayload(n0).lines.length === 2);
+  n0.lines[0].qtyBase[0] = 999;
+  check('dựng bản chưa lưu không dùng chung mảng với cơ sở (sửa bản không làm đổi dữ liệu nguồn)', b.lines[0].qtyBase[0] === 10);
+  const c1 = M.saoChepThang(M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 }), 3, [4, 5, 6]);
+  check('Copy từ T4 sang T5-T7: mọi SKU chép SL tháng nguồn (cả cơ sở lẫn kế hoạch); các tháng khác không đổi', c1.lines[0].qtyBase.slice(4, 7).every((v) => v === 40) && c1.lines[1].qtyBase.slice(4, 7).every((v) => v === 400) && c1.lines[0].qty.slice(4, 7).every((v) => v === 40) &&
+    c1.lines[0].qtyBase[3] === 40 && c1.lines[0].qtyBase[7] === 0 && c1.lines[0].qtyBase[0] === 10);
+  check('Copy: không ghi đè tháng đã có số thực hiện; cần tháng đích khác nguồn; đã Apply thì chặn; đầu vào không bị sửa', /đã có số thực hiện/.test(loi(() => M.saoChepThang(M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 }), 5, [2, 6]))) &&
+    /khác tháng nguồn/.test(loi(() => M.saoChepThang(M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 }), 5, [5]))) && /Apply/.test(loi(() => M.saoChepThang({ ...M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 }), targetApplied: true }, 3, [5]))) &&
+    JSON.stringify(M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 }).lines[0].qtyBase) === JSON.stringify(b.lines[0].qtyBase));
+}
+
 console.log('--- bù theo từng khách / khách mới / xóa khách ---');
 {
   const doanhThuKhach = (st, ck, m) => st.lines.filter((l) => l.customerKey === ck).reduce((a, l) => a + l.qty[m] * l.priceVnd, 0);

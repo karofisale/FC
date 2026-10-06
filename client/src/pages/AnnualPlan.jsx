@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Save, Send, CheckCircle2, XCircle, Loader2, AlertCircle, Plus, Unlock, Lock, Wand2, Trash2, UserPlus, GitBranch, Crown, Info, Target, FileSpreadsheet
+  Save, Send, CheckCircle2, XCircle, Loader2, AlertCircle, Plus, Unlock, Lock, Wand2, Trash2, UserPlus, GitBranch, Crown, Info, Target, FileSpreadsheet, RefreshCw
 } from 'lucide-react';
 import { api } from '../services/api';
 import { setDirty } from '../services/dirtyState';
@@ -71,7 +71,7 @@ export default function AnnualPlan({ currentBU, user }) {
     return () => setDirty(false);
   }, [bao]);
 
-  const nap = useCallback(async (planId) => {
+  const nap = useCallback(async (planId, tuBatDau) => {
     if (!currentBU) return;
     setLoading(true);
     setLoiTai('');
@@ -79,9 +79,12 @@ export default function AnnualPlan({ currentBU, user }) {
     try {
       const r = await api.getAnnualPlanWorkspace({ bu: currentBU, year, planId: planId || '' });
       setWs(r);
-      const p = r.plan ? chuanHoa(r.plan) : null;
+      let p = r.plan ? chuanHoa(r.plan) : null;
+      // Sau khi bỏ nháp: vào thẳng bản CHƯA LƯU dựng từ dữ liệu nguồn mới nhất (chỉ lưu khi bấm Lưu nháp)
+      const chuaLuu = !p && tuBatDau && r.baseline && r.baseline.lines.length > 0;
+      if (chuaLuu) p = M.taoStateTuCoSo(r.baseline, { bu: currentBU, year });
       setSt(p);
-      setBao(false);
+      setBao(!!chuaLuu);
       setFinalMode(false);
       setExpanded(new Set());
       setThemVaoKhach(p && p.customers[0] ? p.customers[0].key : '');
@@ -208,23 +211,55 @@ export default function AnnualPlan({ currentBU, user }) {
       setMsg({ loai: 'ok', text: 'Đã xuất Excel (2 tab: Plan_Per_Client, Plan_SKU) — toàn bộ kế hoạch' + (bao ? ', theo số đang hiển thị (có thay đổi chưa lưu)' : '') + '.' });
     } catch (e) { baoLoi(e); }
   };
+  /** Bản chưa lưu (id rỗng): tạo bản nháp trên server rồi mới ghi. Đã có bản nháp khác (người khác vừa lưu) thì dừng, không ghi đè. */
+  const bamBanLuu = async () => {
+    if (st.id) return st.id;
+    const r = await api.createAnnualPlan({ bu: currentBU, year, kind: 'base' });
+    if (r.existed) throw new Error('Đơn vị này đã có một bản nháp khác (có thể người khác vừa lưu) — tải lại trang để mở bản đó; số đang sửa ở đây chưa được lưu.');
+    return r.planId;
+  };
   const luu = async () => {
     setBusy(true);
     try {
       if (finalMode) { setDlg({ loai: 'final' }); return; }
-      const r = await api.saveAnnualPlan({ planId: st.id, plan: M.chuyenSangPayload(st) });
-      await nap(st.id);
-      setMsg({ loai: 'ok', text: 'Đã lưu.' + (r.canhBao && r.canhBao.length ? ' (' + r.canhBao.length + ' cảnh báo)' : '') });
+      const id = await bamBanLuu();
+      const r = await api.saveAnnualPlan({ planId: id, plan: M.chuyenSangPayload({ ...st, id }) });
+      await nap(id);
+      setMsg({ loai: 'ok', text: 'Đã lưu nháp.' + (r.canhBao && r.canhBao.length ? ' (' + r.canhBao.length + ' cảnh báo)' : '') });
     } catch (e) { baoLoi(e); } finally { setBusy(false); }
+  };
+  /** Bỏ bản nháp đã lưu (số cơ sở có thể cũ so với dữ liệu nguồn hiện tại) và dựng lại cơ sở mới; bản mới CHƯA lưu cho tới khi bấm Lưu nháp. */
+  const dungLai = async () => {
+    if (!window.confirm('Bỏ bản nháp đang lưu (kể cả các chỉnh sửa) và dựng lại bảng Cơ sở từ dữ liệu nguồn mới nhất? Bản mới chỉ được lưu khi bạn bấm "Lưu nháp".')) return;
+    setBusy(true);
+    try {
+      if (st.id) await api.discardAnnualPlan({ planId: st.id });
+      await nap('', true);
+      setMsg({ loai: 'ok', text: 'Đã dựng lại cơ sở từ dữ liệu nguồn mới nhất. Bản này CHƯA lưu — bấm "Lưu nháp" để lưu.' });
+    } catch (e) { baoLoi(e); } finally { setBusy(false); }
+  };
+  const batDauKhongLuu = () => {
+    const b = ws && ws.baseline;
+    if (!b || !b.lines.length) return;
+    const p = M.taoStateTuCoSo(b, { bu: currentBU, year });
+    setSt(p);
+    setBao(true);
+    setView('base');
+    setThemVaoKhach(p.customers[0] ? p.customers[0].key : '');
+    setMsg({ loai: 'ok', text: 'Bảng Cơ sở đã dựng từ dữ liệu nguồn — CHƯA lưu. Chỉnh sửa rồi bấm "Lưu nháp" để lưu vào hệ thống.' });
+  };
+  const chepThang = (nguon, dich) => {
+    if (capNhat((s) => M.saoChepThang(s, nguon, dich))) setMsg({ loai: 'ok', text: 'Đã copy SL của T' + (nguon + 1) + ' sang ' + (dich.length > 1 ? dich.length + ' tháng dự kiến' : 'T' + (dich[0] + 1)) + '.' });
   };
   const guiDuyet = async () => {
     if (kiemTra.loi.length) { setMsg({ loai: 'loi', text: 'Chưa gửi duyệt được: ' + kiemTra.loi.slice(0, 3).join(' · ') }); return; }
     if (!window.confirm('Gửi kế hoạch năm ' + year + ' của ' + currentBU + ' để duyệt? Sau khi gửi sẽ không sửa được cho tới khi được duyệt hoặc bị từ chối.')) return;
     setBusy(true);
     try {
-      await api.saveAnnualPlan({ planId: st.id, plan: M.chuyenSangPayload(st) });
-      await api.submitAnnualPlan({ planId: st.id });
-      await nap(st.id);
+      const id = await bamBanLuu();
+      await api.saveAnnualPlan({ planId: id, plan: M.chuyenSangPayload({ ...st, id }) });
+      await api.submitAnnualPlan({ planId: id });
+      await nap(id);
       setTienTe('VND');                          // bảng gửi duyệt luôn Triệu VNĐ
       setMsg({ loai: 'ok', text: 'Đã gửi duyệt.' });
     } catch (e) { baoLoi(e); } finally { setBusy(false); }
@@ -336,12 +371,15 @@ export default function AnnualPlan({ currentBU, user }) {
           {b && (
             <p className="text-xs text-slate-600 mb-3">
               Dữ liệu cơ sở: <b>{b.lines.length}</b> dòng SKU{single ? '' : <> của <b>{b.customers.length}</b> khách</>}, thực hiện đến
-              {' '}<b>{b.lastMonth >= 0 ? 'T' + (b.lastMonth + 1) + '/' + (year - 1) : 'chưa có tháng nào'}</b>; các tháng còn lại tự dự báo
-              theo trung bình và xu hướng cùng kỳ.
+              {' '}<b>{b.lastMonth >= 0 ? 'T' + (b.lastMonth + 1) + '/' + (year - 1) : 'chưa có tháng nào'}</b>;{' '}
+              {donVi?.source === 'export' ? 'các tháng còn lại lấy theo đơn hàng / PI đang chạy (opened, drafted, targeted).'
+                : (donVi?.source === 'fc' ? 'các tháng còn lại để TRỐNG — điền tay hoặc dùng nút Copy từ tháng n.'
+                  : 'các tháng còn lại tự dự báo theo trung bình và xu hướng cùng kỳ.')}
+              {' '}Bảng chỉ được lưu vào hệ thống khi bạn bấm <b>Lưu nháp</b>.
             </p>
           )}
           {laSoan
-            ? <button className={nutChinh} disabled={busy || !b || !b.lines.length} onClick={() => taoMoi('base')}>{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Bắt đầu lập kế hoạch năm {year}</button>
+            ? <button className={nutChinh} disabled={busy || !b || !b.lines.length} onClick={batDauKhongLuu}><Plus className="w-3.5 h-3.5" /> Bắt đầu lập kế hoạch năm {year}</button>
             : <p className="text-xs text-slate-500">Chỉ người lập kế hoạch (Editor) của đơn vị mới bắt đầu được.</p>}
         </div>
       </div>
@@ -362,6 +400,17 @@ export default function AnnualPlan({ currentBU, user }) {
           <Crown className="w-4 h-4" /> Đang điều chỉnh top-down: bấm "Lưu bản Final" để ghi thành phiên bản Final mới (bản của đơn vị không đổi).
         </div>
       )}
+      {editable && !st.id && (
+        <div className="mb-3 text-xs rounded-lg px-3 py-2 bg-amber-50 border border-amber-200 text-amber-800 flex items-center gap-2">
+          <Info className="w-4 h-4 shrink-0" /> Bản CHƯA LƯU: bảng Cơ sở và Kế hoạch chỉ được lưu vào hệ thống khi bấm <b>Lưu nháp</b> (rời trang sẽ mất).
+        </div>
+      )}
+      {editable && st.id && st.status === 'draft' && st.kind !== 'final' && (
+        <div className="mb-3 text-[11px] rounded-lg px-3 py-1.5 bg-slate-50 border border-slate-200 text-slate-600 flex items-center gap-2">
+          <Info className="w-3.5 h-3.5 shrink-0" /> Bản nháp đã lưu{st.updatedAt ? ' lúc ' + new Date(st.updatedAt).toLocaleString('vi-VN') : ''}: bảng Cơ sở là số tại thời điểm tạo, có thể cũ so với dữ liệu nguồn hiện tại.
+          Muốn lấy dữ liệu / cách tính mới nhất: bấm <b>Dựng lại từ dữ liệu mới</b>.
+        </div>
+      )}
       {st.status === 'rejected' && st.decisionComment && (
         <div className="mb-3 text-xs rounded-lg px-3 py-2 bg-rose-50 border border-rose-200 text-rose-800">Bị từ chối: {st.decisionComment}</div>
       )}
@@ -379,7 +428,8 @@ export default function AnnualPlan({ currentBU, user }) {
           {(view === 'preview' || st.status === 'submitted' || st.status === 'approved' || st.status === 'superseded') && (
             <button className={nutPhu} onClick={xuatExcel} title="Xuất Excel 2 tab: Plan_Per_Client, Plan_SKU"><FileSpreadsheet className="w-3.5 h-3.5" /> Xuất Excel</button>
           )}
-          {editable && !finalMode && <button className={nutPhu} onClick={luu} disabled={busy || !bao}>{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Lưu</button>}
+          {editable && !finalMode && st.kind !== 'final' && <button className={nutPhu} onClick={dungLai} disabled={busy} title="Bỏ bản nháp và dựng lại bảng Cơ sở từ dữ liệu nguồn mới nhất"><RefreshCw className="w-3.5 h-3.5" /> Dựng lại từ dữ liệu mới</button>}
+          {editable && !finalMode && <button className={nutChinh + ' !bg-slate-700 hover:!bg-slate-800'} onClick={luu} disabled={busy || (!bao && !!st.id)}>{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Lưu nháp</button>}
           {editable && !finalMode && <button className={nutChinh} onClick={guiDuyet} disabled={busy}><Send className="w-3.5 h-3.5" /> Gửi duyệt</button>}
           {finalMode && <button className={nutChinh} onClick={luu} disabled={busy}><Crown className="w-3.5 h-3.5" /> Lưu bản Final</button>}
           {finalMode && <button className={nutPhu} onClick={() => nap(st.id)}>Hủy điều chỉnh</button>}
@@ -451,6 +501,7 @@ export default function AnnualPlan({ currentBU, user }) {
               <span className="text-[11px] text-slate-400 ml-auto">Sửa SL một SKU: các SKU còn lại của cùng khách tự co giãn để doanh thu khách đó không đổi. Khách mới / bớt khách: các khách khác bù để tổng tháng không đổi.</span>
             </div>
           )}
+          {editable && view === 'base' && !st.targetApplied && donVi?.source === 'fc' && <CopyThang st={st} onCopy={chepThang} />}
           <AnnualGrid
             state={locKq.state} view={view} editable={editable} single={single}
             fmt={fmt} nhan={nhan} tien={tien} dangLoc={locKq.dangLoc} onEditMonthTotal={suaTongThang}
@@ -516,6 +567,30 @@ function PreviewTable({ state, single, fmt, nhan, dangLoc }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/** Đơn vị Brand: tháng dự kiến để trống (thiếu dữ liệu các tháng cũ) — điền tay từng ô hoặc COPY SL của tháng n sang tháng dự kiến. */
+function CopyThang({ st, onCopy }) {
+  const dau = st.baselineLastMonth + 1;                       // tháng dự kiến đầu tiên
+  const [nguon, setNguon] = useState(Math.max(0, st.baselineLastMonth));
+  const [dich, setDich] = useState('tat');
+  const thangDuKien = M.NHAN_THANG.map((t, m) => m).filter((m) => m >= dau);
+  if (!thangDuKien.length) return null;
+  const chay = () => onCopy(nguon, dich === 'tat' ? thangDuKien : [Number(dich)]);
+  const o = 'border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white';
+  return (
+    <div className="flex flex-wrap items-center gap-2 mb-2 text-xs bg-amber-50/60 border border-amber-200 rounded-lg px-3 py-2">
+      <span className="font-semibold text-slate-700">Kênh Brand — tháng dự kiến để trống, điền tay hoặc:</span>
+      <span>Copy SL từ</span>
+      <select value={nguon} onChange={(e) => setNguon(Number(e.target.value))} className={o}>{M.NHAN_THANG.map((t, m) => <option key={t} value={m}>{t}{m <= st.baselineLastMonth ? ' (thực hiện)' : ''}</option>)}</select>
+      <span>sang</span>
+      <select value={dich} onChange={(e) => setDich(e.target.value)} className={o}>
+        <option value="tat">tất cả tháng dự kiến</option>
+        {thangDuKien.map((m) => <option key={m} value={m}>{M.NHAN_THANG[m]}</option>)}
+      </select>
+      <button className={nutPhu} onClick={chay}>Copy</button>
     </div>
   );
 }
