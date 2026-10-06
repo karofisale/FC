@@ -151,7 +151,7 @@ console.log('--- sửa tổng tháng cơ sở / tiền tệ / lọc khách ---')
     M.nhanTien('VND') === 'triệu VNĐ' && M.nhanTien('USD') === 'USD' && M.taoDinhDangTien('VND', 0)(1234567890) === (1235).toLocaleString('vi-VN') && M.taoDinhDangTien('USD', 25000)(50000000) === (2000).toLocaleString('vi-VN') &&
     M.dinhDangGia(250000, 'USD', 25000) === '10,00 USD' && M.dinhDangGia(250000, 'VND', 25000) === '250.000đ' && M.taoDinhDangTien('USD', 0)(5e6) === (5).toLocaleString('vi-VN'));
   // tên hiển thị + lọc
-  check('tên hiển thị: OEM chỉ Search Code, Export Short Name, nguồn khác giữ tên', M.tenKhachHienThi('OEM:ALPHA', 'Alpha Co', 'oem') === 'ALPHA' && M.tenKhachHienThi('XK:Brafco', 'Brafco', 'export') === 'Brafco' && M.tenKhachHienThi('NEW:Gamma', 'Gamma', 'oem') === 'Gamma' && M.tenKhachHienThi('', 'Đơn vị', 'fc') === 'Đơn vị');
+  check('tên hiển thị: OEM chỉ Search Code, Export Short Name, nguồn khác giữ tên', M.tenKhachHienThi('OEM:ALPHA', 'Alpha Co', 'oem') === 'ALPHA' && M.tenKhachHienThi('XK:Brafco', 'Brafco', 'export') === 'Brafco' && M.tenKhachHienThi('XK:Karotec', 'Karotec Co', 'krf') === 'Karotec' && M.tenKhachHienThi('NEW:Gamma', 'Gamma', 'oem') === 'Gamma' && M.tenKhachHienThi('', 'Đơn vị', 'fc') === 'Đơn vị');
   const info = { 'OEM:ALPHA': { code: '1001', sale: 'Luyến', market: '' }, 'OEM:BETA': { code: '1002', sale: 'Thúy', market: '' } };
   const loc0 = M.locTheoKhach(goc, {}, info, 'oem');
   check('không lọc: đủ khách, tên đổi sang Search Code, tổng không đổi', !loc0.dangLoc && loc0.state.customers.map((c) => c.name).join() === 'ALPHA,BETA' && M.tong(M.doanhThuCoSo(loc0.state)) === M.tong(M.doanhThuCoSo(goc)));

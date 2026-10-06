@@ -407,7 +407,7 @@ export function dinhDangGia(priceVnd, loai, fx) {
 export function tenKhachHienThi(ckey, tenGoc, nguon) {
   const k = String(ckey || '');
   if (nguon === 'oem' && /^OEM:/.test(k)) return k.slice(4);
-  if (nguon === 'export' && /^XK:/.test(k)) return k.slice(3);
+  if ((nguon === 'export' || nguon === 'krf') && /^XK:/.test(k)) return k.slice(3);
   return tenGoc || k;
 }
 

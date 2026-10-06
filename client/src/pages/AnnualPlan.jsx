@@ -113,7 +113,9 @@ export default function AnnualPlan({ currentBU, user }) {
   // Tỷ giá đã chốt theo phiên bản (chưa có bản thì tỷ giá hiện tại lúc dựng cơ sở) + tiền tệ hiển thị: USD chỉ cho Export OEM + Brand (có tỷ giá);
   // bảng chờ duyệt (đã gửi duyệt) luôn Triệu VNĐ.
   const fx = (st && st.fxRate) || (ws && ws.baseline && ws.baseline.fxRate) || 0;
-  const choUsd = (donVi?.source === 'export' || donVi?.source === 'fc') && fx > 0;
+  const laKrf = donVi?.source === 'krf';                       // Brand KRF-*: nhiều khách, dữ liệu từ đơn hàng Export
+  const laBrand = donVi?.source === 'fc' || laKrf;
+  const choUsd = (donVi?.source === 'export' || laBrand) && fx > 0;
   const khoaVnd = st?.status === 'submitted';
   const tienHienThi = choUsd && tienTe === 'USD' && !khoaVnd ? 'USD' : 'VND';
   const fmt = M.taoDinhDangTien(tienHienThi, fx);
@@ -180,7 +182,7 @@ export default function AnnualPlan({ currentBU, user }) {
     capNhat((s) => M.xoaKhach(s, key));
   };
   const themKhach = ({ name, code, market }) => {
-    const tienTo = donVi?.source === 'oem' ? 'OEM:' : (donVi?.source === 'export' ? 'XK:' : '');
+    const tienTo = donVi?.source === 'oem' ? 'OEM:' : (donVi?.source === 'export' || donVi?.source === 'krf' ? 'XK:' : '');
     const key = code ? tienTo + code : 'NEW:' + name;
     if (capNhat((s) => M.themKhach(s, { key, name, market }))) { setThemVaoKhach(key); setExpanded((e) => new Set(e).add(key)); }
     setDlg(null);
@@ -321,7 +323,7 @@ export default function AnnualPlan({ currentBU, user }) {
   const taiFx = fx > 0 ? ' — tỷ giá chốt ' + fx.toLocaleString('vi-VN') : '';
   const ghiChuGia = donVi?.source === 'fc'
     ? 'Đơn giá = giá đề xuất của Export quy đổi VNĐ' + taiFx + ' (doanh thu theo giá đề xuất, không phải giá bán thực).'
-    : (donVi?.source === 'export'
+    : (donVi?.source === 'export' || donVi?.source === 'krf'
       ? 'Đơn giá = giá thực tế trên đơn hàng Export (USD) quy đổi VNĐ' + taiFx + '.'
       : 'Đơn giá VNĐ theo doanh thu thực hiện.');
   const anhDau = (
@@ -373,7 +375,7 @@ export default function AnnualPlan({ currentBU, user }) {
               Dữ liệu cơ sở: <b>{b.lines.length}</b> dòng SKU{single ? '' : <> của <b>{b.customers.length}</b> khách</>}, thực hiện đến
               {' '}<b>{b.lastMonth >= 0 ? 'T' + (b.lastMonth + 1) + '/' + (year - 1) : 'chưa có tháng nào'}</b>;{' '}
               {donVi?.source === 'export' ? 'các tháng còn lại lấy theo đơn hàng / PI đang chạy (opened, drafted, targeted).'
-                : (donVi?.source === 'fc' ? 'các tháng còn lại để TRỐNG — điền tay hoặc dùng nút Copy từ tháng n.'
+                : (donVi?.source === 'fc' || donVi?.source === 'krf' ? 'các tháng còn lại để TRỐNG — điền tay hoặc dùng nút Copy từ tháng n.'
                   : 'các tháng còn lại tự dự báo theo trung bình và xu hướng cùng kỳ.')}
               {' '}Bảng chỉ được lưu vào hệ thống khi bạn bấm <b>Lưu nháp</b>.
             </p>
@@ -425,9 +427,7 @@ export default function AnnualPlan({ currentBU, user }) {
         </div>
         {choUsd && <ChonTien tien={tienHienThi} setTien={setTienTe} khoa={khoaVnd} fx={fx} />}
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          {(view === 'preview' || st.status === 'submitted' || st.status === 'approved' || st.status === 'superseded') && (
-            <button className={nutPhu} onClick={xuatExcel} title="Xuất Excel 2 tab: Plan_Per_Client, Plan_SKU"><FileSpreadsheet className="w-3.5 h-3.5" /> Xuất Excel</button>
-          )}
+          <button className={nutPhu} onClick={xuatExcel} title="Xuất Excel 2 tab: Plan_Per_Client, Plan_SKU (toàn bộ kế hoạch đang mở)"><FileSpreadsheet className="w-3.5 h-3.5" /> Xuất Excel</button>
           {editable && !finalMode && st.kind !== 'final' && <button className={nutPhu} onClick={dungLai} disabled={busy} title="Bỏ bản nháp và dựng lại bảng Cơ sở từ dữ liệu nguồn mới nhất"><RefreshCw className="w-3.5 h-3.5" /> Dựng lại từ dữ liệu mới</button>}
           {editable && !finalMode && <button className={nutChinh + ' !bg-slate-700 hover:!bg-slate-800'} onClick={luu} disabled={busy || (!bao && !!st.id)}>{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Lưu nháp</button>}
           {editable && !finalMode && <button className={nutChinh} onClick={guiDuyet} disabled={busy}><Send className="w-3.5 h-3.5" /> Gửi duyệt</button>}
@@ -480,7 +480,7 @@ export default function AnnualPlan({ currentBU, user }) {
       )}
 
       {!single && (
-        <ThanhLoc loc={loc} setLoc={setLoc} giaTri={giaTriLoc} coThiTruong={donVi?.source === 'export'} coSale={donVi?.source === 'export' || donVi?.source === 'oem'}
+        <ThanhLoc loc={loc} setLoc={setLoc} giaTri={giaTriLoc} coThiTruong={donVi?.source === 'export'} coSale={donVi?.source === 'export' || donVi?.source === 'oem' || donVi?.source === 'krf'}
           soKhach={locKq.soKhach} tong={locKq.tong} dangLoc={locKq.dangLoc} />
       )}
 
@@ -501,7 +501,7 @@ export default function AnnualPlan({ currentBU, user }) {
               <span className="text-[11px] text-slate-400 ml-auto">Sửa SL một SKU: các SKU còn lại của cùng khách tự co giãn để doanh thu khách đó không đổi. Khách mới / bớt khách: các khách khác bù để tổng tháng không đổi.</span>
             </div>
           )}
-          {editable && view === 'base' && !st.targetApplied && donVi?.source === 'fc' && <CopyThang st={st} onCopy={chepThang} />}
+          {editable && view === 'base' && !st.targetApplied && (donVi?.source === 'fc' || donVi?.source === 'krf') && <CopyThang st={st} onCopy={chepThang} />}
           <AnnualGrid
             state={locKq.state} view={view} editable={editable} single={single}
             fmt={fmt} nhan={nhan} tien={tien} dangLoc={locKq.dangLoc} onEditMonthTotal={suaTongThang}
@@ -525,7 +525,7 @@ export default function AnnualPlan({ currentBU, user }) {
 
       {dlg?.loai === 'tuchoi' && <ReasonDialog title="Từ chối kế hoạch" label="Lý do từ chối *" confirmLabel="Từ chối" onClose={() => setDlg(null)} onConfirm={(t) => quyetDinh('rejected', t)} />}
       {dlg?.loai === 'final' && <ReasonDialog title="Lưu bản Final" label="Lý do điều chỉnh (top-down) *" confirmLabel="Lưu Final" onClose={() => { setDlg(null); setBusy(false); }} onConfirm={luuFinal} />}
-      {dlg?.loai === 'khach' && <AddCustomerDialog market={donVi?.source === 'export'} onClose={() => setDlg(null)} onAdd={themKhach} />}
+      {dlg?.loai === 'khach' && <AddCustomerDialog market={donVi?.source === 'export' || donVi?.source === 'krf'} onClose={() => setDlg(null)} onAdd={themKhach} />}
       {dlg?.loai === 'sku' && <AddSkuDialog customerName={single ? donVi?.name : (st.customers.find((c) => c.key === themVaoKhach)?.name || themVaoKhach)} existing={M.skuTrongBang(st)} onClose={() => setDlg(null)} onAdd={themSku} />}
       {dlg?.loai === 'nho' && <MassDeleteDialog coThanhLy={coThanhLy} soThanhLy={st.lines.filter(M.laThanhLyTheoNhom(ws && ws.skuNhom)).length} preview={(opts) => M.xoaMatHangNho(st, M.laMayMacDinh, optsXoa(opts)).xoa} onClose={() => setDlg(null)} onConfirm={xoaNho} />}
     </div>
