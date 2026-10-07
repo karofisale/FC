@@ -320,7 +320,7 @@ export function SuaMaSkuDialog({ sku, onSave, onClose, tim }) {
  * Tải lên bảng doanh thu khách × tháng (tab Plan_Per_Client của file Xuất Excel, đã sửa): xem trước kết quả rồi áp dụng.
  * state = kế hoạch đầy đủ; info = thông tin khách; nguon = nguồn đơn vị; fmt / nhan = định dạng tiền đang hiển thị.
  */
-export function TaiDoanhThuKhachDialog({ state, info, nguon, fmt, nhan: nhanTien, onApply, onClose }) {
+export function TaiDoanhThuKhachDialog({ state, info, nguon, fmt, nhan: nhanTien, onApply, onClose, catOf }) {
   const [dang, setDang] = useState(false);
   const [loi, setLoi] = useState('');
   const [bang, setBang] = useState(null);                 // { bang: Map, khongKhop, trung }
@@ -339,7 +339,7 @@ export function TaiDoanhThuKhachDialog({ state, info, nguon, fmt, nhan: nhanTien
       setBang(kh);
     } catch (err) { setLoi(err.message || String(err)); } finally { setDang(false); }
   };
-  const kq = useMemo(() => (bang ? apDungBangDoanhThu(state, bang.bang, { canBangVeTarget: canBang }) : null), [bang, state, canBang]);
+  const kq = useMemo(() => (bang ? apDungBangDoanhThu(state, bang.bang, { canBangVeTarget: canBang, catOf }) : null), [bang, state, canBang, catOf]);
   const tenKhach = (k) => { const c = state.customers.find((x) => x.key === k); return (c && c.name) || k; };
   const soKhachDoi = kq ? new Set(kq.thayDoi.map((x) => x.key)).size : 0;
   return (

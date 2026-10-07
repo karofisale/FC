@@ -82,10 +82,10 @@ console.log('--- sửa SL một SKU của một khách (SKU view, đã Apply) --
   const dm = K.suaOSkuKhach(S, 'A|M1', THANG, line(S, 'A|M1').qty[THANG] + 20, catOf);
   check('SKU M1: D chỉ mua M1 (không có SKU khác để bù) nên SL của D giữ nguyên; doanh thu D không đổi', line(dm.state, 'D|M1').qty[THANG] === line(S, 'D|M1').qty[THANG] && khachGiu(S, dm.state, THANG));
   check('tổng SKU M1 giữ nguyên nhờ B bù (B còn SKU khác)', qSku(dm.state, 'M1', THANG) === qSku(S, 'M1', THANG));
-  check('khách đang sửa không còn SKU nào để bù -> báo lỗi, không đổi gì', /không (còn|đủ) SKU/.test(loi(() => K.suaOSkuKhach(S, 'D|M1', THANG, line(S, 'D|M1').qty[THANG] + 10, catOf))));
+  check('khách đang sửa không còn SKU nào để bù -> báo lỗi (nêu nguyên tắc bị vi phạm), không đổi gì', /Không giữ được nguyên tắc/.test(loi(() => K.suaOSkuKhach(S, 'D|M1', THANG, line(S, 'D|M1').qty[THANG] + 10, catOf))));
   let s3 = S;
   ['A|M2', 'A|F1', 'A|F2', 'A|P1'].forEach((k) => { s3 = M.doiKhoaO(s3, k, THANG); });
-  check('mọi SKU khác của khách đã Fix -> báo lỗi', /không (còn|đủ) SKU chưa Fix/.test(loi(() => K.suaOSkuKhach(s3, 'A|M1', THANG, line(S, 'A|M1').qty[THANG] + 10, catOf))));
+  check('mọi SKU khác của khách đã Fix -> báo lỗi', /Không giữ được nguyên tắc/.test(loi(() => K.suaOSkuKhach(s3, 'A|M1', THANG, line(S, 'A|M1').qty[THANG] + 10, catOf))));
 }
 {
   // chưa Apply: sửa thẳng, không bù, không Fix
@@ -98,7 +98,7 @@ console.log('--- sửa tổng SL một SKU (SKU view) ---');
   const q0 = qSku(S, 'F1', THANG), moi = Math.round(q0 * 1.25);
   const r = K.suaTongSku(S, 'f1', THANG, moi, catOf);
   const a = r.state;
-  check('tổng SKU đúng số nhập; các ô SKU được Fix', qSku(a, 'F1', THANG) === moi && ['A|F1', 'B|F1', 'C|F1'].every((k) => line(a, k).khoa[THANG]) && khongAm(a) && nguyenVen(a, THANG));
+  check('tổng SKU đúng số nhập; SKU được Fix TỔNG (các ô con KHÔNG bị Fix)', qSku(a, 'F1', THANG) === moi && K.laFixTong(a, 'sku', 'f1', THANG) && ['A|F1', 'B|F1', 'C|F1'].every((k) => !line(a, k).khoa[THANG]) && khongAm(a) && nguyenVen(a, THANG));
   check('doanh thu từng khách giữ nguyên', khachGiu(S, a, THANG), ['A', 'B', 'C', 'D'].map((c) => [revKhach(S, c, THANG), revKhach(a, c, THANG)]));
   check('tổng SL nhóm "Lõi lọc" giữ nguyên: F2 (SKU khác cùng nhóm) co giãn ngược lại', qNhom(a, 'Lõi lọc', THANG) === qNhom(S, 'Lõi lọc', THANG) && qSku(a, 'F2', THANG) < qSku(S, 'F2', THANG), [qNhom(S, 'Lõi lọc', THANG), qNhom(a, 'Lõi lọc', THANG)]);
   check('SKU các nhóm khác chưa Fix cũng co giãn để bù doanh thu', ['M1', 'M2', 'P1'].some((s) => qSku(a, s, THANG) !== qSku(S, s, THANG)));
@@ -110,7 +110,7 @@ console.log('--- sửa tổng SL một SKU (SKU view) ---');
   const a = K.suaTongSku(S, 'm1', THANG, Math.round(qSku(S, 'M1', THANG) * 0.5), catOf).state;
   check('giảm tổng SKU M1 một nửa (D giữ nguyên vì không bù được): vẫn giữ doanh thu khách', khachGiu(S, a, THANG) && line(a, 'D|M1').qty[THANG] === line(S, 'D|M1').qty[THANG] && qSku(a, 'M1', THANG) === Math.round(qSku(S, 'M1', THANG) * 0.5));
   check('sửa lại cùng SKU lần nữa (ô đã Fix vẫn ghi đè được)', qSku(K.suaTongSku(a, 'm1', THANG, qSku(S, 'M1', THANG), catOf).state, 'M1', THANG) === qSku(S, 'M1', THANG));
-  check('tổng nhập nhỏ hơn phần khách không bù được (D) -> báo lỗi', /nhỏ hơn phần SL/.test(loi(() => K.suaTongSku(S, 'm1', THANG, line(S, 'D|M1').qty[THANG] - 10, catOf))));
+  check('tổng nhập nhỏ hơn mức D (chỉ mua M1, doanh thu cố định) giữ được -> báo lỗi nguyên tắc', /Không giữ được nguyên tắc/.test(loi(() => K.suaTongSku(S, 'm1', THANG, line(S, 'D|M1').qty[THANG] - 10, catOf))));
   const chua = K.suaTongSku(goc, 'f1', THANG, 7000, catOf);
   check('chưa Apply: SKU co giãn theo tỷ lệ, không bù', qSku(chua.state, 'F1', THANG) === 7000 && qSku(chua.state, 'F2', THANG) === qSku(goc, 'F2', THANG));
 }
@@ -130,8 +130,8 @@ console.log('--- khách nhỏ không bù đủ được: giữ nguyên, các kh�
   const q0 = qSku(S2, 'M1', THANG);
   const r = K.suaTongSku(S2, 'm1', THANG, Math.round(q0 * 1.6), catOf);
   const ok = r.state;
-  check('tăng mạnh tổng SKU M1: E (chỉ có linh kiện rẻ để bù) bị loại, SL M1 của E và doanh thu E giữ nguyên; thao tác vẫn thành công', line(ok, 'E|M1').qty[THANG] === line(S2, 'E|M1').qty[THANG] && Math.abs(revKhach(ok, 'E', THANG) - revKhach(S2, 'E', THANG)) <= buocKhach(S2, 'E'), [line(S2, 'E|M1').qty[THANG], line(ok, 'E|M1').qty[THANG]]);
-  check('...tổng SKU đúng số nhập, có ghi chú nêu khách E', qSku(ok, 'M1', THANG) === Math.round(q0 * 1.6) && r.ghiChu.some((t) => /Khách E/.test(t)), r.ghiChu);
+  check('tăng mạnh tổng SKU M1: vẫn thành công, doanh thu E (chỉ có linh kiện rẻ để bù) giữ trong sai số, tổng SKU đúng', Math.abs(revKhach(ok, 'E', THANG) - revKhach(S2, 'E', THANG)) <= buocKhach(S2, 'E') && qSku(ok, 'M1', THANG) === Math.round(q0 * 1.6), [line(S2, 'E|M1').qty[THANG], line(ok, 'E|M1').qty[THANG]]);
+  check('...tổng nhóm Máy giữ nguyên (M2 co lại bù)', qNhom(ok, 'Máy', THANG) === qNhom(S2, 'Máy', THANG), [qNhom(S2, 'Máy', THANG), qNhom(ok, 'Máy', THANG)]);
   check('...các khách còn lại giữ doanh thu; kiemTra sạch', ['A', 'B', 'C', 'D'].every((c) => Math.abs(revKhach(ok, c, THANG) - revKhach(S2, c, THANG)) <= buocKhach(S2, c) * 1) && M.kiemTra(ok).loi.length === 0, M.kiemTra(ok).loi);
 }
 
@@ -140,14 +140,14 @@ console.log('--- sửa tổng SL một Category ---');
   const q0 = qNhom(S, 'Lõi lọc', THANG), moi = Math.round(q0 * 1.2);
   const r = K.suaTongNhom(S, 'Lõi lọc', THANG, moi, catOf);
   const a = r.state;
-  check('tổng nhóm đúng số nhập; mọi ô trong nhóm được Fix', qNhom(a, 'Lõi lọc', THANG) === moi && S.lines.filter((l) => catOf(l) === 'Lõi lọc').every((l) => line(a, l.key).khoa[THANG]) && khongAm(a) && nguyenVen(a, THANG));
+  check('tổng nhóm đúng số nhập; nhóm được Fix TỔNG (ô con không Fix)', qNhom(a, 'Lõi lọc', THANG) === moi && K.laFixTong(a, 'cat', 'Lõi lọc', THANG) && S.lines.filter((l) => catOf(l) === 'Lõi lọc').every((l) => !line(a, l.key).khoa[THANG]) && khongAm(a) && nguyenVen(a, THANG));
   check('doanh thu từng khách giữ nguyên (nhóm khác chưa Fix bù)', khachGiu(S, a, THANG), ['A', 'B', 'C', 'D'].map((c) => [revKhach(S, c, THANG), revKhach(a, c, THANG)]));
   check('SKU nhóm khác co giãn ngược chiều; nhóm "Máy" giảm', qNhom(a, 'Máy', THANG) < qNhom(S, 'Máy', THANG) || qNhom(a, 'Linh kiện', THANG) < qNhom(S, 'Linh kiện', THANG));
   check('kiemTra sạch', M.kiemTra(a).loi.length === 0, M.kiemTra(a).loi);
   check('D (chỉ mua Máy) không bị đụng khi sửa nhóm "Lõi lọc"', line(a, 'D|M1').qty[THANG] === line(S, 'D|M1').qty[THANG]);
   // D chỉ có nhóm Máy: sửa nhóm Máy -> D giữ nguyên
   const m = K.suaTongNhom(S, 'Máy', THANG, Math.round(qNhom(S, 'Máy', THANG) * 1.3), catOf);
-  check('sửa nhóm "Máy": D (không có SKU ngoài nhóm để bù) giữ nguyên; doanh thu khách giữ', line(m.state, 'D|M1').qty[THANG] === line(S, 'D|M1').qty[THANG] && khachGiu(S, m.state, THANG) && m.ghiChu.length > 0, m.ghiChu);
+  check('sửa nhóm "Máy": D (chỉ mua Máy, doanh thu cố định) và mọi khách giữ doanh thu; tổng nhóm đúng', qNhom(m.state, 'Máy', THANG) === Math.round(qNhom(S, 'Máy', THANG) * 1.3) && khachGiu(S, m.state, THANG), m.ghiChu);
   const ft = M.doiKhoaO(S, 'A|P1', THANG);
   const f = K.suaTongNhom(ft, 'Lõi lọc', THANG, moi, catOf).state;
   check('ô Fix ngoài nhóm (A|P1) không bị co giãn', line(f, 'A|P1').qty[THANG] === line(S, 'A|P1').qty[THANG] && khachGiu(S, f, THANG));
@@ -248,7 +248,124 @@ console.log('--- xóa / sửa mã / thêm SKU cho nhiều khách ---');
   const th = K.themSkuNhieuKhach(S, ['A', 'B', 'C'], { skuCode: 'X9', skuName: 'Mới', priceVnd: 200000 });
   const catX = (l) => (l.skuCode === 'X9' ? 'Phụ kiện' : catOf(l));
   const r = K.suaTongSku(th.state, 'x9', THANG, 300, catX);
-  check('SKU mới (SL 0): nhập tổng 300 -> chia đều 100 / khách, được Fix; doanh thu từng khách giữ nguyên', ['A|X9', 'B|X9', 'C|X9'].every((k) => line(r.state, k).qty[THANG] === 100 && line(r.state, k).khoa[THANG]) && khachGiu(th.state, r.state, THANG), r.ghiChu);
+  check('SKU mới (SL 0): nhập tổng 300 -> chia đều 100 / khách, Fix tổng; doanh thu từng khách giữ nguyên', ['A|X9', 'B|X9', 'C|X9'].every((k) => line(r.state, k).qty[THANG] === 100) && K.laFixTong(r.state, 'sku', 'x9', THANG) && khachGiu(th.state, r.state, THANG), r.ghiChu);
+}
+
+console.log('--- Fix cấp TỔNG: Fix nhóm / SKU chỉ giữ tổng, các dòng con vẫn co giãn ---');
+{
+  const fix = (st, loai, ten) => K.doiFixTong(st, loai, ten, THANG);
+  const kiemGia = (a, ten, dk, them) => check(ten, dk, them);
+  const tongTh = (st) => revThang(st, THANG);
+  const tolThang = (st) => ['A', 'B', 'C', 'D'].reduce((t, c) => t + buocKhach(st, c), 0);
+  // trạng thái cờ
+  const f1 = fix(S, 'cat', 'Lõi lọc');
+  check('cờ Fix tổng: bật theo tháng; cả năm "mot-phan"; bấm lại thì bỏ; không đụng khoa của ô', K.laFixTong(f1, 'cat', 'Lõi lọc', THANG) && K.trangThaiFixTong(f1, 'cat', 'Lõi lọc', null) === 'mot-phan' && K.trangThaiFixTong(K.doiFixTong(f1, 'cat', 'Lõi lọc', THANG), 'cat', 'Lõi lọc', THANG) === 'tat' && !K.doiFixTong(f1, 'cat', 'Lõi lọc', THANG).fixTong['cat:Lõi lọc'] && f1.lines.every((l) => !l.khoa[THANG]));
+  check('Fix tổng cả năm (tick đầu dòng): 12 tháng', K.trangThaiFixTong(K.doiFixTong(S, 'sku', 'f1', null), 'sku', 'f1', null) === 'het');
+
+  // 1) Fix nhóm "Lõi lọc"; sửa tổng SKU F1 trong nhóm -> F2 (chưa Fix) co lại để tổng nhóm KHÔNG đổi
+  const moi = Math.round(qSku(S, 'F1', THANG) * 1.2);
+  const a = K.suaTongSku(f1, 'f1', THANG, moi, catOf).state;
+  kiemGia(a, 'nhóm đã Fix + sửa tổng SKU F1: tổng nhóm đúng như cũ, F1 đúng số nhập, F2 co lại', qNhom(a, 'Lõi lọc', THANG) === qNhom(S, 'Lõi lọc', THANG) && qSku(a, 'F1', THANG) === moi && qSku(a, 'F2', THANG) < qSku(S, 'F2', THANG), [qNhom(S, 'Lõi lọc', THANG), qNhom(a, 'Lõi lọc', THANG), qSku(a, 'F2', THANG)]);
+  kiemGia(a, '...doanh thu từng khách và tổng tháng không đổi; nhóm vẫn Fix tổng, F1 được Fix tổng; ô con không Fix', khachGiu(S, a, THANG) && Math.abs(tongTh(a) - tongTh(S)) <= tolThang(S) && K.laFixTong(a, 'cat', 'Lõi lọc', THANG) && K.laFixTong(a, 'sku', 'f1', THANG) && a.lines.every((l) => !l.khoa[THANG]) && M.kiemTra(a).loi.length === 0, M.kiemTra(a).loi);
+
+  // 2) Fix nhóm; sửa MỘT Ô trong nhóm -> tổng SKU và tổng nhóm đều giữ
+  const b = K.suaOSkuKhach(f1, 'A|F1', THANG, line(S, 'A|F1').qty[THANG] + 150, catOf).state;
+  kiemGia(b, 'nhóm đã Fix + sửa ô A|F1: tổng nhóm và tổng SKU F1 giữ nguyên, doanh thu khách giữ', qNhom(b, 'Lõi lọc', THANG) === qNhom(S, 'Lõi lọc', THANG) && qSku(b, 'F1', THANG) === qSku(S, 'F1', THANG) && line(b, 'A|F1').qty[THANG] === line(S, 'A|F1').qty[THANG] + 150 && khachGiu(S, b, THANG), [qNhom(S, 'Lõi lọc', THANG), qNhom(b, 'Lõi lọc', THANG)]);
+
+  // 3) Fix SKU F1 (tổng); sửa ô A|F2 -> tổng F1 giữ nguyên, các ô F1 vẫn được co giãn giữa các khách khi cần
+  const f2 = fix(S, 'sku', 'f1');
+  const c = K.suaOSkuKhach(f2, 'A|P1', THANG, line(S, 'A|P1').qty[THANG] + 400, catOf).state;
+  kiemGia(c, 'SKU F1 đã Fix tổng + sửa ô A|P1: tổng F1 không đổi; doanh thu khách giữ; tổng tháng giữ', qSku(c, 'F1', THANG) === qSku(S, 'F1', THANG) && khachGiu(S, c, THANG) && Math.abs(tongTh(c) - tongTh(S)) <= tolThang(S) && M.kiemTra(c).loi.length === 0, M.kiemTra(c).loi);
+  const sau = ['A|F1', 'B|F1', 'C|F1'].map((k) => line(c, k).qty[THANG] - line(S, k).qty[THANG]);
+  kiemGia(c, '...Fix tổng không chặn dòng con: SL F1 của các khách có thể đổi nhưng tổng bằng 0', sau.reduce((t, v) => t + v, 0) === 0, sau);
+
+  // 4) SKU F1, F2 đều Fix tổng + nhóm Fix tổng: sửa ô vẫn được (giữ cả ba tổng); sửa tổng NHÓM thì lỗi (không còn SKU nào để bù)
+  let g = fix(fix(fix(S, 'sku', 'f1'), 'sku', 'f2'), 'cat', 'Lõi lọc');
+  const d = K.suaOSkuKhach(g, 'A|F1', THANG, line(S, 'A|F1').qty[THANG] + 100, catOf).state;
+  kiemGia(d, 'cả nhóm + 2 SKU Fix tổng: sửa ô A|F1 -> F1, F2, nhóm đều giữ nguyên tổng; doanh thu khách giữ', qSku(d, 'F1', THANG) === qSku(S, 'F1', THANG) && qSku(d, 'F2', THANG) === qSku(S, 'F2', THANG) && qNhom(d, 'Lõi lọc', THANG) === qNhom(S, 'Lõi lọc', THANG) && khachGiu(S, d, THANG));
+  kiemGia(g, 'mọi SKU trong nhóm đã Fix tổng: sửa tổng nhóm -> báo lỗi', /đã Fix/.test(loi(() => K.suaTongNhom(g, 'Lõi lọc', THANG, qNhom(S, 'Lõi lọc', THANG) + 500, catOf))));
+
+  // 5) nhóm Máy Fix tổng + M2 Fix tổng: sửa tổng SKU M1 -> không còn SKU nào trong nhóm để bù => lỗi, không đổi gì
+  const h = fix(fix(S, 'cat', 'Máy'), 'sku', 'm2');
+  const bakH = JSON.stringify(h);
+  kiemGia(h, 'nhóm Máy Fix tổng, M2 Fix tổng: sửa tổng M1 -> lỗi nguyên tắc; trạng thái không đổi', /Không giữ được nguyên tắc/.test(loi(() => K.suaTongSku(h, 'm1', THANG, qSku(S, 'M1', THANG) + 20, catOf))) && JSON.stringify(h) === bakH);
+
+  // 6) nhóm Máy Fix tổng; sửa tổng SKU F1 (nhóm khác) -> tổng nhóm Máy không đổi
+  const e = K.suaTongSku(fix(S, 'cat', 'Máy'), 'f1', THANG, Math.round(qSku(S, 'F1', THANG) * 1.3), catOf).state;
+  kiemGia(e, 'nhóm Máy Fix tổng: sửa SKU nhóm khác -> tổng nhóm Máy đúng như cũ (các SKU Máy co giãn giữa khách khi cần), doanh thu khách giữ', qNhom(e, 'Máy', THANG) === qNhom(S, 'Máy', THANG) && khachGiu(S, e, THANG) && M.kiemTra(e).loi.length === 0, [qNhom(S, 'Máy', THANG), qNhom(e, 'Máy', THANG)]);
+
+  // 6b) ô Fix riêng nằm trong nhóm đã Fix tổng: ô đứng yên, tổng nhóm vẫn đúng tuyệt đối
+  const fz = K.doiFixTong(M.doiKhoaO(S, 'B|F2', THANG), 'cat', 'Lõi lọc', THANG);
+  const fzR = K.suaTongSku(fz, 'f1', THANG, Math.round(qSku(S, 'F1', THANG) * 1.15), catOf).state;
+  kiemGia(fzR, 'nhóm Fix tổng + ô B|F2 Fix riêng: B|F2 đứng yên, tổng nhóm đúng như cũ, doanh thu khách giữ', line(fzR, 'B|F2').qty[THANG] === line(S, 'B|F2').qty[THANG] && qNhom(fzR, 'Lõi lọc', THANG) === qNhom(S, 'Lõi lọc', THANG) && khachGiu(S, fzR, THANG) && M.kiemTra(fzR).loi.length === 0, [qNhom(S, 'Lõi lọc', THANG), qNhom(fzR, 'Lõi lọc', THANG)]);
+
+  // 7) sửa doanh thu khách khi có SKU Fix tổng: tổng SKU Fix giữ nguyên, tổng tháng giữ (bù khách khác)
+  const hien = revKhach(S, 'A', THANG), moiDt = Math.round(hien * 1.1);
+  const r = K.suaDoanhThuKhach(f2, 'A', THANG, moiDt, { buKhac: true, catOf });
+  check('sửa doanh thu khách A khi F1 Fix tổng: A đúng số nhập; tổng F1 giữ; tổng tháng giữ; kiemTra sạch', Math.abs(revKhach(r.state, 'A', THANG) - moiDt) <= buocKhach(S, 'A') && qSku(r.state, 'F1', THANG) === qSku(S, 'F1', THANG) && Math.abs(tongTh(r.state) - tongTh(S)) <= tolThang(S) && M.kiemTra(r.state).loi.length === 0, [moiDt, revKhach(r.state, 'A', THANG)]);
+  const rb = K.apDungBangDoanhThu(f2, new Map([['A', K.doanhThuKhachThang(S).get('A').map((v, i) => (i === THANG ? v + 10e6 : null))], ['B', K.doanhThuKhachThang(S).get('B').map((v, i) => (i === THANG ? v - 10e6 : null))]]), { catOf });
+  check('tải Excel khi có Fix tổng: A +10tr, B −10tr; tổng F1 giữ; không lỗi; kiemTra sạch', !rb.loi.length && qSku(rb.state, 'F1', THANG) === qSku(S, 'F1', THANG) && Math.abs(revKhach(rb.state, 'A', THANG) - revKhach(S, 'A', THANG) - 10e6) <= buocKhach(S, 'A') && M.kiemTra(rb.state).loi.length === 0, rb.loi);
+
+  // 8) cờ đi theo SKU khi đổi mã / mất khi xóa SKU; mở khóa Target xóa mọi Fix tổng; payload mang theo fixTong
+  const dm = K.doiMaSku(f2, 'f1', { skuCode: 'F1X' });
+  check('đổi mã SKU: cờ Fix tổng chuyển sang mã mới', K.laFixTong(dm, 'sku', 'f1x', THANG) && !K.laFixTong(dm, 'sku', 'f1', THANG));
+  check('xóa SKU: cờ Fix tổng của SKU đó mất', !K.xoaSkuTatCa(f2, 'f1').fixTong['sku:f1']);
+  check('mở khóa Target (về số cơ sở): xóa mọi Fix tổng; payload lưu fixTong', Object.keys(M.moKhoaTarget(f2).fixTong || {}).length === 0 && M.chuyenSangPayload(f2).fixTong['sku:f1'][THANG] === true);
+}
+
+console.log('--- thử ngẫu nhiên (dữ liệu giống thực tế: máy đắt + linh kiện rẻ), mọi thao tác thành công phải giữ nguyên tắc ---');
+{
+  let seed = 11;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  const KH = ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'];
+  const SKUS = [['1001', 12500000, 'Máy'], ['1002', 9500000, 'Máy'], ['2001', 180000, 'Màng'], ['2002', 45000, 'Màng'], ['3001', 320000, 'Bơm'], ['3002', 95000, 'Bơm'], ['3003', 15000, 'Bơm']];
+  const catF = (l) => SKUS.find((x) => x[0] === l.skuCode)[2];
+  const lines = [];
+  KH.forEach((c, ci) => SKUS.forEach(([sku, gia], si) => {
+    if ((ci + si) % 5 === 4) return;
+    const heSo = (ci === 0 ? 3 : 1) * (gia > 1e6 ? 1 : 12);
+    const base = new Array(12).fill(0).map(() => Math.round((20 + rnd() * 60) * heSo));
+    lines.push({ key: c + '|' + sku, customerKey: c, skuCode: sku, tempSkuId: '', skuName: sku, priceVnd: gia, qtyBase: base, qty: base.slice(), khoa: new Array(12).fill(false) });
+  }));
+  const goc0 = { id: 'F', status: 'draft', kind: 'base', shares: E.tyTrongMuaVu(null, null), targetGrowthPct: null, targetRevenueVnd: null, targetApplied: false, baselineLastMonth: 8, note: '',
+    customers: KH.map((k) => ({ key: k, name: k, market: '', isNew: false })), lines, newSkus: [], removedLines: [] };
+  let st = apdung(goc0);
+  const tolK = (s2, c, m) => { const ds = s2.lines.filter((l) => l.customerKey === c && l.qty[m] > 0); return Math.max(10 * Math.min(...ds.map((l) => l.priceVnd)), 1); };
+  const revK = (s2, c, m) => s2.lines.filter((l) => l.customerKey === c).reduce((t, l) => t + l.qty[m] * l.priceVnd, 0);
+  const qS = (s2, sku, m) => s2.lines.filter((l) => l.skuCode === sku).reduce((t, l) => t + l.qty[m], 0);
+  const qC = (s2, nh, m) => s2.lines.filter((l) => catF(l) === nh).reduce((t, l) => t + l.qty[m], 0);
+  let ok = 0, loiN = 0, vp = [];
+  const nhomDs = ['Máy', 'Màng', 'Bơm'];
+  for (let lan = 0; lan < 90; lan++) {
+    if (lan % 6 === 0) st = { ...st, fixTong: {}, lines: st.lines.map((l) => ({ ...l, khoa: new Array(12).fill(false) })) };       // người dùng bỏ Fix định kỳ — nếu để dồn mãi thì mọi thứ bị Fix và báo lỗi là đúng
+    const m = 9 + Math.floor(rnd() * 3);
+    const kind = Math.floor(rnd() * 5);
+    let kq = null, nx = null, edS = '', edN = '';
+    const truoc = st;
+    try {
+      if (kind === 0) { const sk = SKUS[Math.floor(rnd() * SKUS.length)][0]; edS = sk; nx = K.suaTongSku(st, sk, m, Math.round(qS(st, sk, m) * (0.8 + rnd() * 0.5)), catF); }
+      else if (kind === 1) { const nh = nhomDs[Math.floor(rnd() * 3)]; edN = nh; nx = K.suaTongNhom(st, nh, m, Math.round(qC(st, nh, m) * (0.85 + rnd() * 0.3)), catF); }
+      else if (kind === 2) { const l = st.lines[Math.floor(rnd() * st.lines.length)]; nx = K.suaOSkuKhach(st, l.key, m, Math.round(l.qty[m] * (0.7 + rnd() * 0.7)), catF); }
+      else if (kind === 3) { const c = KH[Math.floor(rnd() * 6)]; nx = K.suaDoanhThuKhach(st, c, m, revK(st, c, m) * (0.9 + rnd() * 0.2), { buKhac: true, catOf: catF }); }
+      else { const sk = SKUS[Math.floor(rnd() * SKUS.length)][0]; const nh = nhomDs[Math.floor(rnd() * 3)]; st = rnd() < 0.5 ? K.doiFixTong(st, 'sku', sk, m) : K.doiFixTong(st, 'cat', nh, m); continue; }
+      kq = nx.state;
+    } catch (e) { loiN++; continue; }
+    ok++;
+    // nguyên tắc: doanh thu từng khách + tổng tháng; tổng SL Fix giữ; số nguyên không âm; tháng khác không đổi
+    const sai = [];
+    KH.forEach((c) => { if (kind !== 3 && Math.abs(revK(kq, c, m) - revK(truoc, c, m)) > tolK(kq, c, m)) sai.push('khách ' + c + ' lệch ' + Math.round(revK(kq, c, m) - revK(truoc, c, m))); });
+    const tong = (s2) => s2.lines.reduce((t, l) => t + l.qty[m] * l.priceVnd, 0);
+    const tolT = KH.reduce((t, c) => t + tolK(kq, c, m), 0);
+    if (Math.abs(tong(kq) - tong(truoc)) > tolT) sai.push('tổng tháng lệch ' + Math.round(tong(kq) - tong(truoc)) + ' > ' + Math.round(tolT));
+    SKUS.forEach(([sk]) => { if (K.laFixTong(truoc, 'sku', sk, m) && sk !== edS && qS(kq, sk, m) !== qS(truoc, sk, m)) sai.push('SKU ' + sk + ' Fix tổng nhưng đổi (kind ' + kind + ')'); });
+    nhomDs.forEach((nh) => { if (K.laFixTong(truoc, 'cat', nh, m) && nh !== edN && qC(kq, nh, m) !== qC(truoc, nh, m)) sai.push('nhóm ' + nh + ' Fix tổng nhưng đổi (kind ' + kind + ')'); });
+    if (!khongAm(kq)) sai.push('SL âm / lẻ');
+    if (kq.lines.some((l, i) => l.qty.some((q, k) => k !== m && q !== truoc.lines[i].qty[k]))) sai.push('tháng khác bị đổi');
+    if (sai.length) vp.push('lần ' + lan + ' kind ' + kind + ' T' + (m + 1) + ': ' + sai.join('; '));
+    st = kq;
+  }
+  check('90 thao tác ngẫu nhiên (' + ok + ' thành công, ' + loiN + ' báo lỗi): mọi thao tác thành công đều giữ doanh thu khách, tổng tháng, tổng SKU / nhóm đã Fix', vp.length === 0, vp.slice(0, 4));
+  check('tỷ lệ báo lỗi hợp lý (< 40%) — lỗi chỉ khi thật sự không giữ được nguyên tắc', loiN < 0.4 * (ok + loiN), [ok, loiN]);
 }
 
 console.log('--- ' + pass + ' đạt, ' + fail + ' lỗi ---');

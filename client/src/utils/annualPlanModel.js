@@ -73,7 +73,7 @@ export function apDung(state) {
 
 /** Mở khóa Target: quay về số cơ sở (mọi tinh chỉnh SKU bị bỏ) — người gọi phải hỏi xác nhận trước. */
 export function moKhoaTarget(state) {
-  return { ...state, targetApplied: false, lines: state.lines.map((l) => ({ ...l, qty: l.qtyBase.slice(), khoa: khoaMacDinh() })) };
+  return { ...state, targetApplied: false, fixTong: {}, lines: state.lines.map((l) => ({ ...l, qty: l.qtyBase.slice(), khoa: khoaMacDinh() })) };
 }
 
 /** Độ lệch từng tháng so với mục tiêu (chỉ khi đã Apply) + có cần Apply lại không (vd sau khi đổi tỷ trọng). */
@@ -356,7 +356,7 @@ export function taoStateTuCoSo(b, { bu, year }) {
     customers: b.customers.map((c) => ({ key: c.key, name: c.name, market: '', isNew: false })),
     lines: b.lines.map((l) => ({ key: l.key, customerKey: l.customerKey, skuCode: l.skuCode, tempSkuId: '', skuName: l.skuName, priceVnd: l.priceVnd,
       qtyBase: l.qtyBase.slice(), qty: l.qtyBase.slice(), khoa: khoaMacDinh() })),
-    newSkus: [], removedLines: []
+    newSkus: [], removedLines: [], fixTong: {}
   };
 }
 
@@ -382,7 +382,7 @@ export function chuyenSangPayload(state) {
   return { targetGrowthPct: state.targetGrowthPct, targetRevenueVnd: state.targetRevenueVnd, targetApplied: !!state.targetApplied, shares: state.shares,
     note: state.note || '', fxRate: state.fxRate === undefined ? null : state.fxRate, customers: state.customers,
     lines: state.lines.map((l) => ({ key: l.key, customerKey: l.customerKey, skuCode: l.skuCode, tempSkuId: l.tempSkuId, skuName: l.skuName, priceVnd: l.priceVnd,
-      qtyBase: l.qtyBase, qty: l.qty, khoa: l.khoa || khoaMacDinh() })), newSkus: state.newSkus, removedLines: dongDaXoa(state) };
+      qtyBase: l.qtyBase, qty: l.qty, khoa: l.khoa || khoaMacDinh() })), newSkus: state.newSkus, removedLines: dongDaXoa(state), fixTong: state.fixTong || {} };
 }
 
 /* ------------------------------ Tiền tệ hiển thị (triệu VNĐ / USD) ------------------------------ */

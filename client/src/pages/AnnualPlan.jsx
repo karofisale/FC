@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { setDirty } from '../services/dirtyState';
-import AnnualGrid from '../components/annual/AnnualGrid';
+import AnnualGrid, { LamLaiCtx } from '../components/annual/AnnualGrid';
 import AnnualSkuGrid from '../components/annual/AnnualSkuGrid';
 import * as K from '../utils/annualPlanSkuOps';
 import { ThanhLoc, ChonTien } from '../components/annual/AnnualFilter';
@@ -65,6 +65,7 @@ export default function AnnualPlan({ currentBU, user }) {
   const [kieu, setKieu] = useState('khach');                         // bảng Kế hoạch lập theo 'khach' (Khách → SKU) hoặc 'sku' (Category → SKU → Khách)
   const [buKhac, setBuKhac] = useState(true);                       // sửa doanh thu một khách: bù bằng các khách khác để giữ tổng tháng
   const [moNhom, setMoNhom] = useState(() => new Set());
+  const [loiTick, setLoiTick] = useState(0);                          // tăng khi một thao tác sửa bị từ chối -> ô nhập đặt lại về số đang có
   const [moSku, setMoSku] = useState(() => new Set());
   const [skuInfoLocal, setSkuInfoLocal] = useState({});              // Category của SKU vừa thêm / đổi mã ở máy (chưa có trong skuInfo của server)
 
@@ -137,7 +138,7 @@ export default function AnnualPlan({ currentBU, user }) {
   const locKq = useMemo(() => (st ? M.locTheoKhach(st, loc, ws && ws.customerInfo, donVi && donVi.source) : null), [st, loc, ws, donVi]);
   const giaTriLoc = useMemo(() => (st ? M.giaTriLoc(st, ws && ws.customerInfo) : { thiTruong: [], sale: [] }), [st, ws]);
 
-  const baoLoi = (e) => setMsg({ loai: 'loi', text: e.message || String(e) });
+  const baoLoi = (e) => { setMsg({ loai: 'loi', text: e.message || String(e) }); setLoiTick((t) => t + 1); };
   const capNhat = (fn) => {
     try {
       const kq = fn(st);
@@ -165,10 +166,11 @@ export default function AnnualPlan({ currentBU, user }) {
   };
   const suaDtKhach = (key, m, giaTri) => {
     const phamVi = locKq.dangLoc ? new Set(locKq.state.customers.map((c) => c.key)) : null;
-    const kq = capNhat((s) => K.suaDoanhThuKhach(s, key, m, M.doiSangVnd(giaTri, tienHienThi, fx), { buKhac, phamVi }));
+    const kq = capNhat((s) => K.suaDoanhThuKhach(s, key, m, M.doiSangVnd(giaTri, tienHienThi, fx), { buKhac, phamVi, catOf }));
     if (kq) ghiChuMsg(kq, 'Đã sửa doanh thu khách T' + (m + 1) + ': SL các SKU chưa Fix của khách co giãn theo tỷ lệ.');
   };
   const doiFix = (keys, thang) => capNhat((s) => K.doiFixNhieu(s, keys, thang));
+  const doiFixTongH = (loai, ten, thang) => capNhat((s) => K.doiFixTong(s, loai, ten, thang));
   const xoaSkuAll = (khoa) => {
     if (!window.confirm('Xóa SKU này khỏi TOÀN BỘ khách có SKU đó? (doanh thu của từng khách được dồn lại cho các SKU còn lại của khách)')) return;
     capNhat((s) => K.xoaSkuTatCa(s, khoa));
@@ -459,6 +461,7 @@ export default function AnnualPlan({ currentBU, user }) {
   const duocFinal = laAdmin && !finalMode && (st.status === 'approved' || st.status === 'superseded');
 
   return (
+    <LamLaiCtx.Provider value={loiTick}>
     <div>
       {anhDau}{thongBao}
 
@@ -577,7 +580,7 @@ export default function AnnualPlan({ currentBU, user }) {
               )}
               <button className={nutPhu} onClick={() => setDlg({ loai: 'sku' })} disabled={!single && kieu !== 'sku' && !themVaoKhach}><Plus className="w-3.5 h-3.5" /> Thêm SKU</button>
               <button className={nutPhu} onClick={() => setDlg({ loai: 'nho' })}><Trash2 className="w-3.5 h-3.5" /> Xóa hàng loạt</button>
-              <span className="text-[11px] text-slate-400 ml-auto">{kieu === 'sku' && !single ? 'Sửa tổng Category / tổng SKU / SL một khách: ô sửa được Fix; SKU, nhóm chưa Fix khác co giãn để doanh thu từng khách trong tháng không đổi (khách không còn SKU để bù được giữ nguyên). Tick ở đầu dòng = Fix cả dòng.' : 'Sửa SL một SKU: các SKU chưa Fix còn lại của cùng khách tự co giãn để doanh thu khách đó không đổi. Sửa doanh thu khách ở dòng khách. Khách mới / bớt khách: các khách khác bù để tổng tháng không đổi.'}</span>
+              <span className="text-[11px] text-slate-400 ml-auto">{kieu === 'sku' && !single ? 'Sửa tổng Category / tổng SKU / SL một khách: nút vừa sửa được Fix (Category / SKU chỉ Fix TỔNG, các dòng con vẫn co giãn). Các dòng chưa Fix cùng nhóm co giãn để tổng nhóm không đổi; tổng doanh thu tháng và doanh thu từng khách luôn không đổi — không giữ được thì báo lỗi. Tick ở đầu dòng = Fix cả năm.' : 'Sửa SL một SKU: các SKU chưa Fix còn lại của cùng khách tự co giãn để doanh thu khách đó không đổi. Sửa doanh thu khách ở dòng khách. Khách mới / bớt khách: các khách khác bù để tổng tháng không đổi.'}</span>
             </div>
           )}
           {editable && view === 'base' && !st.targetApplied && (donVi?.source === 'fc' || donVi?.source === 'krf') && <CopyThang st={st} onCopy={chepThang} />}
@@ -595,7 +598,7 @@ export default function AnnualPlan({ currentBU, user }) {
               onToggleNhom={(k) => setMoNhom((e) => { const n = new Set(e); if (n.has(k)) n.delete(k); else n.add(k); return n; })}
               onToggleSku={(k) => setMoSku((e) => { const n = new Set(e); if (n.has(k)) n.delete(k); else n.add(k); return n; })}
               onEditNhom={suaTongNhomH} onEditSku={suaTongSkuH} onEditCell={suaOSku}
-              onToggleFix={doiFix} onDeleteSku={xoaSkuAll} onEditCode={(khoa) => setDlg({ loai: 'maSku', khoa })}
+              onToggleFix={doiFix} onToggleFixTong={doiFixTongH} onDeleteSku={xoaSkuAll} onEditCode={(khoa) => setDlg({ loai: 'maSku', khoa })}
             />
           ) : (
           <AnnualGrid
@@ -627,9 +630,10 @@ export default function AnnualPlan({ currentBU, user }) {
       {dlg?.loai === 'khach' && <AddCustomerDialog market={donVi?.source === 'export' || donVi?.source === 'krf'} onClose={() => setDlg(null)} onAdd={themKhach} />}
       {dlg?.loai === 'sku' && <AddSkuDialog tien={tien} tim={timSku} khach={kieu === 'sku' && !single ? st.customers.map((c) => ({ key: c.key, name: M.tenKhachHienThi(c.key, c.name, donVi?.source) })) : undefined} customerName={single ? donVi?.name : (st.customers.find((c) => c.key === themVaoKhach)?.name || themVaoKhach)} existing={M.skuTrongBang(st)} onClose={() => setDlg(null)} onAdd={themSku} />}
       {dlg?.loai === 'maSku' && (() => { const g = K.gomTheoNhomSku(st, catOf).flatMap((n) => n.skus).find((x) => x.khoa === dlg.khoa); return g ? <SuaMaSkuDialog sku={g} tim={timSku} onClose={() => setDlg(null)} onSave={(du) => luuMaSku(dlg.khoa, du)} /> : null; })()}
-      {dlg?.loai === 'taiExcel' && <TaiDoanhThuKhachDialog state={st} info={ws && ws.customerInfo} nguon={donVi?.source} fmt={fmt} nhan={nhan} onClose={() => setDlg(null)} onApply={apDungBangExcel} />}
+      {dlg?.loai === 'taiExcel' && <TaiDoanhThuKhachDialog catOf={catOf} state={st} info={ws && ws.customerInfo} nguon={donVi?.source} fmt={fmt} nhan={nhan} onClose={() => setDlg(null)} onApply={apDungBangExcel} />}
       {dlg?.loai === 'nho' && <MassDeleteDialog coThanhLy={coThanhLy} soThanhLy={st.lines.filter(M.laThanhLyTheoNhom(ws && ws.skuNhom)).length} preview={(opts) => M.xoaMatHangNho(st, M.laMayMacDinh, optsXoa(opts)).xoa} onClose={() => setDlg(null)} onConfirm={xoaNho} />}
     </div>
+    </LamLaiCtx.Provider>
   );
 }
 

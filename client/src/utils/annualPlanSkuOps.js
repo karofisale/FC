@@ -2,19 +2,16 @@
  * annualPlanSkuOps.js — SỬA KẾ HOẠCH NĂM THEO DOANH THU KHÁCH + CHẾ ĐỘ LẬP THEO SKU / CATEGORY (07/10/2026).
  * Thuần (không React, không API), mọi hàm trả state MỚI. Dùng bộ máy annualPlanEngine.js (làm tròn chục giữ tổng) và hình dạng state của annualPlanModel.js.
  *
- * Quy ước chung (tháng m, sau khi Apply Target = "đã khóa tỷ trọng tháng"):
- *  - DOANH THU TỪNG KHÁCH TRONG THÁNG là bất biến khi sửa SL ở chế độ SKU: phần chênh luôn được bù bằng SL các SKU CHƯA FIX của đúng khách đó.
- *  - "Fix" = ô (dòng × tháng) có khoa[m] = true: không bị co giãn khi sửa nơi khác. Fix một SKU-tháng / Category-tháng = Fix mọi ô của nó trong tháng đó
- *    (không cần thêm cột lưu trữ). Khi sửa trực tiếp một nút (ô / tổng SKU / tổng Category), các ô BÊN TRONG nút đó được ghi đè (kể cả đang Fix) rồi được Fix lại.
+ * NGUYÊN TẮC (tháng m, sau khi Apply Target = "đã khóa tỷ trọng tháng"): TỔNG DOANH THU THÁNG và DOANH THU TỪNG KHÁCH trong tháng không đổi khi sửa SL ở chế độ SKU. Không giữ được -> BÁO LỖI, không đổi gì.
+ *  - Fix có hai cấp: (1) Ô (dòng × tháng) `khoa[m]`: ô đứng yên. (2) Fix TỔNG của một SKU / Category (`state.fixTong`, lưu kèm kế hoạch): chỉ giữ nguyên TỔNG SL của nó, các dòng con VẪN co giãn
+ *    (chỉ ô con tự Fix riêng mới đứng yên). Sửa trực tiếp một nút (ô / tổng SKU / tổng nhóm) thì nút đó được Fix lại (ô: khoa; SKU / nhóm: Fix tổng).
+ *  - Mọi thao tác giải ĐỒNG THỜI các ràng buộc bằng annualPlanSolver (co giãn theo tỷ lệ), rồi làm tròn số nguyên theo tầng giá và kiểm tra lại: doanh thu khách / tổng tháng trong sai số làm tròn
+ *    (10 × đơn giá nhỏ nhất của khách, như kiemTraKeHoach); tổng SL SKU / Category đã Fix phải đúng tuyệt đối.
+ *  - Sửa trong một nhóm thì các dòng chưa Fix CÙNG NHÓM co giãn để tổng nhóm không đổi (sửa ô -> giữ tổng SKU; sửa tổng SKU -> giữ tổng Category). Nếu nút cha đang Fix mà không bù được -> lỗi;
+ *    nếu cha chưa Fix và không bù được thì tổng cha thay đổi (có ghi chú).
  *  - Chưa Apply: sửa thẳng, không bù, không tự Fix (đúng hành vi cũ của suaKeHoach).
  *
- * Ba thao tác sửa SL ở chế độ SKU (khi đã Apply):
- *  1. suaTongNhom  — sửa tổng SL tháng của một Category: mọi ô trong Category co giãn theo; doanh thu từng khách được bù bằng các SKU chưa Fix NGOÀI Category.
- *  2. suaTongSku   — sửa tổng SL tháng của một SKU: các ô của SKU (mọi khách) co giãn theo; các SKU chưa Fix KHÁC trong cùng Category co giãn để tổng SL Category
- *                    không đổi; doanh thu từng khách được bù bằng các SKU chưa Fix ngoài Category (khách không có SKU ngoài Category thì bù bằng SKU khác trong Category).
- *  3. suaOSkuKhach — sửa SL một SKU của một khách: các SKU chưa Fix khác của khách đó co giãn để doanh thu khách đó không đổi; SL SKU đó của các khách khác co giãn để
- *                    tổng SL SKU không đổi; các khách khác lại được bù bằng SKU chưa Fix khác của chính họ.
- *  Khách không còn SKU nào để bù thì phần ô của khách đó trong nút đang sửa được GIỮ NGUYÊN (không bị co giãn); nếu không bù được ở khách đang sửa thì báo lỗi.
+ * Ba thao tác sửa SL ở chế độ SKU (khi đã Apply): suaTongNhom (tổng SL một Category), suaTongSku (tổng SL một SKU), suaOSkuKhach (SL một SKU của một khách).
  *
  * Sửa doanh thu khách: suaDoanhThuKhach (một ô khách × tháng; SL SKU của khách co giãn theo tỷ lệ, tùy chọn bù bằng các khách khác để giữ tổng tháng) và
  * apDungBangDoanhThu (tải bảng khách × tháng từ Excel để sửa đồng loạt).
@@ -22,6 +19,7 @@
 
 import * as E from './annualPlanEngine.js';
 import { themSku, xoaSku } from './annualPlanModel.js';
+import { giaiRangBuoc } from './annualPlanSolver.js';
 
 const so = (v) => { const n = Number(v); return isFinite(n) ? n : 0; };
 const m12 = (v) => new Array(12).fill(v);
@@ -125,47 +123,35 @@ function buDoanhThu(ab, delta, ten, m, tol) {
   if (tol > 0 && isFinite(tol) && Math.abs(can - tongTien(ab)) > tol) tinhChinhDonVi(ab, Math.max(0, can), tol);
 }
 
-/** Lỗi không bù được doanh thu của một khách cụ thể — để thao tác thử lại với khách đó được GIỮ NGUYÊN (loại trừ) thay vì dừng cả thao tác. */
-class LoiKhach extends Error {
-  constructor(msg, khach) { super(msg); this.khach = khach; }
-}
+/* ------------------------------ Fix cấp TỔNG (SKU / Category) ------------------------------ */
 
+const kFix = (loai, ten) => loai + ':' + ten;
 /**
- * Chạy `thuc(loaTru)`; nếu một khách (coThe(khách) = được phép loại) không bù được doanh thu thì loại khách đó khỏi nút đang sửa (giữ nguyên SL của họ) rồi thử lại.
- * Nhờ vậy khách nhỏ chỉ có SKU đắt không chặn cả thao tác: các khách còn lại chia phần chênh.
+ * Tổng SKU (loai 'sku', ten = khoaSku) hoặc Category (loai 'cat', ten = tên nhóm) của tháng m có đang Fix không.
+ * Fix cấp tổng = GIỮ NGUYÊN TỔNG SL; các dòng con bên trong vẫn được co giãn (chỉ ô con tự Fix riêng mới đứng yên). Lưu ở state.fixTong { 'sku:<khóa>' | 'cat:<nhóm>': boolean[12] }.
  */
-function chayLoaTru(thuc, coThe, ten) {
-  const loaTru = new Set();
-  for (let lan = 0; lan <= 500; lan++) {
-    try {
-      const r = thuc(loaTru);
-      if (loaTru.size) r.ghiChu.push('Khách ' + Array.from(loaTru).map(ten).join(', ') + ' không đủ SKU chưa Fix khác để bù doanh thu nên giữ nguyên SL của họ.');
-      return r;
-    } catch (e) {
-      if (e instanceof LoiKhach && coThe(e.khach) && !loaTru.has(e.khach)) { loaTru.add(e.khach); continue; }
-      throw e;
-    }
-  }
-  throw new Error('Không bù được doanh thu các khách.');
+export const laFixTong = (state, loai, ten, m) => !!(state.fixTong && state.fixTong[kFix(loai, ten)] && state.fixTong[kFix(loai, ten)][m]);
+/** 'tat' | 'mot-phan' | 'het' cho một tháng (thang = chỉ số) hoặc cả năm (thang = null). */
+export function trangThaiFixTong(state, loai, ten, thang) {
+  const a = (state.fixTong && state.fixTong[kFix(loai, ten)]) || m12(false);
+  const ds = thang === null || thang === undefined ? a : [a[thang]];
+  const co = ds.filter(Boolean).length;
+  return !co ? 'tat' : (co === ds.length ? 'het' : 'mot-phan');
 }
-
-/**
- * Trả doanh thu từng khách về mức gốc `goc` (Map khách -> VNĐ). Ô bù: chưa Fix, ngoài `node`; ưu tiên ô NGOÀI vùng bảo vệ p1, không đủ thì thêm ô TRONG p1.
- * Khách không còn lệch thì bỏ qua. Không bù được -> lỗi.
- */
-function canBangKhach(cells, goc, p1, node, ten, m) {
-  nhomTheo(cells, (x) => x.c).forEach((ds, c) => {
-    const delta = (goc.has(c) ? goc.get(c) : tongTien(ds)) - tongTien(ds);
-    if (Math.abs(delta) < 1) return;
-    const dung = ds.filter((x) => duocBu(x) && !node.has(x.i));
-    const t1 = dung.filter((x) => !p1.has(x.i));
-    const thu = [t1, dung].find((ab) => ab.length && coTheBu(ab, delta));
-    if (!thu) throw new LoiKhach('Khách "' + ten(c) + '" không đủ SKU chưa Fix để bù doanh thu tháng ' + (m + 1) + ' (lệch ' + Math.round(delta) + ' VNĐ). Bỏ Fix một số ô hoặc thêm SKU cho khách.', c);
-    buDoanhThu(thu, delta, ten(c), m, dungSaiKhach(ds));
-  });
+function datFixTong(state, loai, ten, thang, bat) {
+  const k = kFix(loai, ten);
+  const a = ((state.fixTong && state.fixTong[k]) || m12(false)).slice();
+  for (let i = 0; i < 12; i++) if (thang === null || thang === undefined || i === thang) a[i] = !!bat;
+  const ft = { ...(state.fixTong || {}) };
+  if (a.some(Boolean)) ft[k] = a; else delete ft[k];
+  return { ...state, fixTong: ft };
 }
+/** Bật / tắt Fix tổng: đang 'het' thì bỏ, ngược lại bật. */
+export function doiFixTong(state, loai, ten, thang) { return datFixTong(state, loai, ten, thang, trangThaiFixTong(state, loai, ten, thang) !== 'het'); }
 
-/** Ghi SL tháng m từ bảng làm việc về state; `danhDau` = tập chỉ số dòng cần Fix ở tháng m. */
+/* ------------------------------ Giải thao tác sửa SL bằng ràng buộc đồng thời ------------------------------ */
+
+/** Ghi SL tháng m từ bảng làm việc về state; `danhDau` = tập chỉ số dòng cần Fix (khoa) ở tháng m. */
 function ghiThang(state, m, cells, danhDau) {
   const lines = state.lines.map((l, i) => {
     const x = cells[i];
@@ -180,8 +166,6 @@ function ghiThang(state, m, cells, danhDau) {
   return { ...state, lines };
 }
 
-/* ------------------------------ Ba thao tác sửa SL (chế độ SKU) ------------------------------ */
-
 /** Chưa Apply: co giãn các ô của nút theo tỷ lệ, tổng đúng bằng tongMoi; không bù, không Fix. */
 function suaThangChuaApply(state, m, cells, idx, tongMoi) {
   const ds = idx.map((i) => cells[i]);
@@ -190,88 +174,218 @@ function suaThangChuaApply(state, m, cells, idx, tongMoi) {
   return { state: ghiThang(state, m, cells, null), ghiChu: [] };
 }
 
+/** Trọng số co giãn của ô: theo SL hiện có; ô đang 0 nhưng có doanh thu trong năm được trọng số nhỏ (theo SL bình quân tháng) để vẫn nhận được phần bù khi bắt buộc. Ô Fix = 0 (đứng yên). */
+const trongSo = (x) => (x.f ? 0 : (x.q > 0 ? x.q : (x.nam > 0 && x.p > 0 ? 0.05 * (x.nam / x.p) / 12 : 0)));
+const dongKhach = (cells, c, b) => { const ds = cells.filter((x) => x.c === c); return { loai: 'kh', khoa: c, hien: c, cells: ds.map((x) => x.i), coef: ds.map((x) => x.p), b, mem: false }; };
+const dongCot = (loai, khoa, hien, ds, b, mem) => ({ loai, khoa, hien, cells: ds.map((x) => x.i), coef: ds.map(() => 1), b, mem: !!mem });
+
+function thongDiepLoi(loi, ten, m) {
+  const f = (v) => Math.abs(Math.round(v)).toLocaleString('vi-VN');
+  const t = loi.slice(0, 3).map(({ nhan: h, du }) => {
+    if (h.loai === 'kh') return 'doanh thu khách "' + ten(h.khoa) + '" lệch ' + f(du) + ' VNĐ';
+    if (h.loai === 'tong') return 'tổng doanh thu tháng lệch ' + f(du) + ' VNĐ';
+    if (h.loai === 'sku') return 'tổng SL SKU ' + h.hien + ' lệch ' + f(du);
+    return 'tổng SL nhóm "' + h.hien + '" lệch ' + f(du);
+  });
+  return 'Không giữ được nguyên tắc (tổng doanh thu tháng, doanh thu từng khách, tổng SL SKU / nhóm đã Fix) ở tháng ' + (m + 1) + ': ' + t.join('; ') + (loi.length > 3 ? '…' : '') +
+    '. Các ô / SKU / nhóm chưa Fix không đủ để bù — bỏ bớt Fix, thêm SKU cho khách hoặc đổi số nhập.';
+}
+
 /**
- * Sửa SL một SKU của một khách (key = khóa dòng). Đã Apply: xem đầu tệp (thao tác 3). Trả { state, ghiChu[] }.
+ * Giải liên tục (giaiRangBuoc) rồi LÀM TRÒN SỐ NGUYÊN theo từng tầng giá (SKU giá cao trước; mỗi tầng xong thì ghim và giải lại phần còn lại, để các SKU rẻ hấp thụ sai số làm tròn của SKU đắt),
+ * hoán đổi 1 cái giữa các khách trong cùng cột SKU để khử lệch doanh thu từng khách, rồi KIỂM TRA: tổng SL SKU / nhóm đã giữ phải đúng tuyệt đối; doanh thu khách / tổng tháng trong sai số làm tròn
+ * (10 × đơn giá nhỏ nhất của khách, như kiemTraKeHoach). Vi phạm -> ném lỗi (không đổi gì). Cập nhật cells[].q; trả mảng SL nguyên.
+ */
+function giaiVaLamTron(cells, hang, w0, ten, m) {
+  const n = cells.length;
+  const rows = hang.map((h) => ({ cells: h.cells, coef: h.coef, b: h.b, nhan: h }));
+  let x = cells.map((c) => c.q);
+  const r0 = giaiRangBuoc(x, w0, rows);
+  if (r0.loi.length) throw new Error(thongDiepLoi(r0.loi, ten, m));
+  x = r0.x;
+  const xong = w0.map((v) => v === 0);
+  const hangSku = new Map(hang.filter((h) => h.loai === 'sku').map((h) => [h.khoa, h]));
+  const hangCat = new Map(hang.filter((h) => h.loai === 'cat').map((h) => [h.khoa, h]));
+  const cot = nhomTheo(cells.filter((c) => !xong[c.i]), (c) => c.s);
+  const tangCua = new Map();
+  cot.forEach((ds, s) => tangCua.set(s, Math.floor(Math.log(Math.max(1, ...ds.map((c) => c.p))) / Math.log(6))));
+  const cacTang = Array.from(new Set(tangCua.values())).sort((a, b) => b - a);
+  for (const tang of cacTang) {
+    const cacCot = Array.from(cot.keys()).filter((s) => tangCua.get(s) === tang);
+    const tongCot = new Map();
+    cacCot.forEach((s) => {
+      const h = hangSku.get(s);
+      if (h) {
+        const khac = cells.filter((c) => c.s === s && xong[c.i]).reduce((t, c) => t + x[c.i], 0);       // ô cố định + ô đã làm tròn của cột
+        tongCot.set(s, Math.round(h.b - khac));
+      } else tongCot.set(s, Math.round(cot.get(s).filter((c) => !xong[c.i]).reduce((t, c) => t + x[c.i], 0)));
+    });
+    hangCat.forEach((h, k) => {
+      const conLai = new Set(cells.filter((c) => c.k === k && !xong[c.i]).map((c) => c.s));
+      if (!conLai.size) return;
+      const trongTang = Array.from(conLai).filter((s) => tangCua.get(s) === tang);
+      if (trongTang.length !== conLai.size) return;                    // còn cột ở tầng sau: các cột đó sẽ bù phần lệch của nhóm
+      const khongGiu = trongTang.filter((s) => !hangSku.has(s));
+      if (!khongGiu.length) return;
+      const daCo = cells.filter((c) => c.k === k && xong[c.i]).reduce((t, c) => t + x[c.i], 0);       // ô cố định + ô đã làm tròn của nhóm (kể cả ô Fix nằm trong cột còn lại)
+      const giu = trongTang.filter((s) => hangSku.has(s)).reduce((t, s) => t + tongCot.get(s), 0);
+      const phan = Math.round(h.b - daCo - giu);
+      if (phan < 0) throw new Error('Không giữ được tổng SL nhóm "' + h.hien + '" tháng ' + (m + 1) + ' (phần đã Fix vượt tổng nhóm).');
+      chiaNguyen(khongGiu.map((s) => cot.get(s).filter((c) => !xong[c.i]).reduce((t, c) => t + x[c.i], 0)), phan).forEach((v, j) => tongCot.set(khongGiu[j], v));
+    });
+    cacCot.forEach((s) => {
+      const ds = cot.get(s).filter((c) => !xong[c.i]);
+      const t = tongCot.get(s);
+      if (t < 0) throw new Error('Không giữ được tổng SL SKU ' + s.toUpperCase() + ' tháng ' + (m + 1) + ' (phần đã Fix vượt tổng).');
+      chiaNguyen(ds.map((c) => x[c.i]), t).forEach((v, j) => { x[ds[j].i] = v; xong[ds[j].i] = true; });
+    });
+    if (xong.every(Boolean)) break;
+    // giải lại phần còn lại: chỉ cố gắng hết sức (các ô đã làm tròn đứng yên nên khó khớp tuyệt đối) — kết quả cuối được KIỂM TRA theo sai số làm tròn bên dưới
+    x = giaiRangBuoc(x, w0.map((v, i) => (xong[i] ? 0 : v)), rows).x;
+  }
+  suaLechKhach(cells, x, hang.filter((h) => h.loai === 'kh'), w0);
+  cells.forEach((c, i) => { c.q = x[i]; });
+  const viPham = [];
+  hang.forEach((h) => {
+    let t = 0;
+    h.cells.forEach((i, k) => { t += h.coef[k] * x[i]; });
+    const du = h.b - t;
+    const tolDe = (ds) => { const v = dungSaiKhach(ds); return isFinite(v) ? v : 0.5; };
+    if (h.loai === 'kh') { if (Math.abs(du) > tolDe(cells.filter((c) => c.c === h.khoa))) viPham.push({ nhan: h, du }); }
+    else if (h.loai === 'tong') {
+      const kh = new Set(h.cells.map((i) => cells[i].c));
+      let tol = 0; kh.forEach((c) => { tol += tolDe(cells.filter((q) => q.c === c)); });
+      if (Math.abs(du) > tol) viPham.push({ nhan: h, du });
+    } else if (Math.abs(du) > 0.5) viPham.push({ nhan: h, du });
+  });
+  if (viPham.length) throw new Error(thongDiepLoi(viPham, ten, m));
+  return x;
+}
+
+/** Khử lệch doanh thu từng khách sau làm tròn: chuyển 1 cái của cùng một SKU từ khách đang DƯ sang khách đang THIẾU (giữ tổng SL cột SKU / nhóm), chọn cặp giảm lệch nhiều nhất. */
+function suaLechKhach(cells, x, hangKh, w0) {
+  const dev = new Map();
+  hangKh.forEach((h) => { let t = 0; h.cells.forEach((i, k) => { t += h.coef[k] * x[i]; }); dev.set(h.khoa, h.b - t); });
+  if (!dev.size) return;
+  const cotTheo = nhomTheo(cells.filter((c) => w0[c.i] > 0 && c.p > 0 && dev.has(c.c)), (c) => c.s);
+  for (let lan = 0; lan < 5000; lan++) {
+    let tot = null, gTot = 1e-9;
+    cotTheo.forEach((ds) => {
+      const nhan = ds.filter((c) => dev.get(c.c) > 0);
+      const cho = ds.filter((c) => dev.get(c.c) < 0 && x[c.i] > 0);
+      nhan.forEach((a) => cho.forEach((b) => {
+        if (a.c === b.c) return;
+        const da = dev.get(a.c), db = dev.get(b.c);
+        const g = Math.abs(da) + Math.abs(db) - Math.abs(da - a.p) - Math.abs(db + b.p);
+        if (g > gTot) { gTot = g; tot = { a, b }; }
+      }));
+    });
+    if (!tot) break;
+    x[tot.a.i] += 1; x[tot.b.i] -= 1;
+    dev.set(tot.a.c, dev.get(tot.a.c) - tot.a.p);
+    dev.set(tot.b.c, dev.get(tot.b.c) + tot.b.p);
+  }
+}
+
+/**
+ * Ba thao tác sửa SL ở chế độ SKU (đã Apply). spec = { loai: 'cell', i0, sl } | { loai: 'sku', skuKey, T } | { loai: 'nhom', nhom, T }.
+ * Ràng buộc CỨNG: doanh thu từng khách trong tháng (→ tổng tháng); tổng SL của mọi SKU / Category đang Fix tổng; nút đang sửa (ô / tổng SKU / tổng nhóm).
+ * Ràng buộc MỀM (bỏ nếu không đạt được và nút cha chưa Fix): tổng SL của nút CHA — sửa một ô thì giữ tổng SKU; sửa tổng SKU thì giữ tổng Category.
+ * Sau khi sửa: nút vừa sửa được Fix (ô: khoa; SKU / Category: Fix TỔNG, các dòng con vẫn co giãn được).
+ */
+function chayThaoTac(state, m, catOf, spec) {
+  const ten = tenKhachFn(state);
+  const cells = dungBang(state, m, catOf);
+  const goc = doanhThuKhachMap(cells);
+  const qSku = new Map(), qCat = new Map();
+  cells.forEach((c) => { qSku.set(c.s, (qSku.get(c.s) || 0) + c.q); qCat.set(c.k, (qCat.get(c.k) || 0) + c.q); });
+  const cung = { sku: new Map(), cat: new Map() }, mem = { sku: new Map(), cat: new Map() };
+  qSku.forEach((v, s) => { if (laFixTong(state, 'sku', s, m)) cung.sku.set(s, v); });
+  qCat.forEach((v, k) => { if (laFixTong(state, 'cat', k, m)) cung.cat.set(k, v); });
+  const ghiChu = [];
+  let danhDau = null, fix = null;
+  if (spec.loai === 'cell') {
+    const x0 = cells[spec.i0];
+    if (!cung.sku.has(x0.s)) mem.sku.set(x0.s, qSku.get(x0.s));
+    x0.q = spec.sl; x0.f = true;
+    danhDau = new Set([spec.i0]);
+  } else if (spec.loai === 'sku') {
+    const node = cells.filter((c) => c.s === spec.skuKey);
+    const k0 = node[0].k;
+    cung.sku.set(spec.skuKey, spec.T);
+    if (!cung.cat.has(k0)) mem.cat.set(k0, qCat.get(k0));
+    const dong = node.filter((c) => c.f), tu = node.filter((c) => !c.f);
+    const fz = tongQ(dong);
+    if (spec.T < fz) throw new Error('Tổng nhập (' + spec.T + ') nhỏ hơn phần SL đã Fix riêng của các ô (' + fz + ').');
+    if (!tu.length && spec.T !== fz) throw new Error('Mọi ô của SKU này đã Fix riêng — bỏ Fix một số ô rồi sửa lại.');
+    chiaNguyen(tongQ(tu) > 0 ? tu.map((c) => c.q) : tu.map((c) => c.nam), spec.T - fz).forEach((q, k) => { tu[k].q = q; });
+    fix = ['sku', spec.skuKey];
+  } else {
+    const node = cells.filter((c) => c.k === spec.nhom);
+    cung.cat.set(spec.nhom, spec.T);
+    const co = node.filter((c) => c.f || cung.sku.has(c.s)), tu = node.filter((c) => !c.f && !cung.sku.has(c.s));
+    const fz = tongQ(co);
+    if (spec.T < fz) throw new Error('Tổng nhập (' + spec.T + ') nhỏ hơn phần SL đã Fix của nhóm (' + fz + ': SKU / ô đã Fix).');
+    if (!tu.length && spec.T !== fz) throw new Error('Mọi SKU / ô trong nhóm "' + spec.nhom + '" đã Fix — bỏ Fix một số SKU rồi sửa lại.');
+    chiaNguyen(tongQ(tu) > 0 ? tu.map((c) => c.q) : tu.map((c) => c.nam), spec.T - fz).forEach((q, k) => { tu[k].q = q; });
+    fix = ['cat', spec.nhom];
+  }
+  const q0 = cells.map((c) => c.q);
+  const w0 = cells.map(trongSo);
+  const khCells = Array.from(new Set(cells.map((c) => c.c)));
+  const hangDay = (boMem) => {
+    const h = khCells.map((c) => dongKhach(cells, c, goc.get(c)));
+    cung.sku.forEach((b, s) => h.push(dongCot('sku', s, s.toUpperCase(), cells.filter((c) => c.s === s), b, false)));
+    cung.cat.forEach((b, k) => h.push(dongCot('cat', k, k, cells.filter((c) => c.k === k), b, false)));
+    if (!boMem) {
+      mem.sku.forEach((b, s) => h.push(dongCot('sku', s, s.toUpperCase(), cells.filter((c) => c.s === s), b, true)));
+      mem.cat.forEach((b, k) => h.push(dongCot('cat', k, k, cells.filter((c) => c.k === k), b, true)));
+    }
+    return h;
+  };
+  try { giaiVaLamTron(cells, hangDay(false), w0, ten, m); }
+  catch (e) {
+    if (!mem.sku.size && !mem.cat.size) throw e;
+    cells.forEach((c, i) => { c.q = q0[i]; });
+    try { giaiVaLamTron(cells, hangDay(true), w0, ten, m); }
+    catch (e2) { throw e; }
+    ghiChu.push(spec.loai === 'cell'
+      ? 'Không giữ được tổng SL ' + maSku(state.lines[spec.i0]) + ' trong tháng ' + (m + 1) + ' (các khách / SKU chưa Fix không đủ để bù) nên tổng SKU thay đổi.'
+      : 'Không giữ được tổng SL nhóm "' + cells[cells.findIndex((c) => c.s === spec.skuKey)].k + '" trong tháng ' + (m + 1) + ' (các SKU chưa Fix khác không đủ để bù) nên tổng nhóm thay đổi.');
+  }
+  let ns = ghiThang(state, m, cells, danhDau);
+  if (fix) ns = datFixTong(ns, fix[0], fix[1], m, true);
+  return { state: ns, ghiChu };
+}
+
+/**
+ * Sửa SL một SKU của một khách (key = khóa dòng). Đã Apply: các SKU chưa Fix khác của khách co giãn để doanh thu khách không đổi; SL SKU đó của các khách khác co giãn để tổng SKU không đổi
+ * (và giữ tổng mọi SKU / nhóm đã Fix); không giữ được -> lỗi. Trả { state, ghiChu[] }.
  */
 export function suaOSkuKhach(state, key, m, v, catOf) {
   const sl = Math.max(0, Math.round(so(v)));
   const i0 = state.lines.findIndex((l) => l.key === key);
   if (i0 < 0) throw new Error('Không tìm thấy dòng ' + key);
   if (!state.targetApplied) { const cells = dungBang(state, m, catOf); cells[i0].q = sl; return { state: ghiThang(state, m, cells, null), ghiChu: [] }; }
-  const c0 = state.lines[i0].customerKey || '';
-  return chayLoaTru((loaTru) => suaOSkuKhachLan(state, i0, m, sl, catOf, loaTru), (c) => c !== c0, tenKhachFn(state));
-}
-function suaOSkuKhachLan(state, i0, m, sl, catOf, loaTru) {
-  const cells = dungBang(state, m, catOf);
-  const ten = tenKhachFn(state);
-  const goc = doanhThuKhachMap(cells);
-  const x0 = cells[i0];
-  const delta = sl - x0.q;
-  x0.q = sl; x0.f = true;
-  const cot = new Set(cells.filter((x) => x.s === x0.s).map((x) => x.i));
-  const ghiChu = [];
-  if (delta !== 0) {
-    const bu = (c) => cells.some((x) => x.c === c && !cot.has(x.i) && duocBu(x));
-    const F = cells.filter((x) => cot.has(x.i) && x.i !== i0 && !x.f && x.c !== x0.c && !loaTru.has(x.c) && bu(x.c));
-    const sumF = tongQ(F);
-    if (F.length && (sumF > 0 || delta < 0)) {
-      if (sumF - delta < 0) ghiChu.push('Các khách khác không đủ SL ' + maSku(state.lines[i0]) + ' để giảm: tổng SKU tăng thêm ' + (delta - sumF) + '.');
-      chiaNguyen(sumF > 0 ? F.map((x) => x.q) : F.map((x) => x.nam), Math.max(0, sumF - delta)).forEach((q, k) => { F[k].q = q; });
-    } else ghiChu.push('Không khách nào khác bù được: tổng SL ' + maSku(state.lines[i0]) + ' trong tháng ' + (m + 1) + ' thay đổi ' + (delta > 0 ? '+' : '') + delta + '.');
-  }
-  canBangKhach(cells, goc, cot, new Set([i0]), ten, m);
-  return { state: ghiThang(state, m, cells, new Set([i0])), ghiChu };
+  return chayThaoTac(state, m, catOf, { loai: 'cell', i0, sl });
 }
 
 /** Các chỉ số dòng của một SKU (khóa gom khoaSku). */
 const dongCuaSku = (state, skuKey) => state.lines.map((l, i) => (khoaSku(l) === skuKey ? i : -1)).filter((i) => i >= 0);
 
 /**
- * Sửa TỔNG SL tháng của một SKU (mọi khách). Đã Apply: xem đầu tệp (thao tác 2). skuKey = khoaSku. Trả { state, ghiChu[] }.
+ * Sửa TỔNG SL tháng của một SKU (mọi khách). Đã Apply: các SKU chưa Fix khác trong cùng Category co giãn để tổng nhóm không đổi; mọi khách giữ doanh thu; SKU được Fix TỔNG.
  */
 export function suaTongSku(state, skuKey, m, tongMoi, catOf) {
   const T = Math.max(0, Math.round(so(tongMoi)));
   const idx = dongCuaSku(state, skuKey);
   if (!idx.length) throw new Error('Không tìm thấy SKU ' + skuKey);
   if (!state.targetApplied) return suaThangChuaApply(state, m, dungBang(state, m, catOf), idx, T);
-  return chayLoaTru((loaTru) => suaTongSkuLan(state, idx, skuKey, m, T, catOf, loaTru), () => true, tenKhachFn(state));
-}
-function suaTongSkuLan(state, idx, skuKey, m, T, catOf, loaTru) {
-  const cells = dungBang(state, m, catOf);
-  const ten = tenKhachFn(state);
-  const goc = doanhThuKhachMap(cells);
-  const node = new Set(idx);
-  const nodeCells = idx.map((i) => cells[i]);
-  const k0 = nodeCells[0].k;
-  const cat = new Set(cells.filter((x) => x.k === k0).map((x) => x.i));
-  const ghiChu = [];
-  // ô của SKU thuộc khách còn SKU khác để bù thì co giãn; khách không bù được giữ nguyên
-  const bu = (c) => !loaTru.has(c) && cells.some((x) => x.c === c && !node.has(x.i) && duocBu(x));
-  const ok = nodeCells.filter((x) => bu(x.c)), khong = nodeCells.filter((x) => !bu(x.c));
-  if (!ok.length) throw new Error('Không khách nào của SKU này còn SKU khác chưa Fix để bù doanh thu tháng ' + (m + 1) + '. Bỏ Fix một số ô hoặc thêm SKU cho khách.');
-  const tongKhong = tongQ(khong);
-  if (T < tongKhong) throw new Error('Tổng nhập (' + T + ') nhỏ hơn phần SL của các khách không bù được (' + tongKhong + ').');
-  const khongRieng = khong.filter((x) => !loaTru.has(x.c));       // khách đã bị loại do không bù được đã có ghi chú riêng
-  if (khongRieng.length) ghiChu.push(khongRieng.length + ' khách không còn SKU khác để bù nên giữ nguyên SL ' + skuKey.toUpperCase() + ' của họ.');
-  const qCu = tongQ(nodeCells);
-  chiaNguyen(tongQ(ok) > 0 ? ok.map((x) => x.q) : ok.map((x) => x.nam), T - tongKhong).forEach((q, k) => { ok[k].q = q; });
-  // giữ tổng SL Category: các SKU chưa Fix khác trong Category co giãn ngược lại
-  const dQ = T - qCu;
-  if (dQ !== 0) {
-    const ngoai = (c) => !loaTru.has(c) && cells.some((x) => x.c === c && !cat.has(x.i) && duocBu(x));
-    const C1 = cells.filter((x) => cat.has(x.i) && !node.has(x.i) && !x.f && ngoai(x.c));
-    const sumC1 = tongQ(C1);
-    if (C1.length && (sumC1 > 0 || dQ < 0)) {
-      if (sumC1 - dQ < 0) ghiChu.push('Các SKU khác trong nhóm "' + k0 + '" không đủ SL để giảm: tổng nhóm tăng thêm ' + (dQ - sumC1) + '.');
-      chiaNguyen(sumC1 > 0 ? C1.map((x) => x.q) : C1.map((x) => x.nam), Math.max(0, sumC1 - dQ)).forEach((q, k) => { C1[k].q = q; });
-    } else ghiChu.push('Nhóm "' + k0 + '" không còn SKU chưa Fix khác: tổng SL nhóm trong tháng ' + (m + 1) + ' thay đổi ' + (dQ > 0 ? '+' : '') + dQ + '.');
-  }
-  canBangKhach(cells, goc, cat, node, ten, m);
-  return { state: ghiThang(state, m, cells, node), ghiChu };
+  return chayThaoTac(state, m, catOf, { loai: 'sku', skuKey, T });
 }
 
 /**
- * Sửa TỔNG SL tháng của một Category (nhóm). Đã Apply: xem đầu tệp (thao tác 1). nhom = tên Category theo catOf. Trả { state, ghiChu[] }.
+ * Sửa TỔNG SL tháng của một Category (nhóm). Đã Apply: các SKU chưa Fix trong nhóm co giãn theo, nhóm khác chưa Fix bù để doanh thu từng khách không đổi; nhóm được Fix TỔNG.
  */
 export function suaTongNhom(state, nhom, m, tongMoi, catOf) {
   const T = Math.max(0, Math.round(so(tongMoi)));
@@ -279,25 +393,7 @@ export function suaTongNhom(state, nhom, m, tongMoi, catOf) {
   const idx = cells0.filter((x) => x.k === nhom).map((x) => x.i);
   if (!idx.length) throw new Error('Không tìm thấy nhóm ' + nhom);
   if (!state.targetApplied) return suaThangChuaApply(state, m, cells0, idx, T);
-  return chayLoaTru((loaTru) => suaTongNhomLan(state, idx, nhom, m, T, catOf, loaTru), () => true, tenKhachFn(state));
-}
-function suaTongNhomLan(state, idx, nhom, m, T, catOf, loaTru) {
-  const cells = dungBang(state, m, catOf);
-  const ten = tenKhachFn(state);
-  const goc = doanhThuKhachMap(cells);
-  const node = new Set(idx);
-  const nodeCells = idx.map((i) => cells[i]);
-  const bu = (c) => !loaTru.has(c) && cells.some((x) => x.c === c && !node.has(x.i) && duocBu(x));
-  const ok = nodeCells.filter((x) => bu(x.c)), khong = nodeCells.filter((x) => !bu(x.c));
-  if (!ok.length) throw new Error('Không khách nào của nhóm "' + nhom + '" còn SKU ngoài nhóm chưa Fix để bù doanh thu tháng ' + (m + 1) + '.');
-  const tongKhong = tongQ(khong);
-  if (T < tongKhong) throw new Error('Tổng nhập (' + T + ') nhỏ hơn phần SL của các khách không bù được (' + tongKhong + ').');
-  const ghiChu = [];
-  const khongRieng = khong.filter((x) => !loaTru.has(x.c));
-  if (khongRieng.length) ghiChu.push(khongRieng.length + ' dòng của khách không còn SKU ngoài nhóm để bù nên giữ nguyên.');
-  chiaNguyen(tongQ(ok) > 0 ? ok.map((x) => x.q) : ok.map((x) => x.nam), T - tongKhong).forEach((q, k) => { ok[k].q = q; });
-  canBangKhach(cells, goc, node, node, ten, m);
-  return { state: ghiThang(state, m, cells, node), ghiChu };
+  return chayThaoTac(state, m, catOf, { loai: 'nhom', nhom, T });
 }
 
 /* ------------------------------ Fix (khoa) ------------------------------ */
@@ -327,7 +423,42 @@ export function doiFixNhieu(state, keys, thang) {
  * Đã Apply và buKhac = true: phần chênh được bù bằng các khách khác (theo tỷ lệ doanh thu tháng, chỉ trong `phamVi` nếu có — vd. các khách đang lọc) để tổng tháng không đổi.
  * Trả { state, ghiChu[] }.
  */
-export function suaDoanhThuKhach(state, customerKey, m, tongMoiVnd, { buKhac = true, phamVi = null } = {}) {
+/** Tháng m có SKU / Category nào đang Fix tổng không (khi đó sửa doanh thu khách phải giữ cả các tổng đó -> dùng bộ giải). */
+const coFixTongThang = (state, m) => !!state.fixTong && Object.keys(state.fixTong).some((k) => state.fixTong[k] && state.fixTong[k][m]);
+
+/** Ràng buộc cứng giữ tổng SL của mọi SKU / Category đang Fix tổng ở tháng m (theo số đang có). */
+function hangFixCung(state, m, cells) {
+  const qS = new Map(), qK = new Map();
+  cells.forEach((c) => { qS.set(c.s, (qS.get(c.s) || 0) + c.q); qK.set(c.k, (qK.get(c.k) || 0) + c.q); });
+  const h = [];
+  qS.forEach((v, sk) => { if (laFixTong(state, 'sku', sk, m)) h.push(dongCot('sku', sk, sk.toUpperCase(), cells.filter((c) => c.s === sk), v, false)); });
+  qK.forEach((v, k) => { if (laFixTong(state, 'cat', k, m)) h.push(dongCot('cat', k, k, cells.filter((c) => c.k === k), v, false)); });
+  return h;
+}
+
+/**
+ * Sửa doanh thu khách khi có SKU / Category đang Fix tổng: giải đồng thời — doanh thu khách = số nhập; (đã Apply + buKhac) tổng tháng của các khách trong phạm vi không đổi, khách ngoài phạm vi giữ nguyên;
+ * tổng SL các SKU / nhóm đã Fix không đổi; ô Fix riêng đứng yên. `giu` = các khách đã được đặt doanh thu (tải Excel đồng loạt) — giữ nguyên.
+ */
+function suaDoanhThuKhachGiai(state, customerKey, m, moi, { buKhac, phamVi, giu, catOf }) {
+  const ten = tenKhachFn(state);
+  const cells = dungBang(state, m, catOf);
+  const goc = doanhThuKhachMap(cells);
+  const c0 = customerKey || '';
+  const hang = [dongKhach(cells, c0, moi)];
+  const khac = Array.from(goc.keys()).filter((c) => c !== c0);
+  if (state.targetApplied && buKhac) {
+    const trong = new Set(khac.filter((c) => !phamVi || phamVi.has(c)));
+    khac.filter((c) => !trong.has(c)).forEach((c) => hang.push(dongKhach(cells, c, goc.get(c))));
+    const ds = cells.filter((x) => x.c === c0 || trong.has(x.c));
+    hang.push({ loai: 'tong', khoa: 'tong', hien: 'tong', cells: ds.map((x) => x.i), coef: ds.map((x) => x.p), b: ds.reduce((t, x) => t + x.q * x.p, 0), mem: false });
+  } else if (giu) khac.filter((c) => giu.has(c)).forEach((c) => hang.push(dongKhach(cells, c, goc.get(c))));
+  hang.push(...hangFixCung(state, m, cells));
+  giaiVaLamTron(cells, hang, cells.map(trongSo), ten, m);
+  return { state: ghiThang(state, m, cells, null), ghiChu: state.targetApplied && buKhac ? ['Đã bù phần chênh vào các khách khác để giữ tổng tháng; tổng SL SKU / nhóm đã Fix giữ nguyên.'] : [] };
+}
+
+export function suaDoanhThuKhach(state, customerKey, m, tongMoiVnd, { buKhac = true, phamVi = null, giu = null, catOf = null } = {}) {
   const moi = so(tongMoiVnd);
   if (!(moi >= 0)) throw new Error('Doanh thu phải là số không âm.');
   const cells = dungBang(state, m, null);
@@ -336,6 +467,7 @@ export function suaDoanhThuKhach(state, customerKey, m, tongMoiVnd, { buKhac = t
   if (!mine.length) throw new Error('Khách "' + ten(customerKey) + '" chưa có SKU nào — thêm SKU trước khi nhập doanh thu.');
   const cur = tongTien(mine);
   if (Math.abs(moi - cur) < 1) return { state, ghiChu: [] };
+  if (coFixTongThang(state, m)) return suaDoanhThuKhachGiai(state, customerKey, m, moi, { buKhac, phamVi, giu, catOf });
   const free = mine.filter(duocBu);
   if (!free.length || !coTheBu(free, moi - cur)) throw new Error('Khách "' + ten(customerKey) + '": không co giãn được tháng ' + (m + 1) + ' (các SKU đã Fix, đơn giá 0 hoặc doanh thu cần nhập nhỏ hơn phần đã Fix).');
   buDoanhThu(free, moi - cur, ten(customerKey), m, dungSaiKhach(mine));
@@ -389,9 +521,10 @@ export function saiSoChoPhep(state, m) {
  *  - canBangVeTarget (mặc định true; chỉ khi đã Apply): sau khi đặt xong, tháng nào tổng lệch Target × tỷ trọng thì co giãn ĐỀU mọi ô chưa Fix của tháng đó về mục tiêu.
  * Mỗi (khách, tháng) lỗi được ghi vào `loi` (không dừng cả bảng). Trả { state, thayDoi: [{key, m, tu, den}], loi: [{key, m, text}], lechTruoc: number[12]|null, lechSau: number[12]|null }.
  */
-export function apDungBangDoanhThu(state, bang, { canBangVeTarget = true } = {}) {
+export function apDungBangDoanhThu(state, bang, { canBangVeTarget = true, catOf = null } = {}) {
   let s = state;
   const thayDoi = [], loi = [];
+  const giuThang = Array.from({ length: 12 }, () => new Set());       // khách đã được đặt doanh thu ở từng tháng — các lần sau giữ nguyên
   bang.forEach((arr, key) => {
     for (let m = 0; m < 12; m++) {
       const v = arr[m];
@@ -399,7 +532,8 @@ export function apDungBangDoanhThu(state, bang, { canBangVeTarget = true } = {})
       const tu = (doanhThuKhachThang(s).get(key) || m12(0))[m];
       if (Math.abs(so(v) - tu) < 1) continue;
       try {
-        s = suaDoanhThuKhach(s, key, m, so(v), { buKhac: false }).state;
+        s = suaDoanhThuKhach(s, key, m, so(v), { buKhac: false, giu: giuThang[m], catOf }).state;
+        giuThang[m].add(key);
         thayDoi.push({ key, m, tu, den: (doanhThuKhachThang(s).get(key) || m12(0))[m] });
       } catch (e) { loi.push({ key, m, text: e.message }); }
     }
@@ -469,7 +603,14 @@ export function doiMaSku(state, skuKey, { skuCode, skuName = '' }) {
   const lines = state.lines.map((l, i) => (trong.has(i)
     ? { ...l, key: l.customerKey + '|' + moi, skuCode: moi, tempSkuId: '', skuName: String(skuName).trim() || l.skuName } : l));
   const dung = new Set(lines.map((l) => l.tempSkuId).filter(Boolean));
-  return { ...state, lines, newSkus: (state.newSkus || []).filter((n) => dung.has(n.tempId)) };
+  let fixTong = state.fixTong;
+  const kCu = kFix('sku', skuKey), kMoi = kFix('sku', moi.toLowerCase());
+  if (fixTong && fixTong[kCu] && kCu !== kMoi) {
+    fixTong = { ...fixTong };
+    fixTong[kMoi] = (fixTong[kMoi] || m12(false)).map((v, i) => v || fixTong[kCu][i]);
+    delete fixTong[kCu];
+  }
+  return { ...state, lines, fixTong, newSkus: (state.newSkus || []).filter((n) => dung.has(n.tempId)) };
 }
 
 /** Thêm một SKU cho NHIỀU khách (mỗi khách một dòng, SL 0). Khách đã có SKU đó bị bỏ qua. Trả { state, them: [customerKey], boQua: [customerKey] }. */
@@ -486,5 +627,6 @@ export function themSkuNhieuKhach(state, customerKeys, du) {
 export function xoaSkuTatCa(state, skuKey) {
   let s = state;
   dongCuaSku(state, skuKey).map((i) => state.lines[i].key).forEach((k) => { s = xoaSku(s, k).state; });
+  if (s.fixTong && s.fixTong[kFix('sku', skuKey)]) { const ft = { ...s.fixTong }; delete ft[kFix('sku', skuKey)]; s = { ...s, fixTong: ft }; }
   return s;
 }

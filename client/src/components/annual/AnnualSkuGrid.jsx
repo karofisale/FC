@@ -1,7 +1,7 @@
 import React from 'react';
 import { ChevronRight, ChevronDown, Lock, Unlock, Trash2, Pencil } from 'lucide-react';
 import { NHAN_THANG, tomTatDonVi, dinhDangSo, dinhDangGia } from '../../utils/annualPlanModel';
-import { gomTheoNhomSku, trangThaiFix, lechTheoMucTieu, saiSoChoPhep } from '../../utils/annualPlanSkuOps';
+import { gomTheoNhomSku, trangThaiFix, trangThaiFixTong, lechTheoMucTieu, saiSoChoPhep } from '../../utils/annualPlanSkuOps';
 import { CellInput, TickFix } from './AnnualGrid';
 
 const COT1 = 'w-72 min-w-72 max-w-72';
@@ -24,7 +24,7 @@ function NutFix({ trangThai, onClick, title }) {
  */
 export default function AnnualSkuGrid({
   state, catOf, editable, single, fmt, nhan, tien, dangLoc,
-  moNhom, moSku, onToggleNhom, onToggleSku, onEditNhom, onEditSku, onEditCell, onToggleFix, onDeleteSku, onEditCode
+  moNhom, moSku, onToggleNhom, onToggleSku, onEditNhom, onEditSku, onEditCell, onToggleFix, onToggleFixTong, onDeleteSku, onEditCode
 }) {
   const nhom = gomTheoNhomSku(state, catOf);
   const dv = tomTatDonVi(state);
@@ -32,11 +32,12 @@ export default function AnnualSkuGrid({
   const choSuaTong = editable && !dangLoc;
   const lechMt = !dangLoc ? lechTheoMucTieu(state) : null;
 
-  const oTong = (q, keys, m, suaDuoc, onCommit, tieuDe) => (
+  // Ô số tháng: tt = trạng thái Fix của CHÍNH nó ('tat' | 'mot-phan' | 'het'), onFix = bật / tắt Fix. Ô khách: Fix ô. Ô SKU / Category: Fix TỔNG (các dòng con vẫn co giãn được).
+  const oTong = (q, m, suaDuoc, onCommit, tieuDe, tt, onFix, tipFix) => (
     <td key={m} className="px-0.5 py-0.5 w-20 min-w-20">
       <div className="relative">
-        <CellInput value={q} disabled={!suaDuoc} title={tieuDe} onCommit={onCommit} highlight={trangThaiFix(state, keys, m) === 'het'} />
-        {editable && onToggleFix && <NutFix trangThai={trangThaiFix(state, keys, m)} onClick={() => onToggleFix(keys, m)} title="Fix / bỏ Fix tháng này (không bị co giãn khi sửa nơi khác)" />}
+        <CellInput value={q} disabled={!suaDuoc} title={tieuDe} onCommit={onCommit} highlight={tt === 'het'} />
+        {editable && onFix && <NutFix trangThai={tt} onClick={onFix} title={tipFix} />}
       </div>
     </td>
   );
@@ -50,7 +51,8 @@ export default function AnnualSkuGrid({
         </div>
       </td>
       <td className={`sticky ${TONG_LEFT} z-10 bg-white px-2 py-1 text-right font-mono text-[11px] text-slate-600 w-24 min-w-24`}>{dinhDangSo(l.qty.reduce((s, v) => s + (Number(v) || 0), 0))}</td>
-      {NHAN_THANG.map((_, m) => oTong(l.qty[m], [l.key], m, editable, (v) => onEditCell(l.key, m, v), l.khoa && l.khoa[m] ? 'Ô đã Fix' : undefined))}
+      {NHAN_THANG.map((_, m) => oTong(l.qty[m], m, editable, (v) => onEditCell(l.key, m, v), l.khoa && l.khoa[m] ? 'Ô đã Fix' : undefined,
+        trangThaiFix(state, [l.key], m), () => onToggleFix([l.key], m), 'Fix / bỏ Fix ô này: ô đứng yên khi sửa nơi khác'))}
     </tr>
   );
 
@@ -61,7 +63,7 @@ export default function AnnualSkuGrid({
         <tr className="border-b border-slate-100 bg-white hover:bg-blue-50/30">
           <td className={`sticky left-0 z-10 bg-white ${COT1} pl-7 pr-2 py-1`}>
             <div className="flex items-center gap-1.5">
-              {editable && <TickFix trangThai={trangThaiFix(state, s.keys, null)} onClick={() => onToggleFix(s.keys, null)} title="Fix cả SKU (mọi khách, 12 tháng)" />}
+              {editable && <TickFix trangThai={trangThaiFixTong(state, 'sku', s.khoa, null)} onClick={() => onToggleFixTong('sku', s.khoa, null)} title="Fix TỔNG SL của SKU này cả 12 tháng (các dòng khách bên trong vẫn co giãn được)" />}
               {!single ? (
                 <button onClick={() => onToggleSku(s.khoa)} className="flex items-center gap-1 min-w-0 text-left grow">
                   {mo ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
@@ -85,8 +87,10 @@ export default function AnnualSkuGrid({
             </div>
           </td>
           <td className={`sticky ${TONG_LEFT} z-10 bg-white px-2 py-1 text-right font-mono text-[11px] font-semibold text-slate-700 w-24 min-w-24`}>{dinhDangSo(s.qty.reduce((a, b) => a + b, 0))}</td>
-          {NHAN_THANG.map((_, m) => oTong(s.qty[m], s.keys, m, choSuaTong, (v) => onEditSku(s.khoa, m, v),
-            dangLoc ? 'Đang lọc khách: tổng SKU chỉ đọc (bỏ lọc để sửa)' : 'Sửa tổng SL SKU trong tháng: các khách của SKU co giãn theo; SKU khác trong nhóm / nhóm khác chưa Fix bù lại'))}
+          {NHAN_THANG.map((_, m) => oTong(s.qty[m], m, choSuaTong, (v) => onEditSku(s.khoa, m, v),
+            dangLoc ? 'Đang lọc khách: tổng SKU chỉ đọc (bỏ lọc để sửa)' : 'Sửa tổng SL SKU trong tháng: các SKU chưa Fix khác cùng nhóm co giãn để tổng nhóm không đổi; doanh thu từng khách và tổng tháng giữ nguyên',
+            trangThaiFixTong(state, 'sku', s.khoa, m), () => onToggleFixTong('sku', s.khoa, m), 'Fix / bỏ Fix TỔNG SL SKU tháng này (các dòng khách bên trong vẫn co giãn được)'))}
+
         </tr>
         {mo && s.dong.map((d) => dongKhach(d.line, s.ma))}
       </React.Fragment>
@@ -121,13 +125,12 @@ export default function AnnualSkuGrid({
           )}
           {nhom.map((n) => {
             const mo = moNhom.has(n.nhom);
-            const keys = n.skus.flatMap((s) => s.keys);
             return (
               <React.Fragment key={n.nhom}>
                 <tr className="border-b border-slate-200 bg-slate-100 font-semibold text-slate-900">
                   <td className={`sticky left-0 z-10 bg-slate-100 ${COT1} px-2 py-1.5`}>
                     <div className="flex items-center gap-1.5">
-                      {editable && <TickFix trangThai={trangThaiFix(state, keys, null)} onClick={() => onToggleFix(keys, null)} title="Fix cả Category (mọi SKU, mọi khách, 12 tháng)" />}
+                      {editable && <TickFix trangThai={trangThaiFixTong(state, 'cat', n.nhom, null)} onClick={() => onToggleFixTong('cat', n.nhom, null)} title="Fix TỔNG SL của Category này cả 12 tháng (các SKU / dòng bên trong vẫn co giãn được)" />}
                       <button onClick={() => onToggleNhom(n.nhom)} className="flex items-center gap-1 min-w-0 text-left grow">
                         {mo ? <ChevronDown className="w-3.5 h-3.5 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 shrink-0" />}
                         <span className="min-w-0">
@@ -138,8 +141,10 @@ export default function AnnualSkuGrid({
                     </div>
                   </td>
                   <td className={`sticky ${TONG_LEFT} z-10 bg-slate-100 px-2 py-1.5 text-right font-mono text-[11px] w-24 min-w-24`}>{dinhDangSo(n.qty.reduce((a, b) => a + b, 0))}</td>
-                  {NHAN_THANG.map((_, m) => oTong(n.qty[m], keys, m, choSuaTong, (v) => onEditNhom(n.nhom, m, v),
-                    dangLoc ? 'Đang lọc khách: tổng nhóm chỉ đọc (bỏ lọc để sửa)' : 'Sửa tổng SL Category trong tháng: mọi SKU trong nhóm co giãn theo; nhóm khác chưa Fix bù lại để doanh thu từng khách không đổi'))}
+                  {NHAN_THANG.map((_, m) => oTong(n.qty[m], m, choSuaTong, (v) => onEditNhom(n.nhom, m, v),
+                    dangLoc ? 'Đang lọc khách: tổng nhóm chỉ đọc (bỏ lọc để sửa)' : 'Sửa tổng SL Category trong tháng: các SKU chưa Fix trong nhóm co giãn theo, nhóm khác chưa Fix bù lại; doanh thu từng khách và tổng tháng giữ nguyên',
+                    trangThaiFixTong(state, 'cat', n.nhom, m), () => onToggleFixTong('cat', n.nhom, m), 'Fix / bỏ Fix TỔNG SL Category tháng này (các SKU / dòng bên trong vẫn co giãn được)'))}
+
                 </tr>
                 {mo && n.skus.map((s) => dongSku(n, s))}
               </React.Fragment>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { ChevronRight, ChevronDown, Lock, Unlock, Trash2 } from 'lucide-react';
 import {
   NHAN_THANG, tomTatKhach, tomTatDonVi, dinhDangSo, dinhDangPct, tyTrongPct, dinhDangGia, doiTuVnd
@@ -8,10 +8,14 @@ import { trangThaiFix, lechTheoMucTieu, saiSoChoPhep } from '../../utils/annualP
 const COT1 = 'w-72 min-w-72 max-w-72';          // cột Khách / SKU (cố định khi kéo sang phải)
 const TONG_LEFT = 'left-72';                     // cột Tổng năm dính ngay sau cột 1
 
+/** Tăng lên mỗi khi một thao tác sửa bị TỪ CHỐI (báo lỗi): các ô nhập đặt lại về số đang có thay vì giữ số vừa gõ. */
+export const LamLaiCtx = createContext(0);
+
 /** Ô số nguyên: sửa tại chỗ, chốt khi rời ô / Enter (không dựng lại cả bảng theo từng phím). */
 export function CellInput({ value, onCommit, disabled, title, highlight }) {
   const [v, setV] = useState(String(value));
-  useEffect(() => { setV(String(value)); }, [value]);
+  const lamLai = useContext(LamLaiCtx);
+  useEffect(() => { setV(String(value)); }, [value, lamLai]);
   return (
     <input
       value={v}
@@ -32,7 +36,8 @@ export function CellInput({ value, onCommit, disabled, title, highlight }) {
 function PctInput({ value, onCommit, disabled }) {
   const fmt = (x) => x.toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const [v, setV] = useState(fmt(value));
-  useEffect(() => { setV(fmt(value)); }, [value]);
+  const lamLai = useContext(LamLaiCtx);
+  useEffect(() => { setV(fmt(value)); }, [value, lamLai]);
   return (
     <input
       value={v}
@@ -58,7 +63,8 @@ function PctInput({ value, onCommit, disabled }) {
 export function TongThangInput({ value, onCommit, title, nho }) {
   const fmt = (x) => Math.round(x).toLocaleString('vi-VN');
   const [v, setV] = useState(fmt(value));
-  useEffect(() => { setV(fmt(value)); }, [value]);
+  const lamLai = useContext(LamLaiCtx);
+  useEffect(() => { setV(fmt(value)); }, [value, lamLai]);
   return (
     <input
       value={v}
