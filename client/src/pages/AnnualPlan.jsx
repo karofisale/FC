@@ -63,6 +63,7 @@ export default function AnnualPlan({ currentBU, user }) {
   const [tienTe, setTienTe] = useState('VND');                       // 'VND' = triệu VNĐ | 'USD' (chỉ Export OEM + Brand)
   const [loc, setLoc] = useState({ thiTruong: '', sale: '', tuKhoa: '' });
   const [kieu, setKieu] = useState('khach');                         // bảng Kế hoạch lập theo 'khach' (Khách → SKU) hoặc 'sku' (Category → SKU → Khách)
+  const [tuFix, setTuFix] = useState(true);                         // bảng theo SKU: sửa xong tự Fix (ô / tổng SKU / tổng nhóm vừa sửa)
   const [buKhac, setBuKhac] = useState(true);                       // sửa doanh thu một khách: bù bằng các khách khác để giữ tổng tháng
   const [moNhom, setMoNhom] = useState(() => new Set());
   const [loiTick, setLoiTick] = useState(0);                          // tăng khi một thao tác sửa bị từ chối -> ô nhập đặt lại về số đang có
@@ -153,15 +154,15 @@ export default function AnnualPlan({ currentBU, user }) {
   const catOf = useMemo(() => K.phanNhomCua({ ...((ws && ws.skuInfo) || {}), ...skuInfoLocal }), [ws, skuInfoLocal]);
   const ghiChuMsg = (kq, mo) => { if (kq) setMsg({ loai: 'ok', text: mo + (kq.ghiChu && kq.ghiChu.length ? ' ' + kq.ghiChu.join(' ') : '') }); };
   const suaOSku = (key, m, v) => {
-    const kq = capNhat((s) => K.suaOSkuKhach(s, key, m, v, catOf));
+    const kq = capNhat((s) => K.suaOSkuKhach(s, key, m, v, catOf, { tuFix }));
     if (kq && kq.ghiChu.length) ghiChuMsg(kq, 'Đã sửa T' + (m + 1) + '.');
   };
   const suaTongSkuH = (khoa, m, v) => {
-    const kq = capNhat((s) => K.suaTongSku(s, khoa, m, v, catOf));
+    const kq = capNhat((s) => K.suaTongSku(s, khoa, m, v, catOf, { tuFix }));
     if (kq) ghiChuMsg(kq, 'Đã sửa tổng SL SKU T' + (m + 1) + ': SKU chưa Fix khác co giãn để doanh thu từng khách không đổi.');
   };
   const suaTongNhomH = (nhom, m, v) => {
-    const kq = capNhat((s) => K.suaTongNhom(s, nhom, m, v, catOf));
+    const kq = capNhat((s) => K.suaTongNhom(s, nhom, m, v, catOf, { tuFix }));
     if (kq) ghiChuMsg(kq, 'Đã sửa tổng SL nhóm "' + nhom + '" T' + (m + 1) + ': nhóm / SKU chưa Fix khác co giãn để doanh thu từng khách không đổi.');
   };
   const suaDtKhach = (key, m, giaTri) => {
@@ -588,6 +589,12 @@ export default function AnnualPlan({ currentBU, user }) {
             <label className="flex items-center gap-2 text-[11px] text-slate-600 mb-1.5" title="Đã Apply: sửa doanh thu của một khách thì các khách khác (đang hiển thị) tự co giãn để tổng tháng vẫn bằng Target × tỷ trọng">
               <input type="checkbox" checked={buKhac} onChange={(e) => setBuKhac(e.target.checked)} />
               Sửa doanh thu một khách trong tháng: bù bằng các khách khác (giữ tổng tháng){locKq.dangLoc ? ' — chỉ trong các khách đang lọc' : ''}
+            </label>
+          )}
+          {editable && view === 'plan' && kieu === 'sku' && (
+            <label className="flex items-center gap-2 text-[11px] text-slate-600 mb-1.5" title="Bật: sau khi sửa, ô / tổng SKU / tổng nhóm vừa sửa được Fix (Category / SKU chỉ Fix TỔNG). Tắt nếu muốn các nhóm đã sửa trước đó vẫn dùng được để bù doanh thu khách.">
+              <input type="checkbox" checked={tuFix} onChange={(e) => setTuFix(e.target.checked)} />
+              Tự Fix ô / tổng SKU / tổng nhóm vừa sửa (tắt để các nhóm đã sửa trước vẫn co giãn được khi bù doanh thu khách)
             </label>
           )}
           {view === 'plan' && kieu === 'sku' ? (

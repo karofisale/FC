@@ -179,7 +179,7 @@ const trongSo = (x) => (x.f ? 0 : (x.q > 0 ? x.q : (x.nam > 0 && x.p > 0 ? 0.05 
 const dongKhach = (cells, c, b) => { const ds = cells.filter((x) => x.c === c); return { loai: 'kh', khoa: c, hien: c, cells: ds.map((x) => x.i), coef: ds.map((x) => x.p), b, mem: false }; };
 const dongCot = (loai, khoa, hien, ds, b, mem) => ({ loai, khoa, hien, cells: ds.map((x) => x.i), coef: ds.map(() => 1), b, mem: !!mem });
 
-function thongDiepLoi(loi, ten, m) {
+function thongDiepLoi(loi, ten, m, hang) {
   const f = (v) => Math.abs(Math.round(v)).toLocaleString('vi-VN');
   const t = loi.slice(0, 3).map(({ nhan: h, du }) => {
     if (h.loai === 'kh') return 'doanh thu khách "' + ten(h.khoa) + '" lệch ' + f(du) + ' VNĐ';
@@ -187,8 +187,10 @@ function thongDiepLoi(loi, ten, m) {
     if (h.loai === 'sku') return 'tổng SL SKU ' + h.hien + ' lệch ' + f(du);
     return 'tổng SL nhóm "' + h.hien + '" lệch ' + f(du);
   });
+  const dangFix = (hang || []).filter((h) => (h.loai === 'sku' || h.loai === 'cat') && !h.mem && !h.dangSua).map((h) => (h.loai === 'sku' ? 'SKU ' : 'nhóm ') + h.hien);
+  const them = dangFix.length ? ' Đang Fix tổng (không dùng để bù được): ' + dangFix.slice(0, 6).join(', ') + (dangFix.length > 6 ? '…' : '') + ' — bỏ Fix tổng của nhóm / SKU nào cần dùng để bù.' : '';
   return 'Không giữ được nguyên tắc (tổng doanh thu tháng, doanh thu từng khách, tổng SL SKU / nhóm đã Fix) ở tháng ' + (m + 1) + ': ' + t.join('; ') + (loi.length > 3 ? '…' : '') +
-    '. Các ô / SKU / nhóm chưa Fix không đủ để bù — bỏ bớt Fix, thêm SKU cho khách hoặc đổi số nhập.';
+    '. Các ô / SKU / nhóm chưa Fix không đủ để bù — bỏ bớt Fix, thêm SKU cho khách hoặc đổi số nhập.' + them;
 }
 
 /**
@@ -201,7 +203,11 @@ function giaiVaLamTron(cells, hang, w0, ten, m) {
   const rows = hang.map((h) => ({ cells: h.cells, coef: h.coef, b: h.b, nhan: h }));
   let x = cells.map((c) => c.q);
   const r0 = giaiRangBuoc(x, w0, rows);
-  if (r0.loi.length) throw new Error(thongDiepLoi(r0.loi, ten, m));
+  // Doanh thu khách còn thiếu / dư dưới 1 triệu VNĐ là chấp nhận được (làm tròn số hàng triệu) nên không coi là lỗi ở bước giải liên tục
+  // Sai số doanh thu của một khách: tối thiểu 1 triệu; khách chỉ còn các SKU đơn giá cao để bù thì cho tới nửa đơn giá SKU rẻ nhất còn co giãn được (không thể mịn hơn một đơn vị)
+  const tolKh = (c) => { const gia = cells.filter((q) => q.c === c && w0[q.i] > 0 && q.p > 0).map((q) => q.p); return Math.max(E.SAI_SO_KHACH_VND, gia.length ? 0.5 * Math.min(...gia) : 0); };
+  const loiThat = r0.loi.filter(({ nhan: h, du }) => !(h.loai === 'kh' && Math.abs(du) <= tolKh(h.khoa)));
+  if (loiThat.length) throw new Error(thongDiepLoi(loiThat, ten, m, hang));
   x = r0.x;
   const xong = w0.map((v) => v === 0);
   const hangSku = new Map(hang.filter((h) => h.loai === 'sku').map((h) => [h.khoa, h]));
@@ -243,27 +249,38 @@ function giaiVaLamTron(cells, hang, w0, ten, m) {
     // giải lại phần còn lại: chỉ cố gắng hết sức (các ô đã làm tròn đứng yên nên khó khớp tuyệt đối) — kết quả cuối được KIỂM TRA theo sai số làm tròn bên dưới
     x = giaiRangBuoc(x, w0.map((v, i) => (xong[i] ? 0 : v)), rows).x;
   }
-  suaLechKhach(cells, x, hang.filter((h) => h.loai === 'kh'), w0);
+  suaLechKhach(cells, x, hang.filter((h) => h.loai === 'kh'), w0, new Set(hangSku.keys()), new Set(hangCat.keys()));
   cells.forEach((c, i) => { c.q = x[i]; });
   const viPham = [];
   hang.forEach((h) => {
     let t = 0;
     h.cells.forEach((i, k) => { t += h.coef[k] * x[i]; });
     const du = h.b - t;
-    const tolDe = (ds) => { const v = dungSaiKhach(ds); return isFinite(v) ? v : 0.5; };
-    if (h.loai === 'kh') { if (Math.abs(du) > tolDe(cells.filter((c) => c.c === h.khoa))) viPham.push({ nhan: h, du }); }
-    else if (h.loai === 'tong') {
-      const kh = new Set(h.cells.map((i) => cells[i].c));
-      let tol = 0; kh.forEach((c) => { tol += tolDe(cells.filter((q) => q.c === c)); });
-      if (Math.abs(du) > tol) viPham.push({ nhan: h, du });
-    } else if (Math.abs(du) > 0.5) viPham.push({ nhan: h, du });
+    if (h.loai === 'kh') { if (Math.abs(du) > tolKh(h.khoa)) viPham.push({ nhan: h, du }); }      // doanh thu khách giữ đến mức làm tròn triệu
+    else if (h.loai === 'tong') { if (Math.abs(du) > saiSoThangCho(cells, h.cells.map((i) => cells[i].c), h.b)) viPham.push({ nhan: h, du }); }
+    else if (Math.abs(du) > 0.5) viPham.push({ nhan: h, du });
   });
-  if (viPham.length) throw new Error(thongDiepLoi(viPham, ten, m));
+  // tổng tháng (cộng doanh thu mọi khách) cũng không được lệch quá sai số của kế hoạch (cùng ngưỡng kiemTraKeHoach)
+  const hangKh = hang.filter((h) => h.loai === 'kh');
+  if (hangKh.length > 1 && !hang.some((h) => h.loai === 'tong')) {
+    let du = 0, b = 0;
+    hangKh.forEach((h) => { let t = 0; h.cells.forEach((i, k) => { t += h.coef[k] * x[i]; }); du += h.b - t; b += h.b; });
+    if (Math.abs(du) > saiSoThangCho(cells, hangKh.map((h) => h.khoa), b)) viPham.push({ nhan: { loai: 'tong', khoa: 'tong', hien: 'tong' }, du });
+  }
+  if (viPham.length) throw new Error(thongDiepLoi(viPham, ten, m, hang));
   return x;
 }
 
+/** Sai số cho phép của tổng tháng (VNĐ) theo đúng kiemTraKeHoach: max(Σ bước làm tròn chục của từng khách, min(5 triệu, 0,05% mục tiêu tháng)). `ds` = các khách tính vào, `muc` = mục tiêu tháng. */
+function saiSoThangCho(cells, khachDs, muc) {
+  const kh = new Set(khachDs);
+  let buoc = 0;
+  kh.forEach((c) => { const v = dungSaiKhach(cells.filter((x) => x.c === c)); if (isFinite(v)) buoc += v; });
+  return Math.max(buoc, Math.min(E.SAI_SO_THANG_TOI_DA_VND, 0.0005 * muc), 1);
+}
+
 /** Khử lệch doanh thu từng khách sau làm tròn: chuyển 1 cái của cùng một SKU từ khách đang DƯ sang khách đang THIẾU (giữ tổng SL cột SKU / nhóm), chọn cặp giảm lệch nhiều nhất. */
-function suaLechKhach(cells, x, hangKh, w0) {
+function suaLechKhach(cells, x, hangKh, w0, skuGiu, catGiu) {
   const dev = new Map();
   hangKh.forEach((h) => { let t = 0; h.cells.forEach((i, k) => { t += h.coef[k] * x[i]; }); dev.set(h.khoa, h.b - t); });
   if (!dev.size) return;
@@ -284,6 +301,27 @@ function suaLechKhach(cells, x, hangKh, w0) {
     x[tot.a.i] += 1; x[tot.b.i] -= 1;
     dev.set(tot.a.c, dev.get(tot.a.c) - tot.a.p);
     dev.set(tot.b.c, dev.get(tot.b.c) + tot.b.p);
+  }
+  // Bước 2 — khách còn lệch vì chỉ có SKU đơn giá cao để bù: thêm / bớt 1 cái ở SKU KHÔNG bị giữ tổng (SKU và nhóm của nó chưa Fix tổng), không cần bù ở khách khác.
+  // Chỉ nhận bước làm giảm lệch của khách VÀ không làm tổng tháng lệch xa hơn sai số cho phép.
+  const tuDo = cells.filter((c) => w0[c.i] > 0 && c.p > 0 && dev.has(c.c) && !skuGiu.has(c.s) && !catGiu.has(c.k));
+  const tongB = hangKh.reduce((t, h) => t + h.b, 0);
+  const tolM = saiSoThangCho(cells, hangKh.map((h) => h.khoa), tongB);
+  let tongDev = 0; dev.forEach((v) => { tongDev += v; });
+  for (let lan = 0; lan < 5000; lan++) {
+    let tot = null, gTot = 1e-9;
+    tuDo.forEach((c) => {
+      const d = dev.get(c.c);
+      const buoc = d > 0 ? 1 : (x[c.i] > 0 ? -1 : 0);                      // dư thiếu -> thêm 1 cái; dư thừa -> bớt 1 cái
+      if (!buoc) return;
+      const d2 = d - buoc * c.p, g = Math.abs(d) - Math.abs(d2);
+      const t2 = tongDev - buoc * c.p;
+      if (g > gTot && (Math.abs(t2) <= tolM || Math.abs(t2) < Math.abs(tongDev))) { gTot = g; tot = { c, buoc }; }
+    });
+    if (!tot) break;
+    x[tot.c.i] += tot.buoc;
+    dev.set(tot.c.c, dev.get(tot.c.c) - tot.buoc * tot.c.p);
+    tongDev -= tot.buoc * tot.c.p;
   }
 }
 
@@ -308,7 +346,7 @@ function chayThaoTac(state, m, catOf, spec) {
     const x0 = cells[spec.i0];
     if (!cung.sku.has(x0.s)) mem.sku.set(x0.s, qSku.get(x0.s));
     x0.q = spec.sl; x0.f = true;
-    danhDau = new Set([spec.i0]);
+    danhDau = spec.tuFix === false ? null : new Set([spec.i0]);
   } else if (spec.loai === 'sku') {
     const node = cells.filter((c) => c.s === spec.skuKey);
     const k0 = node[0].k;
@@ -319,7 +357,7 @@ function chayThaoTac(state, m, catOf, spec) {
     if (spec.T < fz) throw new Error('Tổng nhập (' + spec.T + ') nhỏ hơn phần SL đã Fix riêng của các ô (' + fz + ').');
     if (!tu.length && spec.T !== fz) throw new Error('Mọi ô của SKU này đã Fix riêng — bỏ Fix một số ô rồi sửa lại.');
     chiaNguyen(tongQ(tu) > 0 ? tu.map((c) => c.q) : tu.map((c) => c.nam), spec.T - fz).forEach((q, k) => { tu[k].q = q; });
-    fix = ['sku', spec.skuKey];
+    fix = spec.tuFix === false ? null : ['sku', spec.skuKey];
   } else {
     const node = cells.filter((c) => c.k === spec.nhom);
     cung.cat.set(spec.nhom, spec.T);
@@ -328,7 +366,7 @@ function chayThaoTac(state, m, catOf, spec) {
     if (spec.T < fz) throw new Error('Tổng nhập (' + spec.T + ') nhỏ hơn phần SL đã Fix của nhóm (' + fz + ': SKU / ô đã Fix).');
     if (!tu.length && spec.T !== fz) throw new Error('Mọi SKU / ô trong nhóm "' + spec.nhom + '" đã Fix — bỏ Fix một số SKU rồi sửa lại.');
     chiaNguyen(tongQ(tu) > 0 ? tu.map((c) => c.q) : tu.map((c) => c.nam), spec.T - fz).forEach((q, k) => { tu[k].q = q; });
-    fix = ['cat', spec.nhom];
+    fix = spec.tuFix === false ? null : ['cat', spec.nhom];
   }
   const q0 = cells.map((c) => c.q);
   const w0 = cells.map(trongSo);
@@ -337,6 +375,7 @@ function chayThaoTac(state, m, catOf, spec) {
     const h = khCells.map((c) => dongKhach(cells, c, goc.get(c)));
     cung.sku.forEach((b, s) => h.push(dongCot('sku', s, s.toUpperCase(), cells.filter((c) => c.s === s), b, false)));
     cung.cat.forEach((b, k) => h.push(dongCot('cat', k, k, cells.filter((c) => c.k === k), b, false)));
+    h.forEach((r) => { if ((spec.loai === 'sku' && r.loai === 'sku' && r.khoa === spec.skuKey) || (spec.loai === 'nhom' && r.loai === 'cat' && r.khoa === spec.nhom)) r.dangSua = true; });
     if (!boMem) {
       mem.sku.forEach((b, s) => h.push(dongCot('sku', s, s.toUpperCase(), cells.filter((c) => c.s === s), b, true)));
       mem.cat.forEach((b, k) => h.push(dongCot('cat', k, k, cells.filter((c) => c.k === k), b, true)));
@@ -362,12 +401,12 @@ function chayThaoTac(state, m, catOf, spec) {
  * Sửa SL một SKU của một khách (key = khóa dòng). Đã Apply: các SKU chưa Fix khác của khách co giãn để doanh thu khách không đổi; SL SKU đó của các khách khác co giãn để tổng SKU không đổi
  * (và giữ tổng mọi SKU / nhóm đã Fix); không giữ được -> lỗi. Trả { state, ghiChu[] }.
  */
-export function suaOSkuKhach(state, key, m, v, catOf) {
+export function suaOSkuKhach(state, key, m, v, catOf, { tuFix = true } = {}) {
   const sl = Math.max(0, Math.round(so(v)));
   const i0 = state.lines.findIndex((l) => l.key === key);
   if (i0 < 0) throw new Error('Không tìm thấy dòng ' + key);
   if (!state.targetApplied) { const cells = dungBang(state, m, catOf); cells[i0].q = sl; return { state: ghiThang(state, m, cells, null), ghiChu: [] }; }
-  return chayThaoTac(state, m, catOf, { loai: 'cell', i0, sl });
+  return chayThaoTac(state, m, catOf, { loai: 'cell', i0, sl, tuFix });
 }
 
 /** Các chỉ số dòng của một SKU (khóa gom khoaSku). */
@@ -376,24 +415,24 @@ const dongCuaSku = (state, skuKey) => state.lines.map((l, i) => (khoaSku(l) === 
 /**
  * Sửa TỔNG SL tháng của một SKU (mọi khách). Đã Apply: các SKU chưa Fix khác trong cùng Category co giãn để tổng nhóm không đổi; mọi khách giữ doanh thu; SKU được Fix TỔNG.
  */
-export function suaTongSku(state, skuKey, m, tongMoi, catOf) {
+export function suaTongSku(state, skuKey, m, tongMoi, catOf, { tuFix = true } = {}) {
   const T = Math.max(0, Math.round(so(tongMoi)));
   const idx = dongCuaSku(state, skuKey);
   if (!idx.length) throw new Error('Không tìm thấy SKU ' + skuKey);
   if (!state.targetApplied) return suaThangChuaApply(state, m, dungBang(state, m, catOf), idx, T);
-  return chayThaoTac(state, m, catOf, { loai: 'sku', skuKey, T });
+  return chayThaoTac(state, m, catOf, { loai: 'sku', skuKey, T, tuFix });
 }
 
 /**
  * Sửa TỔNG SL tháng của một Category (nhóm). Đã Apply: các SKU chưa Fix trong nhóm co giãn theo, nhóm khác chưa Fix bù để doanh thu từng khách không đổi; nhóm được Fix TỔNG.
  */
-export function suaTongNhom(state, nhom, m, tongMoi, catOf) {
+export function suaTongNhom(state, nhom, m, tongMoi, catOf, { tuFix = true } = {}) {
   const T = Math.max(0, Math.round(so(tongMoi)));
   const cells0 = dungBang(state, m, catOf);
   const idx = cells0.filter((x) => x.k === nhom).map((x) => x.i);
   if (!idx.length) throw new Error('Không tìm thấy nhóm ' + nhom);
   if (!state.targetApplied) return suaThangChuaApply(state, m, cells0, idx, T);
-  return chayThaoTac(state, m, catOf, { loai: 'nhom', nhom, T });
+  return chayThaoTac(state, m, catOf, { loai: 'nhom', nhom, T, tuFix });
 }
 
 /* ------------------------------ Fix (khoa) ------------------------------ */
@@ -507,13 +546,14 @@ export function lechTheoMucTieu(state) {
   return mt.map((v, m) => v - tong[m]);
 }
 
-/** Sai số làm tròn chục cho phép của tổng tháng m so với mục tiêu (cùng công thức kiemTraKeHoach: tổng bước nhỏ nhất của từng khách). */
+/** Sai số cho phép của tổng tháng m so với mục tiêu (cùng công thức kiemTraKeHoach: tổng bước làm tròn chục của từng khách, hoặc tối đa 5 triệu / 0,05% mục tiêu tháng nếu lớn hơn). */
 export function saiSoChoPhep(state, m) {
   const gia = new Map();
   state.lines.forEach((l) => {
     if (so(l.qty[m]) > 0 && so(l.priceVnd) > 0) { const k = l.customerKey || ''; gia.set(k, Math.min(gia.has(k) ? gia.get(k) : Infinity, so(l.priceVnd))); }
   });
-  return Math.max(E.BUOC_LAM_TRON * Array.from(gia.values()).reduce((a, b) => a + b, 0), 1);
+  const muc = so(state.targetRevenueVnd) > 0 ? E.mucTieuTheoThang(so(state.targetRevenueVnd), state.shares)[m] : 0;
+  return Math.max(E.BUOC_LAM_TRON * Array.from(gia.values()).reduce((a, b) => a + b, 0), Math.min(E.SAI_SO_THANG_TOI_DA_VND, 0.0005 * muc), 1);
 }
 
 /**

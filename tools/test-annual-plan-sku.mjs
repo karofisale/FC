@@ -299,6 +299,14 @@ console.log('--- Fix cấp TỔNG: Fix nhóm / SKU chỉ giữ tổng, các dòn
   const fzR = K.suaTongSku(fz, 'f1', THANG, Math.round(qSku(S, 'F1', THANG) * 1.15), catOf).state;
   kiemGia(fzR, 'nhóm Fix tổng + ô B|F2 Fix riêng: B|F2 đứng yên, tổng nhóm đúng như cũ, doanh thu khách giữ', line(fzR, 'B|F2').qty[THANG] === line(S, 'B|F2').qty[THANG] && qNhom(fzR, 'Lõi lọc', THANG) === qNhom(S, 'Lõi lọc', THANG) && khachGiu(S, fzR, THANG) && M.kiemTra(fzR).loi.length === 0, [qNhom(S, 'Lõi lọc', THANG), qNhom(fzR, 'Lõi lọc', THANG)]);
 
+  // 6c) tắt "tự Fix": sửa xong không để lại cờ / khoa nào; nhóm đã sửa trước vẫn dùng được để bù ở lần sửa sau
+  const t1 = K.suaTongNhom(S, 'Lõi lọc', THANG, Math.round(qNhom(S, 'Lõi lọc', THANG) * 1.1), catOf, { tuFix: false }).state;
+  check('tuFix=false: sửa tổng nhóm không để lại Fix tổng', !K.laFixTong(t1, 'cat', 'Lõi lọc', THANG) && Object.keys(t1.fixTong || {}).length === 0);
+  const t2 = K.suaOSkuKhach(t1, 'A|M1', THANG, line(t1, 'A|M1').qty[THANG] + 10, catOf, { tuFix: false }).state;
+  check('tuFix=false: sửa ô không Fix ô; nhóm Lõi lọc (sửa trước đó) co giãn bù được; doanh thu khách giữ', !line(t2, 'A|M1').khoa[THANG] && khachGiu(t1, t2, THANG) && qSku(t2, 'M1', THANG) === qSku(t1, 'M1', THANG));
+  const u1 = K.suaTongNhom(S, 'Lõi lọc', THANG, Math.round(qNhom(S, 'Lõi lọc', THANG) * 1.1), catOf).state;
+  check('tuFix mặc định bật: sửa tổng nhóm Fix tổng nhóm đó', K.laFixTong(u1, 'cat', 'Lõi lọc', THANG));
+
   // 7) sửa doanh thu khách khi có SKU Fix tổng: tổng SKU Fix giữ nguyên, tổng tháng giữ (bù khách khác)
   const hien = revKhach(S, 'A', THANG), moiDt = Math.round(hien * 1.1);
   const r = K.suaDoanhThuKhach(f2, 'A', THANG, moiDt, { buKhac: true, catOf });
@@ -366,6 +374,48 @@ console.log('--- thử ngẫu nhiên (dữ liệu giống thực tế: máy đ�
   }
   check('90 thao tác ngẫu nhiên (' + ok + ' thành công, ' + loiN + ' báo lỗi): mọi thao tác thành công đều giữ doanh thu khách, tổng tháng, tổng SKU / nhóm đã Fix', vp.length === 0, vp.slice(0, 4));
   check('tỷ lệ báo lỗi hợp lý (< 40%) — lỗi chỉ khi thật sự không giữ được nguyên tắc', loiN < 0.4 * (ok + loiN), [ok, loiN]);
+}
+
+console.log('--- dữ liệu dị biệt (25 khách, 40 SKU giá 12 nghìn → 20 triệu, 6 nhóm): sửa tổng nhóm / SKU / ô giữ doanh thu khách trong mức triệu ---');
+{
+  let seed2 = 5;
+  const rnd2 = () => { seed2 = (seed2 * 1103515245 + 12345) & 0x7fffffff; return seed2 / 0x7fffffff; };
+  const NKH = 25, NSK = 40, NNH = 6;
+  const SK = Array.from({ length: NSK }, (_, i) => ({ code: 'S' + i, gia: Math.round(Math.exp(Math.log(12000) + rnd2() * (Math.log(20e6) - Math.log(12000)))), cat: 'C' + (i % NNH) }));
+  const KHs = Array.from({ length: NKH }, (_, i) => 'K' + i);
+  const dong = [];
+  KHs.forEach((c) => { const n = 3 + Math.floor(rnd2() * 13); SK.slice().sort(() => rnd2() - 0.5).slice(0, n).forEach((x) => {
+    const rev = Math.exp(Math.log(5e6) + rnd2() * (Math.log(2e9) - Math.log(5e6))); const q0 = Math.max(1, Math.round(rev / x.gia));
+    const base = new Array(12).fill(0).map(() => Math.max(0, Math.round(q0 * (0.7 + rnd2() * 0.6))));
+    dong.push({ key: c + '|' + x.code, customerKey: c, skuCode: x.code, tempSkuId: '', skuName: x.code, priceVnd: x.gia, qtyBase: base, qty: base.slice(), khoa: new Array(12).fill(false) }); }); });
+  const catR = (l) => SK.find((x) => x.code === l.skuCode).cat;
+  const g2 = { id: 'R', status: 'draft', kind: 'base', shares: E.tyTrongMuaVu(null, null), targetGrowthPct: null, targetRevenueVnd: null, targetApplied: false, baselineLastMonth: 8, note: '',
+    customers: KHs.map((k) => ({ key: k, name: k, market: '', isNew: false })), lines: dong, newSkus: [], removedLines: [] };
+  const st0 = apdung(g2);
+  const qSk = (s2, sk, m) => s2.lines.filter((l) => l.skuCode === sk).reduce((t, l) => t + l.qty[m], 0), qNh = (s2, nh, m) => s2.lines.filter((l) => catR(l) === nh).reduce((t, l) => t + l.qty[m], 0);
+  const rK = (s2, c, m) => s2.lines.filter((l) => l.customerKey === c).reduce((t, l) => t + l.qty[m] * l.priceVnd, 0);
+  let thanhCong = 0, tong = 0, lechMax = 0, sai2 = [];
+  for (let lan = 0; lan < 36; lan++) {
+    const m = 9 + Math.floor(rnd2() * 3), kind = lan % 3;
+    tong++;
+    let nx;
+    try {
+      if (kind === 0) { const sk = SK[Math.floor(rnd2() * NSK)].code; nx = K.suaTongSku(st0, sk.toLowerCase(), m, Math.round(qSk(st0, sk, m) * (0.8 + rnd2() * 0.5)), catR); }
+      else if (kind === 1) { const nh = 'C' + Math.floor(rnd2() * NNH); nx = K.suaTongNhom(st0, nh, m, Math.round(qNh(st0, nh, m) * (0.85 + rnd2() * 0.3)), catR); }
+      else { const l = st0.lines[Math.floor(rnd2() * st0.lines.length)]; nx = K.suaOSkuKhach(st0, l.key, m, Math.round(l.qty[m] * (0.7 + rnd2() * 0.7)), catR); }
+    } catch (e) { continue; }
+    thanhCong++;
+    KHs.forEach((c) => {
+      const d = Math.abs(rK(nx.state, c, m) - rK(st0, c, m)); lechMax = Math.max(lechMax, d);
+      const gia = nx.state.lines.filter((l) => l.customerKey === c && l.qty[m] > 0).map((l) => l.priceVnd);
+      if (d > Math.max(1e6, 0.5 * Math.min(...gia)) + 1) sai2.push(c + ' T' + (m + 1) + ' lệch ' + Math.round(d));
+    });
+    const dm = Math.abs(nx.state.lines.reduce((t, l) => t + l.qty[m] * l.priceVnd, 0) - st0.lines.reduce((t, l) => t + l.qty[m] * l.priceVnd, 0));
+    if (dm > 5e6) sai2.push('tổng tháng lệch ' + Math.round(dm));
+    if (!khongAm(nx.state)) sai2.push('SL âm / lẻ');
+  }
+  check('36 thao tác trên dữ liệu dị biệt: ' + thanhCong + ' thành công; thành công thì doanh thu khách lệch tối đa ' + Math.round(lechMax / 1e3) + ' nghìn VNĐ (≤ 1 triệu hoặc nửa đơn giá SKU rẻ nhất), tổng tháng ≤ 5 triệu', sai2.length === 0, sai2.slice(0, 4));
+  check('đa số thao tác thành công (≥ 90%) — chỉ báo lỗi khi khách thật sự không còn SKU để bù', thanhCong >= 0.9 * tong, [thanhCong, tong]);
 }
 
 console.log('--- ' + pass + ' đạt, ' + fail + ' lỗi ---');

@@ -86,7 +86,7 @@ export function trangThaiMucTieu(state) {
     const x = v - dt[m];
     const gia = d.filter((l) => so(l.qty[m]) > 0 && so(l.price) > 0).map((l) => so(l.price));
     const buoc = gia.length ? E.BUOC_LAM_TRON * Math.min(...gia) : 0;
-    if (Math.abs(x) > Math.max(buoc, 1)) can = true;
+    if (Math.abs(x) > Math.max(buoc, Math.min(E.SAI_SO_THANG_TOI_DA_VND, 0.0005 * v), 1)) can = true;       // cùng ngưỡng kiemTraKeHoach (cho phép lệch cỡ triệu)
     return x;
   });
   return { lech, canApplyLai: can };

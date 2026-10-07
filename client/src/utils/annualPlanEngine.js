@@ -15,6 +15,8 @@ export const TY_TRONG_MIN = 100;      // 1,00%
 export const TY_TRONG_MAX = 3000;     // 30,00%
 export const TY_TRONG_TONG = 10000;   // 100,00%
 export const BUOC_LAM_TRON = 10;      // làm tròn chục
+export const SAI_SO_KHACH_VND = 1e6;       // doanh thu một khách trong tháng được lệch tới 1 triệu VNĐ (làm tròn số hàng triệu) khi sửa SL theo SKU / nhóm
+export const SAI_SO_THANG_TOI_DA_VND = 5e6; // tổng tháng được lệch tối đa 5 triệu VNĐ (và không quá 0,05% mục tiêu tháng) ngoài bước làm tròn chục
 export const HE_SO_MIN = 0.5, HE_SO_MAX = 2.0;   // chặn hệ số xu hướng cùng kỳ (đã chốt 05/10/2026)
 
 const so = (v) => { const n = Number(v); return isFinite(n) ? n : 0; };
@@ -414,7 +416,9 @@ export function kiemTraKeHoach(plan) {
         const giaTheoKhach = new Map();
         dong.forEach((l) => { if (so(l.qty[m]) > 0 && so(l.priceVnd) > 0) { const k = l.customerKey || ''; giaTheoKhach.set(k, Math.min(giaTheoKhach.has(k) ? giaTheoKhach.get(k) : Infinity, so(l.priceVnd))); } });
         const buoc = BUOC_LAM_TRON * Array.from(giaTheoKhach.values()).reduce((x, y) => x + y, 0);
-        if (Math.abs(mt[m] - tong) > Math.max(buoc, 1)) loi.push('Tháng ' + (m + 1) + ' lệch mục tiêu ' + Math.round(mt[m] - tong) + ' VNĐ (cho phép < ' + Math.round(buoc) + ').');
+        // Ngoài bước làm tròn chục còn cho phép lệch cỡ số hàng triệu (sửa SL theo SKU / nhóm giữ doanh thu từng khách chỉ đến mức làm tròn triệu): tối đa 5 triệu và 0,05% mục tiêu tháng
+        const cho = Math.max(buoc, Math.min(SAI_SO_THANG_TOI_DA_VND, 0.0005 * mt[m]));
+        if (Math.abs(mt[m] - tong) > Math.max(cho, 1)) loi.push('Tháng ' + (m + 1) + ' lệch mục tiêu ' + Math.round(mt[m] - tong) + ' VNĐ (cho phép < ' + Math.round(cho) + ').');
       }
     }
   }
