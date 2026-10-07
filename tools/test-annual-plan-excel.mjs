@@ -97,5 +97,20 @@ check('SKU mã tạm: dùng mã tạm làm mã, tên nhập tay', sk3[2][1] === 
 check('tên file: đơn vị + năm + trạng thái + ngày', X.tenFile({ code: 'KRF-PHIL' }, 2027, 'submitted', new Date(2026, 9, 6)) === 'KeHoachNam_KRF-PHIL_2027_cho-duyet_20261006.xlsx');
 check('không sửa đầu vào', JSON.stringify(st) === JSON.stringify(taoState()));
 
+console.log('--- tải lên bảng doanh thu khách (đọc lại file vừa xuất) ---');
+{
+  const pcRows = XLSX.utils.sheet_to_json(rd.Sheets.Plan_Per_Client, { header: 1, defval: null, raw: true });
+  const dd = X.docBangPerClient(pcRows);
+  check('đọc lại tab Plan_Per_Client: bỏ dòng TỔNG, 2 khách, 12 tháng đúng số xuất', !dd.loi && dd.dong.length === 2 && dd.dong[0].ma === 'ALPHA' && dd.dong[0].thang.length === 12 && dd.dong[0].thang[0] === pc[2][5] && dd.dong[1].thang[11] === pc[3][16], dd);
+  const kh = X.khopBangVoiKhach(dd.dong, st, info, 'oem');
+  check('ghép khách theo Mã khách (OEM: Search Code): 2 khách khớp, không dòng lạ', kh.bang.size === 2 && kh.bang.has('OEM:ALPHA') && kh.bang.has('OEM:BETA') && !kh.khongKhop.length, kh);
+  const lan = X.khopBangVoiKhach([{ ma: 'zzz', ten: 'Alpha Co', thang: [1] }, { ma: ' alpha ', ten: '', thang: [2] }, { ma: 'KHONGCO', ten: '', thang: [3] }], st, info, 'oem');
+  check('khớp theo tên khi mã lạ; mã không phân biệt hoa thường / khoảng trắng; khách lạ vào khongKhop; khách lặp vào trung', lan.bang.get('OEM:ALPHA')[0] === 2 && lan.khongKhop.length === 1 && lan.khongKhop[0].ma === 'KHONGCO' && lan.trung.length === 1, lan);
+  const xk = X.khopBangVoiKhach([{ ma: 'C001', ten: 'x', thang: [5] }], { customers: [{ key: 'XK:Brafco', name: 'Brafco' }, { key: 'XK:Other', name: 'Other' }] }, { 'XK:Brafco': { code: 'C001' }, 'XK:Other': { code: 'C001' } }, 'export');
+  check('mã trùng nhiều khách -> không khớp (không ghi nhầm)', xk.bang.size === 0 && xk.khongKhop.length === 1);
+  check('số từ ô: 1.234.567 / 1,234,567.5 / 1234567,5 / rỗng / chữ', X.soTuO('1.234.567') === 1234567 && X.soTuO('1,234,567.5') === 1234567.5 && X.soTuO('1234567,5') === 1234567.5 && X.soTuO('') === null && X.soTuO('abc') === null && X.soTuO(7) === 7);
+  check('file không đúng định dạng -> thông báo lỗi', /Mã khách/.test(X.docBangPerClient([['a', 'b']]).loi) && /DT KH/.test(X.docBangPerClient([['Mã khách', 'Tên khách']]).loi));
+}
+
 console.log('\n' + pass + ' đạt, ' + fail + ' lỗi');
 process.exit(fail ? 1 : 0);

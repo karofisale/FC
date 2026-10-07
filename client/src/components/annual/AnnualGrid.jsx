@@ -3,12 +3,13 @@ import { ChevronRight, ChevronDown, Lock, Unlock, Trash2 } from 'lucide-react';
 import {
   NHAN_THANG, tomTatKhach, tomTatDonVi, dinhDangSo, dinhDangPct, tyTrongPct, dinhDangGia, doiTuVnd
 } from '../../utils/annualPlanModel';
+import { trangThaiFix, lechTheoMucTieu, saiSoChoPhep } from '../../utils/annualPlanSkuOps';
 
 const COT1 = 'w-72 min-w-72 max-w-72';          // cột Khách / SKU (cố định khi kéo sang phải)
 const TONG_LEFT = 'left-72';                     // cột Tổng năm dính ngay sau cột 1
 
 /** Ô số nguyên: sửa tại chỗ, chốt khi rời ô / Enter (không dựng lại cả bảng theo từng phím). */
-function CellInput({ value, onCommit, disabled, title, highlight }) {
+export function CellInput({ value, onCommit, disabled, title, highlight }) {
   const [v, setV] = useState(String(value));
   useEffect(() => { setV(String(value)); }, [value]);
   return (
@@ -54,7 +55,7 @@ function PctInput({ value, onCommit, disabled }) {
  * Ô TỔNG DOANH THU THÁNG sửa được (bảng Cơ sở, tháng dự kiến): nhập theo đơn vị đang hiển thị (triệu VNĐ / USD); doanh thu khách và SL các SKU của tháng đó
  * tự co giãn theo tỷ lệ. Chốt khi rời ô / Enter. Số hiển thị dạng vi-VN (dấu . ngăn nghìn, dấu , thập phân).
  */
-function TongThangInput({ value, onCommit, title }) {
+export function TongThangInput({ value, onCommit, title, nho }) {
   const fmt = (x) => Math.round(x).toLocaleString('vi-VN');
   const [v, setV] = useState(fmt(value));
   useEffect(() => { setV(fmt(value)); }, [value]);
@@ -69,7 +70,21 @@ function TongThangInput({ value, onCommit, title }) {
         else setV(fmt(value));
       }}
       onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-      className="w-full text-right font-mono text-[11px] font-bold px-1.5 py-1 rounded border bg-white border-blue-300 focus:border-blue-600 focus:outline-none"
+      className={`w-full text-right font-mono text-[11px] ${nho ? 'font-semibold' : 'font-bold'} px-1.5 py-1 rounded border bg-white ${nho ? 'border-slate-200 focus:border-blue-500' : 'border-blue-300 focus:border-blue-600'} focus:outline-none`}
+    />
+  );
+}
+
+/** Ô tick "Fix" ở đầu dòng: Fix cả dòng (12 tháng); trạng thái một phần hiện dấu gạch. */
+export function TickFix({ trangThai, onClick, title }) {
+  return (
+    <input
+      type="checkbox"
+      title={title || 'Fix cả dòng: SL các tháng không bị co giãn khi sửa nơi khác'}
+      checked={trangThai === 'het'}
+      ref={(el) => { if (el) el.indeterminate = trangThai === 'mot-phan'; }}
+      onChange={onClick}
+      className="shrink-0 accent-amber-500 cursor-pointer"
     />
   );
 }
@@ -81,7 +96,7 @@ function TongThangInput({ value, onCommit, title }) {
  */
 export default function AnnualGrid({
   state, view, editable, expanded, onToggle, onEditCell, onToggleLock, onDeleteSku, onDeleteCustomer, onShareChange, single,
-  fmt, nhan, tien, dangLoc, onEditMonthTotal
+  fmt, nhan, tien, dangLoc, onEditMonthTotal, onEditCustomerMonth, onToggleFix
 }) {
   const kh = tomTatKhach(state);
   const dv = tomTatDonVi(state);
@@ -92,6 +107,8 @@ export default function AnnualGrid({
   const choPhepSuaCoSo = editable && !state.targetApplied;
   const choSuaTongThang = view === 'base' && choPhepSuaCoSo && !dangLoc && !!onEditMonthTotal;      // đang lọc khách thì không sửa tổng (không rõ co giãn phần nào)
   const tyPct = tyTrongPct(state);
+  const choSuaDtKhach = view === 'plan' && editable && !!onEditCustomerMonth && !single;
+  const lechMt = view === 'plan' && !dangLoc ? lechTheoMucTieu(state) : null;        // chênh so với Target × tỷ trọng (đã Apply, không lọc)
 
   const ocSku = (l, m) => {
     const q = view === 'base' ? l.qtyBase[m] : l.qty[m];
@@ -127,7 +144,8 @@ export default function AnnualGrid({
       <tr key={l.key} className="border-b border-slate-100 hover:bg-blue-50/30">
         <td className={`sticky left-0 z-10 bg-white ${COT1} px-2 py-1 ${kenhKhachRieng ? '' : 'pl-8'}`}>
           <div className="flex items-start justify-between gap-1">
-            <div className="min-w-0">
+            {editable && view === 'plan' && onToggleFix && <TickFix trangThai={trangThaiFix(state, [l.key], null)} onClick={() => onToggleFix([l.key], null)} />}
+            <div className="min-w-0 grow">
               <div className="font-mono text-[11px] font-bold text-slate-800 truncate">
                 {l.skuCode || l.tempSkuId}{l.tempSkuId ? <span className="ml-1 text-[9px] font-sans bg-amber-100 text-amber-700 rounded px-1">mã tạm</span> : null}
               </div>
@@ -189,6 +207,16 @@ export default function AnnualGrid({
               </td>
             ))}
           </tr>
+          {lechMt && (
+            <tr className="bg-blue-50/30 text-slate-600">
+              <td className={`sticky left-0 z-10 bg-blue-50 ${COT1} px-3 py-1`} title="Tổng kế hoạch − (Target × tỷ trọng). Dương = còn thiếu so với mục tiêu tháng. Trong sai số làm tròn chục thì xem như khớp.">Chênh so Target × tỷ trọng</td>
+              <td className={`sticky ${TONG_LEFT} z-10 bg-blue-50 text-right px-2 py-1 font-mono text-[11px]`}>{fmt(lechMt.reduce((a, b) => a + b, 0))}</td>
+              {lechMt.map((v, m) => {
+                const lech = Math.abs(v) > saiSoChoPhep(state, m);
+                return <td key={m} className={`text-right px-2 py-1 font-mono text-[11px] ${lech ? 'text-rose-600 font-bold' : 'text-slate-400'}`} title={lech ? 'Lệch quá sai số làm tròn — Apply lại hoặc chỉnh khách khác để khớp' : 'Khớp mục tiêu tháng'}>{lech ? (v > 0 ? '+' : '') + fmt(v) : '✓'}</td>;
+              })}
+            </tr>
+          )}
           {view === 'plan' && (
             <tr className="bg-blue-50/40 text-slate-600">
               <td className={`sticky left-0 z-10 bg-blue-50 ${COT1} px-3 py-1`}>Tăng trưởng so cơ sở</td>
@@ -221,7 +249,11 @@ export default function AnnualGrid({
                       </div>
                     </td>
                     <td className={`sticky ${TONG_LEFT} z-10 bg-slate-50 text-right px-2 py-1.5 font-mono text-[11px]`}>{fmt(tongNam)}</td>
-                    {c[arr].map((v, m) => <td key={m} className="text-right px-2 py-1.5 font-mono text-[11px]">{fmt(v)}</td>)}
+                    {c[arr].map((v, m) => (
+                      choSuaDtKhach && c.lines.length > 0
+                        ? <td key={m} className="px-0.5 py-0.5"><TongThangInput nho value={doiTuVnd(v, tien.loai, tien.fx)} title="Sửa doanh thu khách trong tháng: SL các SKU của khách co giãn theo tỷ lệ" onCommit={(n) => onEditCustomerMonth(c.key, m, n)} /></td>
+                        : <td key={m} className="text-right px-2 py-1.5 font-mono text-[11px]">{fmt(v)}</td>
+                    ))}
                   </tr>
                   {mo && c.lines.map((l) => dongSku(l, false))}
                 </React.Fragment>

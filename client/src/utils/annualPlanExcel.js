@@ -127,3 +127,88 @@ export function xuatExcel(tuyChon) {
   const wb = taoWorkbook(tuyChon);
   XLSX.writeFile(wb, tenFile(tuyChon.donVi, tuyChon.year, tuyChon.status));
 }
+
+/* ------------------------------ TẢI LÊN bảng doanh thu khách × tháng (sửa đồng loạt) ------------------------------ */
+
+const boDau = (v) => String(v == null ? '' : v).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** Số từ ô Excel: số thật; chuỗi dạng "1.234.567" / "1,234,567" / "1234567,5"; rỗng hoặc không đọc được -> null. */
+export function soTuO(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  let t = String(v).replace(/[\s ]/g, '').replace(/[^\d.,-]/g, '');
+  if (!/\d/.test(t)) return null;
+  const nhieuCham = (t.match(/\./g) || []).length, nhieuPhay = (t.match(/,/g) || []).length;
+  if (nhieuCham && nhieuPhay) { t = t.lastIndexOf(',') > t.lastIndexOf('.') ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, ''); }
+  else if (nhieuCham > 1) t = t.replace(/\./g, '');
+  else if (nhieuPhay > 1) t = t.replace(/,/g, '');
+  else if (nhieuCham === 1 && /^-?\d{1,3}\.\d{3}$/.test(t)) t = t.replace('.', '');
+  else if (nhieuPhay === 1) t = /^-?\d{1,3},\d{3}$/.test(t) ? t.replace(',', '') : t.replace(',', '.');
+  const n = parseFloat(t);
+  return isFinite(n) ? n : null;
+}
+
+/**
+ * Đọc sheet "Plan_Per_Client" (đúng định dạng file xuất: dòng tiêu đề có "Mã khách", "Tên khách" và 12 cột "DT KH T1/2027"…) từ mảng dòng (AoA).
+ * Dòng TỔNG và dòng trống bị bỏ. Ô tháng trống = không đổi (null). Trả { dong: [{ ma, ten, thang: (number|null)[12] }], loi: string }.
+ */
+export function docBangPerClient(aoa) {
+  const ds = Array.isArray(aoa) ? aoa : [];
+  const hang = ds.findIndex((r) => Array.isArray(r) && r.some((c) => /^ma khach\b/.test(boDau(c))));
+  if (hang < 0) return { dong: [], loi: 'Không thấy dòng tiêu đề có cột "Mã khách" — hãy dùng đúng tab Plan_Per_Client của file Xuất Excel.' };
+  const tieuDe = ds[hang];
+  const cotMa = tieuDe.findIndex((c) => /^ma khach\b/.test(boDau(c)));
+  const cotTen = tieuDe.findIndex((c) => /^ten khach\b/.test(boDau(c)));
+  const cotThang = new Array(12).fill(-1);
+  tieuDe.forEach((c, i) => {
+    const t = boDau(c);
+    const mm = /^(dt|doanh thu)\b.*\bt\s*(\d{1,2})(?:\s*\/\s*\d{2,4})?(?:\s*\(.*\))?\s*$/.exec(t);
+    if (mm && Number(mm[2]) >= 1 && Number(mm[2]) <= 12 && cotThang[Number(mm[2]) - 1] < 0) cotThang[Number(mm[2]) - 1] = i;
+  });
+  if (cotThang.every((i) => i < 0)) return { dong: [], loi: 'Không thấy các cột doanh thu từng tháng (DT KH T1 … T12).' };
+  const dong = [];
+  for (let r = hang + 1; r < ds.length; r++) {
+    const row = ds[r] || [];
+    const ma = String(row[cotMa] == null ? '' : row[cotMa]).trim();
+    const ten = cotTen >= 0 ? String(row[cotTen] == null ? '' : row[cotTen]).trim() : '';
+    if (!ma && !ten) continue;
+    if (boDau(ma) === 'tong' || boDau(ten) === 'tong') continue;
+    dong.push({ ma, ten, thang: cotThang.map((i) => (i < 0 ? null : soTuO(row[i]))) });
+  }
+  return { dong, loi: '' };
+}
+
+/**
+ * Ghép các dòng đọc từ Excel với khách trong kế hoạch: ưu tiên "Mã khách" (mã hiển thị trong file xuất, mã khách, khóa), sau đó "Tên khách".
+ * Khớp không phân biệt hoa thường / khoảng trắng; một mã trùng nhiều khách thì coi là không khớp (tránh ghi nhầm).
+ * Trả { bang: Map(khóa khách -> number[12]|null), khongKhop: [{ma, ten}], trung: [ma] (khách xuất hiện nhiều dòng -> lấy dòng sau) }.
+ */
+export function khopBangVoiKhach(dong, state, info, nguon) {
+  const chuan = (v) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().toLowerCase();
+  const chiMuc = (laTen) => {
+    const mp = new Map();
+    state.customers.forEach((c) => {
+      const i = (info || {})[c.key] || {};
+      const ds = laTen ? [tenKhachHienThi(c.key, c.name, nguon), c.name] : [i.code, tenKhachHienThi(c.key, c.name, nguon), c.key];
+      new Set(ds.map(chuan).filter(Boolean)).forEach((k) => { mp.set(k, mp.has(k) && mp.get(k) !== c.key ? null : c.key); });
+    });
+    return mp;
+  };
+  const theoMa = chiMuc(false), theoTen = chiMuc(true);
+  const bang = new Map(), khongKhop = [], trung = [];
+  dong.forEach((d) => {
+    const key = (d.ma && theoMa.get(chuan(d.ma))) || (d.ten && theoTen.get(chuan(d.ten))) || (d.ma && theoTen.get(chuan(d.ma))) || '';
+    if (!key) { khongKhop.push({ ma: d.ma, ten: d.ten }); return; }
+    if (bang.has(key)) trung.push(d.ma || d.ten);
+    bang.set(key, d.thang);
+  });
+  return { bang, khongKhop, trung };
+}
+
+/** Đọc file Excel người dùng chọn -> các dòng của tab Plan_Per_Client (hoặc tab đầu tiên có cột "Mã khách"). */
+export async function docFileBang(file) {
+  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  const ten = wb.SheetNames.includes('Plan_Per_Client') ? 'Plan_Per_Client' : wb.SheetNames.find((n) => (XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null }) || []).some((r) => r.some((c) => /^ma khach\b/.test(boDau(c)))));
+  if (!ten) return { dong: [], loi: 'Không tìm thấy tab Plan_Per_Client (hoặc tab có cột "Mã khách") trong file.' };
+  return docBangPerClient(XLSX.utils.sheet_to_json(wb.Sheets[ten], { header: 1, defval: null, raw: true }));
+}
