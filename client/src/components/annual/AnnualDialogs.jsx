@@ -37,17 +37,33 @@ export function ReasonDialog({ title, label, confirmLabel, onConfirm, onClose })
   );
 }
 
-export function AddCustomerDialog({ market, onAdd, onClose }) {
+export function AddCustomerDialog({ market, onAdd, onClose, thiTruongDs, tenDaCo }) {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [thiTruong, setThiTruong] = useState('');
-  const can = name.trim() && (!market || thiTruong.trim());
+  const [khac, setKhac] = useState(false);           // chọn "Thị trường khác…" để gõ tên thị trường mới
+  const chonTT = Array.isArray(thiTruongDs);          // Export OEM: KHÁCH MỚI = tên ngắn + thị trường (không ghi vào danh mục khách của các app)
+  const trung = chonTT && name.trim() && (tenDaCo || []).some((t) => String(t).trim().toLowerCase() === name.trim().toLowerCase());
+  const can = name.trim() && (!market || thiTruong.trim()) && !trung;
   return (
-    <Khung title="Thêm khách hàng" onClose={onClose}>
+    <Khung title={chonTT ? 'Thêm khách mới' : 'Thêm khách hàng'} onClose={onClose}>
       <div className="space-y-3">
-        <div><label className={nhan}>Tên khách *</label><input className={o} value={name} onChange={(e) => setName(e.target.value)} autoFocus /></div>
-        <div><label className={nhan}>Mã khách (Search Code / Short Name) — để trống nếu chưa có</label><input className={o} value={code} onChange={(e) => setCode(e.target.value)} /></div>
-        {market && <div><label className={nhan}>Thị trường *</label><input className={o} value={thiTruong} onChange={(e) => setThiTruong(e.target.value)} /></div>}
+        {chonTT && <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">Khách mới chỉ nằm trong kế hoạch này (không ghi vào danh mục khách hàng của các app). Dòng khách sẽ nằm trong nhóm thị trường đã chọn.</p>}
+        <div><label className={nhan}>{chonTT ? 'Tên ngắn của khách mới *' : 'Tên khách *'}</label><input className={o} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          {trung && <div className="text-[11px] text-rose-600 mt-1">Đã có khách tên này trong bảng.</div>}</div>
+        {!chonTT && <div><label className={nhan}>Mã khách (Search Code / Short Name) — để trống nếu chưa có</label><input className={o} value={code} onChange={(e) => setCode(e.target.value)} /></div>}
+        {market && chonTT && (
+          <div>
+            <label className={nhan}>Thị trường *</label>
+            <select className={o} value={khac ? '__khac' : thiTruong} onChange={(e) => { if (e.target.value === '__khac') { setKhac(true); setThiTruong(''); } else { setKhac(false); setThiTruong(e.target.value); } }}>
+              <option value="">— chọn thị trường —</option>
+              {thiTruongDs.map((t) => <option key={t} value={t}>{t}</option>)}
+              <option value="__khac">＋ Thị trường khác…</option>
+            </select>
+            {khac && <input className={o + ' mt-2'} placeholder="Gõ tên thị trường mới" value={thiTruong} onChange={(e) => setThiTruong(e.target.value)} />}
+          </div>
+        )}
+        {market && !chonTT && <div><label className={nhan}>Thị trường *</label><input className={o} value={thiTruong} onChange={(e) => setThiTruong(e.target.value)} /></div>}
       </div>
       <div className="flex justify-end gap-2 mt-4">
         <button className={nutPhu} onClick={onClose}>Hủy</button>

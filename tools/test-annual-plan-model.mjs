@@ -254,5 +254,19 @@ check('kiểm tra kế hoạch đã Apply: không có lỗi; chuyển sang paylo
 })());
 check('định dạng: tỷ / phần trăm', M.dinhDangPct(0.1234) === '+12,3%' && M.dinhDangPct(null) === '—' && M.dinhDangTy(1234567890).startsWith('1,23'));
 
+console.log('--- Export OEM: nhóm khách theo thị trường ---');
+{
+  const sx = taoState();
+  sx.customers = [{ key: 'XK:Alpha', name: 'Alpha', market: '', isNew: false }, { key: 'XK:Beta', name: 'Beta', market: '', isNew: false }];
+  sx.lines = sx.lines.map((l) => ({ ...l, customerKey: l.customerKey === 'OEM:ALPHA' ? 'XK:Alpha' : 'XK:Beta', key: (l.customerKey === 'OEM:ALPHA' ? 'XK:Alpha' : 'XK:Beta') + '|' + l.skuCode }));
+  const info = { 'XK:Alpha': { market: 'Brazil' }, 'XK:Beta': { market: ' brazil ' } };
+  const s1 = M.themKhach(M.themKhach(sx, { key: 'NEW:Zeta', name: 'Zeta', market: 'Chile' }), { key: 'NEW:Omega', name: 'Omega', market: '' });
+  const g = M.nhomTheoThiTruong(s1, info);
+  check('Alpha + Beta (cùng Brazil dù khác hoa thường / khoảng trắng) vào MỘT nhóm; khách mới Zeta vào nhóm Chile; Omega (chưa rõ) xếp cuối', g.length === 3 && g[0].ten === 'Brazil' && g[0].khach.length === 2 && g[1].ten === 'Chile' && g[1].khach[0].key === 'NEW:Zeta' && g[2].ten === M.KHONG_RO_THI_TRUONG && g[2].khach[0].key === 'NEW:Omega', g.map((x) => [x.ten, x.khach.length]));
+  check('tổng nhóm = tổng khách; khách mới (chưa có SKU) hiện doanh thu 0; tổng các nhóm = tổng đơn vị', Math.abs(g[0].planTotal - g[0].khach.reduce((t, k) => t + k.planTotal, 0)) < 1 && g[1].planTotal === 0 && Math.abs(g.reduce((t, x) => t + x.planTotal, 0) - M.tong(M.doanhThuKeHoach(s1))) < 1);
+  check('thiTruongKhach: ưu tiên thông tin hệ thống, rồi thị trường nhập khi thêm khách', M.thiTruongKhach({ key: 'XK:Alpha' }, info) === 'Brazil' && M.thiTruongKhach({ key: 'NEW:Zeta', market: ' Chile ' }, info) === 'Chile' && M.thiTruongKhach({ key: 'q' }, info) === '');
+  check('lọc theo thị trường vẫn dùng thị trường của khách mới', M.locTheoKhach(s1, { thiTruong: 'Chile' }, info, 'export').state.customers.map((c) => c.key).join() === 'NEW:Zeta');
+}
+
 console.log('\n' + pass + ' đạt, ' + fail + ' lỗi');
 process.exit(fail ? 1 : 0);

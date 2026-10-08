@@ -321,6 +321,34 @@ export function tomTatKhach(state) {
     growth: c.plan.map((v, m) => (c.base[m] > 0 ? v / c.base[m] - 1 : null)), growthYear: tong(c.base) > 0 ? tong(c.plan) / tong(c.base) - 1 : null }));
 }
 
+export const KHONG_RO_THI_TRUONG = '(chưa rõ thị trường)';
+/** Thị trường của một khách: ưu tiên thông tin khách trên hệ thống (info[key].market), rồi thị trường đã nhập khi thêm khách mới vào kế hoạch. */
+export function thiTruongKhach(c, info) {
+  const i = (info || {})[c.key] || {};
+  return String(i.market || c.market || '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Gom khách theo THỊ TRƯỜNG (Export OEM): [{ key, ten, khach: [tomTatKhach...], base[12], plan[12], baseTotal, planTotal, growth[12], growthYear }],
+ * xếp theo doanh thu kế hoạch năm giảm dần (tên thị trường so không phân biệt hoa thường / khoảng trắng); khách chưa có thị trường vào nhóm cuối.
+ */
+export function nhomTheoThiTruong(state, info) {
+  const cm = new Map(state.customers.map((c) => [c.key, c]));
+  const nhom = new Map();
+  tomTatKhach(state).forEach((k) => {
+    const tt = thiTruongKhach(cm.get(k.key) || { key: k.key }, info);
+    const nk = tt.toLowerCase();
+    let g = nhom.get(nk);
+    if (!g) { g = { key: nk, ten: tt || KHONG_RO_THI_TRUONG, khach: [], base: new Array(12).fill(0), plan: new Array(12).fill(0) }; nhom.set(nk, g); }
+    g.khach.push(k);
+    g.base = cong12(g.base, k.base);
+    g.plan = cong12(g.plan, k.plan);
+  });
+  return Array.from(nhom.values()).map((g) => ({ ...g, baseTotal: tong(g.base), planTotal: tong(g.plan),
+    growth: g.plan.map((v, m) => (g.base[m] > 0 ? v / g.base[m] - 1 : null)), growthYear: tong(g.base) > 0 ? tong(g.plan) / tong(g.base) - 1 : null }))
+    .sort((a, b) => (a.key === '' ? 1 : 0) - (b.key === '' ? 1 : 0) || b.planTotal - a.planTotal || (a.ten < b.ten ? -1 : 1));
+}
+
 /** Dòng tổng + tỷ trọng tháng + tăng trưởng toàn đơn vị. */
 export function tomTatDonVi(state) {
   const base = doanhThuCoSo(state), plan = doanhThuKeHoach(state), tPlan = tong(plan), tBase = tong(base);

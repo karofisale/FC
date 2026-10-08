@@ -124,6 +124,7 @@ export default function AnnualPlan({ currentBU, user }) {
   // Tỷ giá đã chốt theo phiên bản (chưa có bản thì tỷ giá hiện tại lúc dựng cơ sở) + tiền tệ hiển thị: USD chỉ cho Export OEM + Brand (có tỷ giá);
   // bảng chờ duyệt (đã gửi duyệt) luôn Triệu VNĐ.
   const fx = (st && st.fxRate) || (ws && ws.baseline && ws.baseline.fxRate) || 0;
+  const laExport = donVi?.source === 'export';                  // Export OEM: bảng theo khách gom theo THỊ TRƯỜNG
   const laKrf = donVi?.source === 'krf';                       // Brand KRF-*: nhiều khách, dữ liệu từ đơn hàng Export
   const laBrand = donVi?.source === 'fc' || laKrf;
   const choUsd = (donVi?.source === 'export' || laBrand) && fx > 0;
@@ -233,7 +234,8 @@ export default function AnnualPlan({ currentBU, user }) {
   };
   const themKhach = ({ name, code, market }) => {
     const tienTo = donVi?.source === 'oem' ? 'OEM:' : (donVi?.source === 'export' || donVi?.source === 'krf' ? 'XK:' : '');
-    const key = code ? tienTo + code : 'NEW:' + name;
+    // Export OEM: khách mới chỉ nằm trong kế hoạch (tên ngắn + thị trường), KHÔNG ghi vào danh mục khách của các app -> khóa NEW:<tên>
+    const key = code && !laExport ? tienTo + code : 'NEW:' + name;
     if (capNhat((s) => M.themKhach(s, { key, name, market }))) { setThemVaoKhach(key); setExpanded((e) => new Set(e).add(key)); }
     setDlg(null);
   };
@@ -563,7 +565,7 @@ export default function AnnualPlan({ currentBU, user }) {
       )}
 
       {view === 'preview' ? (
-        <>{thongBao}<PreviewTable state={locKq.state} single={single} fmt={fmt} nhan={nhan} dangLoc={locKq.dangLoc} /></>
+        <>{thongBao}<PreviewTable state={locKq.state} single={single} fmt={fmt} nhan={nhan} dangLoc={locKq.dangLoc} nhomTT={laExport} info={ws && ws.customerInfo} /></>
       ) : (
         <>
           {editable && !st.lines.length && (
@@ -621,6 +623,7 @@ export default function AnnualPlan({ currentBU, user }) {
             onShareChange={suaTyTrong}
             onEditCustomerMonth={suaDtKhach}
             onToggleFix={doiFix}
+            nhomTT={laExport} info={ws && ws.customerInfo}
           />
           )}
         </>
@@ -635,7 +638,7 @@ export default function AnnualPlan({ currentBU, user }) {
 
       {dlg?.loai === 'tuchoi' && <ReasonDialog title="Từ chối kế hoạch" label="Lý do từ chối *" confirmLabel="Từ chối" onClose={() => setDlg(null)} onConfirm={(t) => quyetDinh('rejected', t)} />}
       {dlg?.loai === 'final' && <ReasonDialog title="Lưu bản Final" label="Lý do điều chỉnh (top-down) *" confirmLabel="Lưu Final" onClose={() => { setDlg(null); setBusy(false); }} onConfirm={luuFinal} />}
-      {dlg?.loai === 'khach' && <AddCustomerDialog market={donVi?.source === 'export' || donVi?.source === 'krf'} onClose={() => setDlg(null)} onAdd={themKhach} />}
+      {dlg?.loai === 'khach' && <AddCustomerDialog market={donVi?.source === 'export' || donVi?.source === 'krf'} thiTruongDs={laExport ? giaTriLoc.thiTruong : null} tenDaCo={st.customers.map((c) => M.tenKhachHienThi(c.key, c.name, donVi?.source))} onClose={() => setDlg(null)} onAdd={themKhach} />}
       {dlg?.loai === 'sku' && <AddSkuDialog tien={tien} tim={timSku} khach={kieu === 'sku' && !single ? st.customers.map((c) => ({ key: c.key, name: M.tenKhachHienThi(c.key, c.name, donVi?.source) })) : undefined} customerName={single ? donVi?.name : (st.customers.find((c) => c.key === themVaoKhach)?.name || themVaoKhach)} existing={M.skuTrongBang(st)} onClose={() => setDlg(null)} onAdd={themSku} />}
       {dlg?.loai === 'maSku' && (() => { const g = K.gomTheoNhomSku(st, catOf).flatMap((n) => n.skus).find((x) => x.khoa === dlg.khoa); return g ? <SuaMaSkuDialog sku={g} tim={timSku} onClose={() => setDlg(null)} onSave={(du) => luuMaSku(dlg.khoa, du)} /> : null; })()}
       {dlg?.loai === 'taiExcel' && <TaiDoanhThuKhachDialog catOf={catOf} state={st} info={ws && ws.customerInfo} nguon={donVi?.source} fmt={fmt} nhan={nhan} onClose={() => setDlg(null)} onApply={apDungBangExcel} />}
@@ -646,7 +649,7 @@ export default function AnnualPlan({ currentBU, user }) {
 }
 
 /** Preview: thu gọn theo khách (đơn vị một khách: theo SKU) — doanh thu 12 tháng + cột tổng năm ở đầu, tăng trưởng cả năm và từng tháng so cơ sở. */
-function PreviewTable({ state, single, fmt, nhan, dangLoc }) {
+function PreviewTable({ state, single, fmt, nhan, dangLoc, nhomTT, info }) {
   const dv = M.tomTatDonVi(state);
   const hang = single
     ? state.lines.map((l) => {
@@ -654,7 +657,10 @@ function PreviewTable({ state, single, fmt, nhan, dangLoc }) {
       const bt = M.tong(base), pt = M.tong(plan);
       return { key: l.key, name: (l.skuCode || l.tempSkuId) + ' — ' + l.skuName, plan, base, planTotal: pt, growthYear: bt > 0 ? pt / bt - 1 : null, growth: plan.map((v, m) => (base[m] > 0 ? v / base[m] - 1 : null)) };
     })
-    : M.tomTatKhach(state).map((c) => ({ key: c.key, name: c.name || c.key, plan: c.plan, base: c.base, planTotal: c.planTotal, growthYear: c.growthYear, growth: c.growth }));
+    : (nhomTT
+      ? M.nhomTheoThiTruong(state, info).flatMap((g) => [{ key: 'tt:' + g.key, name: g.ten + ' (' + g.khach.length + ' khách)', plan: g.plan, base: g.base, planTotal: g.planTotal, growthYear: g.growthYear, growth: g.growth, nhom: true }]
+        .concat(g.khach.map((c) => ((cc) => ({ key: cc.key, name: '   ' + (cc.name || cc.key), plan: cc.plan, base: cc.base, planTotal: cc.planTotal, growthYear: cc.growthYear, growth: cc.growth }))(c))))
+      : M.tomTatKhach(state).map((c) => ({ key: c.key, name: c.name || c.key, plan: c.plan, base: c.base, planTotal: c.planTotal, growthYear: c.growthYear, growth: c.growth })));
   return (
     <div className="overflow-auto border border-slate-200 rounded-xl bg-white max-h-[68vh]">
       <table className="border-separate border-spacing-0 text-xs">
@@ -672,9 +678,9 @@ function PreviewTable({ state, single, fmt, nhan, dangLoc }) {
             {dv.plan.map((v, m) => <td key={m} className="text-right px-2 py-1.5 font-mono">{fmt(v)}<div className={`text-[10px] font-normal ${dv.growth[m] !== null && dv.growth[m] < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{M.dinhDangPct(dv.growth[m])}</div></td>)}
           </tr>
           {hang.map((h) => (
-            <tr key={h.key} className="border-b border-slate-100">
-              <td className="sticky left-0 z-10 bg-white px-3 py-1 truncate max-w-72">{h.name}</td>
-              <td className="sticky left-72 z-10 bg-white text-right px-2 py-1 font-mono font-semibold">{fmt(h.planTotal)}<div className="text-[10px] font-normal text-slate-500">{M.dinhDangPct(h.growthYear)}</div></td>
+            <tr key={h.key} className={`border-b border-slate-100 ${h.nhom ? 'bg-indigo-50 font-bold' : ''}`}>
+              <td className={`sticky left-0 z-10 ${h.nhom ? 'bg-indigo-50' : 'bg-white'} px-3 py-1 truncate max-w-72 whitespace-pre`}>{h.name}</td>
+              <td className={`sticky left-72 z-10 ${h.nhom ? 'bg-indigo-50' : 'bg-white'} text-right px-2 py-1 font-mono font-semibold`}>{fmt(h.planTotal)}<div className="text-[10px] font-normal text-slate-500">{M.dinhDangPct(h.growthYear)}</div></td>
               {h.plan.map((v, m) => <td key={m} className="text-right px-2 py-1 font-mono">{fmt(v)}<div className={`text-[10px] ${h.growth[m] !== null && h.growth[m] < 0 ? 'text-rose-600' : 'text-slate-500'}`}>{M.dinhDangPct(h.growth[m], 0)}</div></td>)}
             </tr>
           ))}

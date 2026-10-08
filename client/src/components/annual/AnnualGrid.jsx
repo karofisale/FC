@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { ChevronRight, ChevronDown, Lock, Unlock, Trash2 } from 'lucide-react';
 import {
-  NHAN_THANG, tomTatKhach, tomTatDonVi, dinhDangSo, dinhDangPct, tyTrongPct, dinhDangGia, doiTuVnd
+  NHAN_THANG, tomTatKhach, tomTatDonVi, dinhDangSo, dinhDangPct, tyTrongPct, dinhDangGia, doiTuVnd, nhomTheoThiTruong
 } from '../../utils/annualPlanModel';
 import { trangThaiFix, lechTheoMucTieu, saiSoChoPhep } from '../../utils/annualPlanSkuOps';
 
@@ -102,9 +102,12 @@ export function TickFix({ trangThai, onClick, title }) {
  */
 export default function AnnualGrid({
   state, view, editable, expanded, onToggle, onEditCell, onToggleLock, onDeleteSku, onDeleteCustomer, onShareChange, single,
-  fmt, nhan, tien, dangLoc, onEditMonthTotal, onEditCustomerMonth, onToggleFix
+  fmt, nhan, tien, dangLoc, onEditMonthTotal, onEditCustomerMonth, onToggleFix, nhomTT, info
 }) {
   const kh = tomTatKhach(state);
+  const [dongTT, setDongTT] = useState(() => new Set());           // thị trường đang thu gọn (mặc định mở hết)
+  // Export OEM: gom khách theo THỊ TRƯỜNG trước, rồi mới tới khách → SKU
+  const dsNhom = nhomTT && !single ? nhomTheoThiTruong(state, info) : [{ key: '', ten: '', khach: kh }];
   const dv = tomTatDonVi(state);
   const arr = view === 'base' ? 'base' : 'plan';
   const soTong = view === 'base' ? dv.baseTotal : dv.planTotal;
@@ -170,6 +173,40 @@ export default function AnnualGrid({
     );
   };
 
+  // Một khách: dòng tổng (bấm + xem SKU) và các dòng SKU của khách
+  const hangKhach = (c) => {
+              const mo = expanded.has(c.key);
+              const tongNam = view === 'base' ? c.baseTotal : c.planTotal;
+              return (
+                <React.Fragment key={c.key}>
+                  <tr className="border-b border-slate-200 bg-slate-50 font-semibold text-slate-900">
+                    <td className={`sticky left-0 z-10 bg-slate-50 ${COT1} px-2 py-1.5`}>
+                      <div className="flex items-center justify-between gap-1">
+                        <button onClick={() => onToggle(c.key)} className="flex items-center gap-1 min-w-0 text-left">
+                          {mo ? <ChevronDown className="w-3.5 h-3.5 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 shrink-0" />}
+                          <span className="truncate" title={c.name}>{c.name || c.key}</span>
+                          {c.isNew && <span className="text-[9px] font-sans bg-emerald-100 text-emerald-700 rounded px-1">mới</span>}
+                          <span className="text-[10px] font-normal text-slate-400 shrink-0">({c.lines.length})</span>
+                        </button>
+                        {editable && view === 'plan' && (
+                          <button onClick={() => onDeleteCustomer(c.key)} title="Bớt khách này" className="text-slate-300 hover:text-rose-600 shrink-0">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                    <td className={`sticky ${TONG_LEFT} z-10 bg-slate-50 text-right px-2 py-1.5 font-mono text-[11px]`}>{fmt(tongNam)}</td>
+                    {c[arr].map((v, m) => (
+                      choSuaDtKhach && c.lines.length > 0
+                        ? <td key={m} className="px-0.5 py-0.5"><TongThangInput nho value={doiTuVnd(v, tien.loai, tien.fx)} title="Sửa doanh thu khách trong tháng: SL các SKU của khách co giãn theo tỷ lệ" onCommit={(n) => onEditCustomerMonth(c.key, m, n)} /></td>
+                        : <td key={m} className="text-right px-2 py-1.5 font-mono text-[11px]">{fmt(v)}</td>
+                    ))}
+                  </tr>
+                  {mo && c.lines.map((l) => dongSku(l, false))}
+                </React.Fragment>
+              );
+  };
+
   return (
     <div className="overflow-auto border border-slate-200 rounded-xl bg-white max-h-[68vh]">
       <table className="border-separate border-spacing-0 text-xs">
@@ -233,38 +270,24 @@ export default function AnnualGrid({
 
           {single
             ? state.lines.map((l) => dongSku(l, true))
-            : kh.map((c) => {
-              const mo = expanded.has(c.key);
-              const tongNam = view === 'base' ? c.baseTotal : c.planTotal;
-              return (
-                <React.Fragment key={c.key}>
-                  <tr className="border-b border-slate-200 bg-slate-50 font-semibold text-slate-900">
-                    <td className={`sticky left-0 z-10 bg-slate-50 ${COT1} px-2 py-1.5`}>
-                      <div className="flex items-center justify-between gap-1">
-                        <button onClick={() => onToggle(c.key)} className="flex items-center gap-1 min-w-0 text-left">
-                          {mo ? <ChevronDown className="w-3.5 h-3.5 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 shrink-0" />}
-                          <span className="truncate" title={c.name}>{c.name || c.key}</span>
-                          {c.isNew && <span className="text-[9px] font-sans bg-emerald-100 text-emerald-700 rounded px-1">mới</span>}
-                          <span className="text-[10px] font-normal text-slate-400 shrink-0">({c.lines.length})</span>
-                        </button>
-                        {editable && view === 'plan' && (
-                          <button onClick={() => onDeleteCustomer(c.key)} title="Bớt khách này" className="text-slate-300 hover:text-rose-600 shrink-0">
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
+            : dsNhom.map((g) => (
+              <React.Fragment key={'tt:' + g.key}>
+                {nhomTT && (
+                  <tr className="border-b border-slate-300 bg-indigo-50 font-bold text-slate-900">
+                    <td className={`sticky left-0 z-10 bg-indigo-50 ${COT1} px-2 py-1.5`}>
+                      <button onClick={() => setDongTT((e) => { const n = new Set(e); if (n.has(g.key)) n.delete(g.key); else n.add(g.key); return n; })} className="flex items-center gap-1 min-w-0 text-left">
+                        {dongTT.has(g.key) ? <ChevronRight className="w-3.5 h-3.5 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0" />}
+                        <span className="truncate" title={g.ten}>{g.ten}</span>
+                        <span className="text-[10px] font-normal text-slate-500 shrink-0">({g.khach.length} khách)</span>
+                      </button>
                     </td>
-                    <td className={`sticky ${TONG_LEFT} z-10 bg-slate-50 text-right px-2 py-1.5 font-mono text-[11px]`}>{fmt(tongNam)}</td>
-                    {c[arr].map((v, m) => (
-                      choSuaDtKhach && c.lines.length > 0
-                        ? <td key={m} className="px-0.5 py-0.5"><TongThangInput nho value={doiTuVnd(v, tien.loai, tien.fx)} title="Sửa doanh thu khách trong tháng: SL các SKU của khách co giãn theo tỷ lệ" onCommit={(n) => onEditCustomerMonth(c.key, m, n)} /></td>
-                        : <td key={m} className="text-right px-2 py-1.5 font-mono text-[11px]">{fmt(v)}</td>
-                    ))}
+                    <td className={`sticky ${TONG_LEFT} z-10 bg-indigo-50 text-right px-2 py-1.5 font-mono text-[11px]`}>{fmt(view === 'base' ? g.baseTotal : g.planTotal)}</td>
+                    {g[arr].map((v, m) => <td key={m} className="text-right px-2 py-1.5 font-mono text-[11px]">{fmt(v)}</td>)}
                   </tr>
-                  {mo && c.lines.map((l) => dongSku(l, false))}
-                </React.Fragment>
-              );
-            })}
+                )}
+                {!(nhomTT && dongTT.has(g.key)) && g.khach.map((c) => hangKhach(c))}
+              </React.Fragment>
+            ))}
           {!state.lines.length && (
             <tr><td colSpan={14} className="text-center text-slate-400 py-8">Chưa có dòng nào.</td></tr>
           )}
