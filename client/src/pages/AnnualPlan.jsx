@@ -423,7 +423,7 @@ export default function AnnualPlan({ currentBU, user }) {
   );
 
   const thongBao = msg && (
-    <div className={`mb-3 text-xs rounded-lg px-3 py-2 flex items-start gap-2 ${msg.loai === 'ok' ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-rose-50 border border-rose-200 text-rose-800'}`}>
+    <div role="alert" className={`sticky top-2 z-40 shadow-md mb-3 text-xs rounded-lg px-3 py-2 flex items-start gap-2 ${msg.loai === 'ok' ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-rose-50 border border-rose-200 text-rose-800'}`}>
       {msg.loai === 'ok' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}<span>{msg.text}</span>
       <button className="ml-auto text-[10px] underline" onClick={() => setMsg(null)}>đóng</button>
     </div>
@@ -464,7 +464,7 @@ export default function AnnualPlan({ currentBU, user }) {
   return (
     <LamLaiCtx.Provider value={loiTick}>
     <div>
-      {anhDau}{thongBao}
+      {anhDau}
 
       {finalMode && (
         <div className="mb-3 text-xs rounded-lg px-3 py-2 bg-violet-50 border border-violet-200 text-violet-800 flex items-center gap-2">
@@ -563,7 +563,7 @@ export default function AnnualPlan({ currentBU, user }) {
       )}
 
       {view === 'preview' ? (
-        <PreviewTable state={locKq.state} single={single} fmt={fmt} nhan={nhan} dangLoc={locKq.dangLoc} />
+        <>{thongBao}<PreviewTable state={locKq.state} single={single} fmt={fmt} nhan={nhan} dangLoc={locKq.dangLoc} /></>
       ) : (
         <>
           {editable && !st.lines.length && (
@@ -597,6 +597,7 @@ export default function AnnualPlan({ currentBU, user }) {
               Tự Fix ô / tổng SKU / tổng nhóm vừa sửa (tắt để các nhóm đã sửa trước vẫn co giãn được khi bù doanh thu khách)
             </label>
           )}
+          {thongBao}
           {view === 'plan' && kieu === 'sku' ? (
             <AnnualSkuGrid
               state={locKq.state} catOf={catOf} editable={editable} single={single}
