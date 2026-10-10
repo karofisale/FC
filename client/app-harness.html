@@ -1,0 +1,16 @@
+<!doctype html>
+<!-- CHỈ DÙNG KHI PHÁT TRIỂN (npm run dev -> /app-harness.html): chạy CẢ APP (menu, ngăn kéo điện thoại, các màn chính) với "máy chủ giả"
+     trong trình duyệt, không đăng nhập production. Không nằm trong bản build (vite build chỉ lấy index.html).
+     Tham số: ?role=central_admin|bu_approver|bu_editor|viewer  &bu=OEM
+     Trong Console: __harness.expire() giả lập hết phiên; __harness.trangThai xem dữ liệu giả. -->
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Karofi FC — thử cục bộ</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/dev/appHarness.jsx"></script>
+  </body>
+</html>

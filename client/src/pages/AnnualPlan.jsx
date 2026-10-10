@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  Save, Send, CheckCircle2, XCircle, Loader2, AlertCircle, Plus, Unlock, Lock, Wand2, Trash2, UserPlus, GitBranch, Crown, Info, Target, FileSpreadsheet, RefreshCw, Upload,
+  Undo2, Save, Send, CheckCircle2, XCircle, Loader2, AlertCircle, Plus, Unlock, Lock, Wand2, Trash2, UserPlus, GitBranch, Crown, Info, Target, FileSpreadsheet, RefreshCw, Upload,
   Database, ClipboardList, Eye, Users, Boxes
 } from 'lucide-react';
 import { api } from '../services/api';
@@ -12,7 +12,8 @@ import { vnParts, vnYear } from '../utils/period';
 import { useTableSort } from '../utils/useTableSort';
 import { SortTh } from '../components/TableStates';
 import MoreMenu from '../components/MoreMenu';
-import AnnualGrid, { LamLaiCtx } from '../components/annual/AnnualGrid';
+import AnnualGrid, { LamLaiCtx, LoCtx } from '../components/annual/AnnualGrid';
+import HopChoDuyet from '../components/annual/HopChoDuyet';
 import AnnualSkuGrid from '../components/annual/AnnualSkuGrid';
 import * as K from '../utils/annualPlanSkuOps';
 import { ThanhLoc, ChonTien } from '../components/annual/AnnualFilter';
@@ -50,11 +51,24 @@ const nutPhu = 'inline-flex items-center gap-1.5 border border-slate-300 hover:b
 const nutTuChoi = 'inline-flex items-center gap-1.5 border border-rose-300 bg-white hover:bg-rose-50 disabled:opacity-50 text-rose-700 text-xs font-semibold px-3 py-1.5 rounded-lg';
 const nutApply = 'inline-flex items-center gap-1.5 border border-blue-600 bg-white hover:bg-blue-50 disabled:opacity-50 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-lg';
 
-export default function AnnualPlan({ currentBU, user }) {
+/** Số bước Hoàn tác giữ lại (mỗi bước là một bản chụp trạng thái kế hoạch trước thao tác sửa). */
+const SO_BUOC_HOAN_TAC = 20;
+
+/**
+ * `choDuyetNam` = { items, loi, nap } từ useChoDuyetNam (App gom MỘT lần): hộp "Chờ duyệt" cho người duyệt.
+ * `onChonDonVi(bu)` = đổi đơn vị đang làm việc (App) — để nút "Mở" của hộp đó nhảy tới đúng đơn vị × năm.
+ */
+export default function AnnualPlan({ currentBU, user, choDuyetNam, onChonDonVi }) {
   // Nhớ năm đã chọn lần trước (Đợt 2 mục 9); không hợp lệ (đã quá cũ) thì rơi về năm mặc định.
   const [year, setYear] = usePersistedState('annualYear', namMacDinh, laNamHopLe);
   const [ws, setWs] = useState(null);
   const [st, setSt] = useState(null);
+  // Bản sao "mới nhất" của st cho các thao tác nối tiếp trong CÙNG một lượt (dán nhiều ô): mỗi lần sửa đọc từ đây chứ không từ
+  // biến st của lần vẽ trước. Lịch sử Hoàn tác = các bản chụp st trước mỗi thao tác sửa.
+  const stRef = useRef(null);
+  const lichSu = useRef([]);
+  const loRef = useRef(null);                    // != null khi đang chạy một lô (dán): { loi }
+  const [soBuocHoanTac, setSoBuocHoanTac] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -89,9 +103,40 @@ export default function AnnualPlan({ currentBU, user }) {
     return () => setDirty(false);
   }, [bao]);
 
-  const nap = useCallback(async (planId, tuBatDau) => {
+  // Ctrl+Z = Hoàn tác thao tác sửa gần nhất — trừ khi đang gõ trong một ô chữ (ô nhập tự có hoàn tác riêng của trình duyệt).
+  const hoanTacRef = useRef(null);
+  useEffect(() => {
+    const phim = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || String(e.key).toLowerCase() !== 'z') return;
+      const t = document.activeElement;
+      if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || (t.tagName === 'INPUT' && t.type !== 'checkbox'))) return;
+      if (!lichSu.current.length || !hoanTacRef.current) return;
+      e.preventDefault();
+      hoanTacRef.current();
+    };
+    document.addEventListener('keydown', phim);
+    return () => document.removeEventListener('keydown', phim);
+  }, []);
+
+  // Gán trạng thái kế hoạch (cập nhật cả bản sao ref); `ghiLichSu` = đẩy bản chụp trước đó vào lịch sử Hoàn tác.
+  const ganSt = useCallback((next, ghiLichSu) => {
+    if (ghiLichSu && stRef.current) {
+      lichSu.current.push(stRef.current);
+      if (lichSu.current.length > SO_BUOC_HOAN_TAC) lichSu.current.shift();
+      setSoBuocHoanTac(lichSu.current.length);
+    }
+    stRef.current = next;
+    setSt(next);
+  }, []);
+
+  /**
+   * Tải kế hoạch. `giu` = làm mới LẶNG sau Lưu / Gửi duyệt / Duyệt: không hiện "Đang tải…" (màn không bị dựng lại từ đầu),
+   * giữ nguyên bộ lọc, các dòng đang mở, tab đang xem và ô Target — chỉ thay dữ liệu bằng bản server vừa lưu (Đợt 3 mục 6).
+   * Chọn bản khác / đổi đơn vị / đổi năm vẫn nạp đầy đủ như trước.
+   */
+  const nap = useCallback(async (planId, tuBatDau, giu = false) => {
     if (!currentBU) return;
-    setLoading(true);
+    if (!giu) setLoading(true);
     setLoiTai('');
     setMsg(null);
     try {
@@ -101,25 +146,31 @@ export default function AnnualPlan({ currentBU, user }) {
       // Sau khi bỏ nháp: vào thẳng bản CHƯA LƯU dựng từ dữ liệu nguồn mới nhất (chỉ lưu khi bấm Lưu nháp)
       const chuaLuu = !p && tuBatDau && !!r.baseline;
       if (chuaLuu) p = M.taoStateTuCoSo(r.baseline, { bu: currentBU, year });
-      setSt(p);
+      lichSu.current = [];
+      setSoBuocHoanTac(0);
+      ganSt(p, false);
       setBao(!!chuaLuu);
-      setFinalMode(false);
-      setExpanded(new Set());
-      setMoNhom(new Set());
-      setMoSku(new Set());
-      setThemVaoKhach(p && p.customers[0] ? p.customers[0].key : '');
-      setView(p && p.targetApplied ? 'plan' : 'base');
-      setTangText(p && p.targetGrowthPct !== null && p.targetGrowthPct !== undefined ? String(p.targetGrowthPct) : '');
-      setDoanhThuText(p && p.targetRevenueVnd ? String(Math.round(p.targetRevenueVnd / 1e4) / 100) : '');
-      setLoc({ thiTruong: '', sale: '', tuKhoa: '' });
+      if (giu) {
+        setThemVaoKhach((truoc) => (p && p.customers.some((c) => c.key === truoc) ? truoc : (p && p.customers[0] ? p.customers[0].key : '')));
+      } else {
+        setFinalMode(false);
+        setExpanded(new Set());
+        setMoNhom(new Set());
+        setMoSku(new Set());
+        setThemVaoKhach(p && p.customers[0] ? p.customers[0].key : '');
+        setView(p && p.targetApplied ? 'plan' : 'base');
+        setTangText(p && p.targetGrowthPct !== null && p.targetGrowthPct !== undefined ? String(p.targetGrowthPct) : '');
+        setDoanhThuText(p && p.targetRevenueVnd ? String(Math.round(p.targetRevenueVnd / 1e4) / 100) : '');
+        setLoc({ thiTruong: '', sale: '', tuKhoa: '' });
+      }
     } catch (e) {
       setWs(null);
-      setSt(null);
+      ganSt(null, false);
       setLoiTai(e.message);
     } finally {
-      setLoading(false);
+      if (!giu) setLoading(false);
     }
-  }, [currentBU, year]);
+  }, [currentBU, year, ganSt]);
 
   useEffect(() => { nap(''); }, [nap]);
 
@@ -157,14 +208,60 @@ export default function AnnualPlan({ currentBU, user }) {
     setLoiTick((t) => t + 1);
   };
   const capNhat = (fn) => {
+    // Đang chạy một LÔ (dán nhiều ô): thao tác nối tiếp trên bản sao mới nhất, không ghi lịch sử từng ô, lỗi đầu tiên ghi lại để huỷ cả lô.
+    if (loRef.current) {
+      if (loRef.current.loi) return null;
+      try {
+        const kq = fn(stRef.current);
+        const next = kq && kq.state ? kq.state : kq;
+        stRef.current = next;
+        setSt(next);
+        return kq;
+      } catch (e) { loRef.current.loi = e; return null; }
+    }
     try {
-      const kq = fn(st);
+      const kq = fn(stRef.current);
       const next = kq && kq.state ? kq.state : kq;
-      setSt(next);
+      ganSt(next, true);
       setBao(true);
       return kq;
     } catch (e) { baoLoi(e); return null; }
   };
+
+  /** Dán nhiều ô: áp lần lượt như gõ tay, nguyên khối hoặc không gì cả; thành công thì là MỘT bước Hoàn tác. */
+  const chayLo = (viec, soO) => {
+    const truoc = stRef.current;
+    loRef.current = { loi: null };
+    viec();
+    const loi = loRef.current.loi;
+    loRef.current = null;
+    if (loi) {
+      stRef.current = truoc;
+      setSt(truoc);
+      baoLoi(new Error('Không dán được ' + soO + ' ô — chưa có gì thay đổi. ' + (loi.message || String(loi))));
+      return;
+    }
+    if (stRef.current !== truoc) {
+      lichSu.current.push(truoc);
+      if (lichSu.current.length > SO_BUOC_HOAN_TAC) lichSu.current.shift();
+      setSoBuocHoanTac(lichSu.current.length);
+      setBao(true);
+      setMsg({ loai: 'ok', text: 'Đã dán ' + soO + ' ô. Chưa đúng ý thì bấm Hoàn tác (Ctrl+Z).' });
+    }
+  };
+
+  /** Hoàn tác thao tác sửa gần nhất (tối đa 20 bước, mất khi tải lại / đổi bản). */
+  const hoanTac = () => {
+    const truoc = lichSu.current.pop();
+    if (!truoc) return;
+    stRef.current = truoc;
+    setSt(truoc);
+    setSoBuocHoanTac(lichSu.current.length);
+    setBao(true);
+    setLoiTick((t) => t + 1);          // các ô nhập đặt lại về số vừa khôi phục
+    setMsg({ loai: 'ok', text: 'Đã hoàn tác thao tác sửa gần nhất' + (lichSu.current.length ? ' (còn ' + lichSu.current.length + ' bước).' : '.') });
+  };
+  useEffect(() => { hoanTacRef.current = hoanTac; });
 
   /* ---------------- thao tác trên bảng ---------------- */
   const catOf = useMemo(() => K.phanNhomCua({ ...((ws && ws.skuInfo) || {}), ...skuInfoLocal }), [ws, skuInfoLocal]);
@@ -203,7 +300,7 @@ export default function AnnualPlan({ currentBU, user }) {
     setDlg(null);
   };
   const apDungBangExcel = (kq) => {
-    setSt(kq.state);
+    ganSt(kq.state, true);
     setBao(true);
     setDlg(null);
     setMsg({ loai: kq.loi.length ? 'loi' : 'ok', text: 'Đã áp ' + kq.thayDoi.length + ' thay đổi doanh thu khách × tháng' + (kq.lechSau && kq.lechSau.some((v) => Math.abs(v) > 1e4) ? ' — tổng một số tháng còn lệch Target (xem dòng "Chênh so Target × tỷ trọng").' : '.') + (kq.loi.length ? ' ' + kq.loi.length + ' ô không áp được.' : '') });
@@ -320,7 +417,7 @@ export default function AnnualPlan({ currentBU, user }) {
       if (finalMode) { setDlg({ loai: 'final' }); return; }
       const id = await bamBanLuu();
       const r = await api.saveAnnualPlan({ planId: id, plan: M.chuyenSangPayload({ ...st, id }), expectedUpdatedAt: mocDaTai(id) });
-      await nap(id);
+      await nap(id, false, true);        // làm mới LẶNG: giữ bộ lọc, các dòng đang mở, tab đang xem (không dựng lại màn)
       setMsg({ loai: 'ok', text: 'Đã lưu nháp.' + (r.canhBao && r.canhBao.length ? ' (' + r.canhBao.length + ' cảnh báo)' : '') });
     } catch (e) { baoLoi(e); } finally { setBusy(false); }
   };
@@ -341,7 +438,7 @@ export default function AnnualPlan({ currentBU, user }) {
     if (!b) return;
     const p = M.taoStateTuCoSo(b, { bu: currentBU, year });
     const trong = !p.lines.length;
-    setSt(p);
+    ganSt(p, false);
     setBao(true);
     setView(trong ? 'plan' : 'base');
     setThemVaoKhach(p.customers[0] ? p.customers[0].key : '');
@@ -362,8 +459,9 @@ export default function AnnualPlan({ currentBU, user }) {
       const id = await bamBanLuu();
       await api.saveAnnualPlan({ planId: id, plan: M.chuyenSangPayload({ ...st, id }), expectedUpdatedAt: mocDaTai(id) });
       await api.submitAnnualPlan({ planId: id });
-      await nap(id);
+      await nap(id, false, true);
       setTienTe('VND');                          // bảng gửi duyệt luôn Triệu VNĐ
+      if (choDuyetNam && choDuyetNam.nap) choDuyetNam.nap();
       setMsg({ loai: 'ok', text: 'Đã gửi duyệt.' });
     } catch (e) { baoLoi(e); } finally { setBusy(false); }
   };
@@ -388,7 +486,8 @@ export default function AnnualPlan({ currentBU, user }) {
     setBusy(true);
     try {
       const r = await api.decideAnnualPlan({ planId: st.id, decision, comment: comment || '' });
-      await nap(st.id);
+      await nap(st.id, false, true);
+      if (choDuyetNam && choDuyetNam.nap) choDuyetNam.nap();      // hộp "Chờ duyệt" + badge menu cập nhật theo quyết định vừa xong
       setMsg({ loai: 'ok', text: (decision === 'approved' ? 'Đã duyệt kế hoạch.' : 'Đã từ chối kế hoạch.') + thongBaoKpi(r && r.kpi) });
     } catch (e) { baoLoi(e); } finally { setBusy(false); setDlg(null); }
   };
@@ -441,6 +540,16 @@ export default function AnnualPlan({ currentBU, user }) {
 
   const nam = vnYear();
   const banList = ws?.plans || [];
+  // Mở một kế hoạch chờ duyệt từ hộp "Chờ duyệt": nhảy tới đúng đơn vị × năm (đổi đơn vị là việc của App); đang ở đúng chỗ thì mở thẳng bản đó.
+  const moMucChoDuyet = async (x) => {
+    if (!(await confirmNavigateAway('Mở kế hoạch chờ duyệt'))) return;
+    if (x.bu === currentBU && x.nam === year) { nap(x.id); return; }
+    if (x.bu !== currentBU && onChonDonVi) onChonDonVi(x.bu);
+    setYear(x.nam);
+  };
+  const hopChoDuyet = laDuyet && choDuyetNam && (
+    <HopChoDuyet items={choDuyetNam.items} loi={choDuyetNam.loi} dangMo={{ bu: currentBU, nam: year }} onMo={moMucChoDuyet} className="mb-3" />
+  );
   // Nguồn đơn giá theo đơn vị + tỷ giá đã chốt theo phiên bản (bản đang xem; chưa có bản thì tỷ giá hiện tại lúc dựng cơ sở)
   const taiFx = fx > 0 ? ' — tỷ giá chốt ' + fx.toLocaleString('vi-VN') : '';
   const ghiChuGia = donVi?.source === 'fc'
@@ -465,7 +574,7 @@ export default function AnnualPlan({ currentBU, user }) {
       </div>
       <div className="ml-auto flex flex-wrap items-center gap-2">
         <select value={year} onChange={async (e) => { const v = Number(e.target.value); if (await confirmNavigateAway('Đổi năm kế hoạch')) setYear(v); }} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold bg-white">
-          {[nam, nam + 1, nam + 2].map((y) => <option key={y} value={y}>Năm {y}</option>)}
+          {[...new Set([nam, nam + 1, nam + 2, year])].sort().map((y) => <option key={y} value={y}>Năm {y}</option>)}
         </select>
         {banList.length > 0 && (
           <select value={st?.id || ''} onChange={async (e) => { const id = e.target.value; if (await confirmNavigateAway('Đổi phiên bản kế hoạch')) nap(id); }} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white">
@@ -495,6 +604,7 @@ export default function AnnualPlan({ currentBU, user }) {
     const b = ws?.baseline;
     return (
       <div>
+        {hopChoDuyet}
         {anhDau}{thongBao}
         <div className="bg-white border border-slate-200 rounded-xl p-6 max-w-2xl">
           <h2 className="font-bold text-sm text-slate-900 mb-1">Chưa có kế hoạch năm {year} cho {currentBU}</h2>
@@ -526,7 +636,9 @@ export default function AnnualPlan({ currentBU, user }) {
 
   return (
     <LamLaiCtx.Provider value={loiTick}>
+    <LoCtx.Provider value={chayLo}>
     <div>
+      {hopChoDuyet}
       {anhDau}
 
       {finalMode && (
@@ -570,6 +682,7 @@ export default function AnnualPlan({ currentBU, user }) {
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {/* Một nút chính theo "bước tiếp theo" (Đợt 2 mục 4): còn thay đổi chưa lưu -> Lưu nháp; đã lưu -> Gửi duyệt;
               người duyệt -> Duyệt; chế độ Final -> Lưu bản Final. Thao tác ít dùng nằm trong "Thêm"; thao tác phá dữ liệu màu đỏ. */}
+          {editable && soBuocHoanTac > 0 && <button className={nutPhu} onClick={hoanTac} title="Hoàn tác thao tác sửa gần nhất (Ctrl+Z)"><Undo2 className="w-3.5 h-3.5" /> Hoàn tác</button>}
           {editable && !finalMode && <button className={luuLaChinh ? nutChinh : nutPhu} onClick={luu} disabled={busy || (!bao && !!st.id)}>{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Lưu nháp</button>}
           {editable && !finalMode && <button className={luuLaChinh ? nutPhu : nutChinh} onClick={guiDuyet} disabled={busy}><Send className="w-3.5 h-3.5" /> Gửi duyệt</button>}
           {finalMode && <button className={nutChinh} onClick={luu} disabled={busy}><Crown className="w-3.5 h-3.5" /> Lưu bản Final</button>}
@@ -708,6 +821,7 @@ export default function AnnualPlan({ currentBU, user }) {
       {dlg?.loai === 'taiExcel' && <TaiDoanhThuKhachDialog catOf={catOf} state={st} info={ws && ws.customerInfo} nguon={donVi?.source} fmt={fmt} nhan={nhan} onClose={() => setDlg(null)} onApply={apDungBangExcel} />}
       {dlg?.loai === 'nho' && <MassDeleteDialog coThanhLy={coThanhLy} soThanhLy={st.lines.filter(M.laThanhLyTheoNhom(ws && ws.skuNhom)).length} preview={(opts) => M.xoaMatHangNho(st, M.laMayMacDinh, optsXoa(opts)).xoa} onClose={() => setDlg(null)} onConfirm={xoaNho} />}
     </div>
+    </LoCtx.Provider>
     </LamLaiCtx.Provider>
   );
 }

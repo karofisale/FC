@@ -7,7 +7,8 @@ import { thongBao } from '../services/toastService';
 import { usePersistedState } from '../utils/usePersistedState';
 import { buildFcReport, downloadWorkbook, CHANNEL_TABS, busOfChannel } from '../utils/fcReportWorkbook';
 import { buildSapRows, SAP_CHANNELS, sapChannelOfBU } from '../utils/sapExport';
-import { downloadZpp702 } from '../utils/zpp702Workbook';
+import { zpp702Bytes } from '../utils/zpp702Workbook';
+import { taiVeNhieuFile } from '../utils/zipFiles';
 
 // Kết quả xuất đi qua toast xếp hàng (Đợt 2 mục 2): thành công tự tắt ~4 giây; có cảnh báo (type 'error') nằm lại tới khi bấm ×.
 const setMessage = thongBao;
@@ -86,6 +87,7 @@ export default function Exports({ user }) {
       const done = [];
       const skipped = [];
       const folded = [];
+      const files = [];     // các file ZPP702 đã dựng — tải MỘT lần sau vòng lặp (gộp .zip nếu từ 2 file)
 
       Object.keys(SAP_CHANNELS).forEach((channel) => {
         // Một file SAP có thể gồm nhiều đơn vị (KH_XK = XK + bốn thị trường KRF-*).
@@ -119,7 +121,7 @@ export default function Exports({ user }) {
           return;
         }
         const plant = SAP_CHANNELS[channel].plant;
-        downloadZpp702(rows, `ZPP702_Upload_KHKD_${plant}_${channel}_${baseMonth}.xlsx`);
+        files.push({ name: `ZPP702_Upload_KHKD_${plant}_${channel}_${baseMonth}.xlsx`, data: zpp702Bytes(rows) });
         done.push(`${channel}: ${rows.length} dòng, ngày ${rows[0][8]}`);
         // Dồn tuần 5 vào W4 là thay đổi số thật — phải nói ra, không để im.
         if (rows.foldedWeeks && rows.foldedWeeks.length) {
@@ -132,9 +134,14 @@ export default function Exports({ user }) {
         setMessage({ type: 'error', text: `Không xuất được file nào — ${skipped.join('; ')}.` });
         return;
       }
+      // Từ 2 file trở lên thì gộp MỘT .zip tải một lần: tải liên tiếp từng file thì trình duyệt chỉ nhận file đầu, các file sau
+      // bị chặn im lặng hoặc rơi sang thư mục khác trong khi app vẫn báo "đã tải".
+      const tenZip = `ZPP702_Upload_KHKD_${baseMonth}.zip`;
+      const cach = taiVeNhieuFile(files, tenZip);
       setMessage({
         type: skipped.length ? 'error' : 'success',
         text: `Đã xuất ${done.join(' | ')}.` +
+          (cach === 'zip' ? ` Các file được gộp trong một file ${tenZip} — giải nén để lấy ${files.length} file .xlsx.` : '') +
           (skipped.length ? `  CHƯA xuất: ${skipped.join('; ')}.` : '') +
           (folded.length ? `  LƯU Ý — ${folded.join('; ')}.` : '') +
           `  ${typeNote}`
@@ -165,7 +172,7 @@ export default function Exports({ user }) {
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">Tổng hợp toàn công ty (mọi đơn vị kinh doanh), theo chu kỳ tháng đã chọn.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-slate-500">Chu kỳ (tháng 1):</span>
           <input
             type="month"
@@ -187,7 +194,7 @@ export default function Exports({ user }) {
 
         <ExportCard
           title="SAP ZPP702"
-          description="Ba file upload SAP (XK, OEM, GT2) dùng được ngay, lấy số từ bản đã duyệt. Kênh nào chưa duyệt thì không xuất và báo rõ."
+          description="Ba file upload SAP (XK, OEM, GT2) dùng được ngay, lấy số từ bản đã duyệt, gộp trong một file .zip tải một lần. Kênh nào chưa duyệt thì không xuất và báo rõ."
           busy={busy === 'sap'}
           onClick={handleExportSap}
         />
@@ -195,6 +202,8 @@ export default function Exports({ user }) {
       </div>
 
 
+      {/* Ghi chú nội bộ cho người phụ trách file làm tay — chỉ quản trị hệ thống thấy, người xem báo cáo không cần (Đợt 3 mục 8) */}
+      {user?.role === 'central_admin' && (
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-900 space-y-2">
         <div className="flex items-center gap-2 font-bold">
           <AlertTriangle className="w-4 h-4 text-amber-600" />
@@ -209,6 +218,7 @@ export default function Exports({ user }) {
           <li><strong>VSE/VSF</strong> theo quy tắc mã đầu 1, trừ khi danh mục Products có ghi sẵn cột <code>requirements_type</code> — 6 mã Lõi/Màng đầu 2 của XK cần điền VSE ở đó.</li>
         </ul>
       </div>
+      )}
 
     </div>
   );

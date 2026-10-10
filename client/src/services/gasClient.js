@@ -201,11 +201,11 @@ export async function callGAS(action, payload = {}) {
   }
   if (lastFailure.transportError === 'timeout' || lastFailure.transportError === 'status') {
     throw new ApiError(
-      `Máy chủ phản hồi quá chậm (có thể đang khởi động lại sau thời gian nghỉ). ` +
-      `Đã thử lại ${RETRY_DELAYS_MS.length} lần trong khoảng ${Math.round((ATTEMPT_TIMEOUTS_MS.reduce((a, b) => a + b, 0) + RETRY_DELAYS_MS.reduce((a, b) => a + b, 0)) / 1000)}s. Vui lòng tải lại trang.`
+      `Không kết nối được máy chủ (phản hồi quá chậm hoặc báo lỗi). ` +
+      `Đã thử lại ${RETRY_DELAYS_MS.length} lần trong khoảng ${Math.round((ATTEMPT_TIMEOUTS_MS.reduce((a, b) => a + b, 0) + RETRY_DELAYS_MS.reduce((a, b) => a + b, 0)) / 1000)}s. Kiểm tra mạng rồi bấm "Thử lại" hoặc tải lại trang.`
     );
   }
-  throw new ApiError('Máy chủ trả về dữ liệu không hợp lệ. Kiểm tra lại URL và quyền truy cập của Web App.');
+  throw new ApiError('Máy chủ trả về dữ liệu không hợp lệ. Kiểm tra lại đường dẫn máy chủ rồi thử lại.');
 }
 
 function handleData_(data) {

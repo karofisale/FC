@@ -41,6 +41,31 @@ export function statusTone(status) {
   return s ? s.tone : TONE_LA;
 }
 
+/**
+ * TÊN MÀN HÌNH — một nơi cho menu, tiêu đề trang và tooltip (Rà soát 4 app, Đợt 3 mục 9).
+ *
+ * "Bảng 0 / Bảng 1 / Bảng 5" là tên theo file Excel làm tay (B0.SUM, B1.SUM, B5.Quy trình), người mới vào không
+ * đoán được màn nào làm gì. Đặt theo VIỆC THẬT của màn, giữ "(Bảng n)" ở phần mô tả để người quen file Excel vẫn
+ * đối chiếu được. Giữ tiếng Anh cho "Forecast" (thuật ngữ nghiệp vụ, xem quy ước ở đầu file).
+ */
+export const MAN_HINH = {
+  monthly: {
+    ten: 'Forecast 4 tháng',
+    tieuDe: 'FORECAST 4 THÁNG',
+    mota: 'Lập số lượng forecast từng SKU cho 4 tháng của chu kỳ (Bảng 0 — tương ứng B0.SUM trong file Excel).'
+  },
+  weekly: {
+    ten: 'Chia tuần & miền',
+    tieuDe: 'CHIA FORECAST THEO TUẦN & MIỀN',
+    mota: 'Chia số của tháng đầu chu kỳ ra từng tuần × từng miền (Bảng 1 — tương ứng B1.SUM trong file Excel); tổng tuần/miền phải khớp số tháng.'
+  },
+  guide: {
+    ten: 'Lịch & quy trình lập FC',
+    tieuDe: 'LỊCH & QUY TRÌNH LẬP SALES FORECAST',
+    mota: 'Các bước, ngày chốt và bộ phận phụ trách trong quy trình lập — thẩm định — chốt Sales Forecast (Bảng 5 / B5 trong file Excel).'
+  }
+};
+
 // Loại bản kế hoạch năm.
 export const NHAN_LOAI_KE_HOACH = { base: 'Bản gốc', adjust: 'Điều chỉnh', final: 'Final' };
 

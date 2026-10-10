@@ -4,12 +4,11 @@ import Sidebar from './components/Sidebar';
 import ErrorBoundary from './components/ErrorBoundary';
 import DialogHost from './components/DialogHost';
 import ToastHost from './components/ToastHost';
+import ReloginDialog from './components/ReloginDialog';
+import { useChoDuyetNam } from './components/annual/HopChoDuyet';
 import Login from './pages/Login';
-// Tải lười — kéo theo recharts và các thư viện d3 đi kèm (~377KB build,
-// 108KB gzip), chiếm hơn nửa gói JS ban đầu chỉ để vẽ 2 biểu đồ của đúng
-// màn này. Đây là tab mặc định nên có hàm làm ấm ở dưới, tải sẵn ngay sau
-// khi app mount để chunk về song song với lượt gọi API mà màn này vốn đã
-// phải chờ — người dùng không thấy chậm thêm.
+// Tải lười: màn Tổng quan là tab mặc định nên được kéo sẵn lúc trình duyệt rảnh (hàm làm ấm bên dưới). Riêng thư viện biểu đồ
+// (recharts, ~108KB gzip) KHÔNG nằm trong chunk này nữa — nó chỉ tải khi người dùng mở phần "Biểu đồ" (Đợt 3 mục 7).
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 import MonthlyForecast from './pages/MonthlyForecast';
 import WeeklyForecast from './pages/WeeklyForecast';
@@ -27,8 +26,9 @@ import { getSession, clearSession, logout, allowedBUs } from './services/auth';
 import { onUnauthorized, onRetry } from './services/gasClient';
 import { confirmNavigateAway, confirmLeaveApp, isDirty } from './services/dirtyState';
 import { loadPref, savePref } from './services/prefs';
+import { thongBao } from './services/toastService';
 import { VALID_TABS } from './utils/menu';
-import { AlertCircle, LogIn } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 
 // Đồng bộ tab đang xem với #hash trên URL — không kéo theo thư viện
 // router nào (8 tài khoản nội bộ không cần route lồng nhau/URL param),
@@ -55,24 +55,27 @@ export default function App() {
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [expiredNotice, setExpiredNotice] = useState(null);
   const [retryNotice, setRetryNotice] = useState(null);
+  const [menuMo, setMenuMo] = useState(false);          // ngăn kéo menu trên điện thoại
+  const [hetPhien, setHetPhien] = useState(null);       // { thongBao } khi phiên hết hạn LÚC ĐANG DÙNG: hộp đăng nhập lại đè lên trang
 
   const user = session?.user || null;
+  const laNguoiDuyet = user?.role === 'bu_approver' || user?.role === 'central_admin';
+  // Kế hoạch năm chờ duyệt (mọi đơn vị × năm người này duyệt được) — cho badge menu, hộp "Chờ duyệt" và màn Phê duyệt.
+  // Gom ở đây một lần rồi chuyền xuống; chỉ người duyệt mới gọi.
+  const choDuyetNam = useChoDuyetNam(!!session && laNguoiDuyet);
 
-  // Server báo token hết hạn ở bất kỳ request nào -> đưa về màn đăng nhập
+  // Server báo token hết hạn ở bất kỳ request nào. KHÔNG gỡ về màn Login nữa (mất sạch số đang nhập): xoá token, giữ nguyên
+  // session/state của các trang và hiện hộp đăng nhập lại đè lên (Đợt 3 mục 1). Chưa đăng nhập (đang ở màn Login) thì bỏ qua.
   useEffect(() => onUnauthorized((err) => {
     clearSession();
     clearBootstrapCache();
-    setSession(null);
-    setExpiredNotice(err.message || 'Phiên đăng nhập đã hết hạn.');
+    setHetPhien({ thongBao: err.message || 'Phiên đăng nhập đã hết hạn.' });
   }), []);
 
-  // Apps Script cold-start: lần gọi đầu sau khi "ngủ" hoặc sau deploy có
-  // thể chậm và bị hạ tầng Google trả lỗi tạm thời — gasClient tự thử
-  // lại, ở đây chỉ hiện cho người dùng biết đang thử lại, không phải treo máy.
+  // Mạng chập chờn / máy chủ chưa trả lời: gasClient tự thử lại, ở đây chỉ cho người dùng biết đang thử lại, không phải treo máy.
   useEffect(() => onRetry(() => {
-    setRetryNotice('Máy chủ đang khởi động lại, đang thử kết nối lại...');
+    setRetryNotice('Không kết nối được máy chủ — đang thử lại...');
   }), []);
 
   // Đóng tab/tải lại trong lúc còn ô chưa lưu — trình duyệt tự hỏi xác
@@ -94,9 +97,9 @@ export default function App() {
   }, [loading]);
 
   // Làm ấm chunk Dashboard lúc trình duyệt rảnh. Dashboard là tab mặc định
-  // nhưng được tải lười để recharts không nằm trong gói JS ban đầu; kéo sẵn
-  // ở đây để chunk về song song với lượt gọi API mà màn này vốn phải chờ,
-  // thay vì chỉ bắt đầu tải khi người dùng đã nhìn thấy màn trống.
+  // nhưng được tải lười; kéo sẵn ở đây để chunk về song song với lượt gọi API
+  // mà màn này vốn phải chờ, thay vì chỉ bắt đầu tải khi người dùng đã nhìn
+  // thấy màn trống. (Chunk này nhỏ: thư viện biểu đồ nằm riêng, tải khi mở phần Biểu đồ.)
   useEffect(() => {
     const warm = () => { import('./pages/Dashboard'); };
     if (typeof window.requestIdleCallback === 'function') {
@@ -169,8 +172,18 @@ export default function App() {
 
   const handleLoginSuccess = () => {
     clearBootstrapCache();
-    setExpiredNotice(null);
+    setHetPhien(null);      // một lượt đăng nhập sai ở màn Login cũng có thể báo UNAUTHORIZED: đừng để nó hiện thành hộp "hết phiên" ngay sau khi vào
     setSession(getSession());
+  };
+
+  // Đăng nhập lại từ hộp "hết phiên". Cùng người: giữ NGUYÊN session + state các trang (không nạp lại), chỉ token mới đã được
+  // auth.js lưu. Người khác: dữ liệu đang hiện thuộc quyền người cũ nên nạp lại từ đầu (đổi session -> loadInitialData chạy lại).
+  const handleReloginSuccess = (u) => {
+    clearBootstrapCache();
+    setHetPhien(null);
+    if (!u || u.id !== session?.user?.id) setSession(getSession());
+    else thongBao({ type: 'success', text: 'Đã đăng nhập lại. Số đang nhập vẫn còn — thao tác vừa rồi (nếu có) hãy bấm lại và kiểm tra kết quả.' });
+    choDuyetNam.nap();
   };
 
   const handleLogout = async () => {
@@ -181,19 +194,23 @@ export default function App() {
     // Đang rời trang thì đừng setState: React sẽ vẽ lại màn đăng nhập của FC
     // nhấp nháy một cái trước khi trình duyệt kịp chuyển sang cổng.
     if (dangVeCong) return;
+    setHetPhien(null);
     setSession(null);
     setActiveTab('dashboard');
   };
 
+  // Mở màn Kế hoạch năm ở đúng đơn vị × năm đang chờ duyệt (từ màn Phê duyệt). Năm nhớ qua prefs: AnnualPlan đọc lúc dựng.
+  const moKeHoachNam = async (x) => {
+    if (!(await confirmNavigateAway('Mở kế hoạch năm'))) return;
+    savePref('annualYear', x.nam);
+    if (x.bu !== currentBU) setCurrentBU(x.bu);
+    setActiveTab('annual');
+  };
+  const soKhNamChoDuyet = choDuyetNam.items.length;
+
   if (!session) {
     return (
       <>
-        {expiredNotice && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-amber-50 border border-amber-300 text-amber-900 text-xs rounded-lg px-4 py-2.5 shadow-lg flex items-center gap-2 font-sans">
-            <LogIn className="w-4 h-4 text-amber-600" />
-            {expiredNotice}
-          </div>
-        )}
         <Login onSuccess={handleLoginSuccess} />
         <DialogHost />
         <ToastHost />
@@ -210,17 +227,28 @@ export default function App() {
         setCurrentBU={async (bu) => { if (await confirmNavigateAway('Đổi đơn vị')) setCurrentBU(bu); }}
         bus={bus}
         onLogout={handleLogout}
+        onOpenMenu={() => setMenuMo(true)}
+        menuOpen={menuMo}
       />
 
       <div className="flex-1 flex max-w-[1600px] w-full mx-auto">
         <Sidebar
           activeTab={activeTab}
           setActiveTab={async (tab) => { if (await confirmNavigateAway()) setActiveTab(tab); }}
-          pendingCount={pendingApprovalsCount}
+          badges={{
+            // Phê duyệt đếm cả kế hoạch THÁNG chờ duyệt lẫn kế hoạch NĂM chờ duyệt; mục Kế hoạch năm đếm riêng phần của nó.
+            approvals: {
+              n: pendingApprovalsCount + soKhNamChoDuyet,
+              title: `${pendingApprovalsCount} forecast chờ duyệt${soKhNamChoDuyet ? ` · ${soKhNamChoDuyet} kế hoạch năm chờ duyệt` : ''}`
+            },
+            annual: { n: soKhNamChoDuyet, title: `${soKhNamChoDuyet} kế hoạch năm chờ duyệt` }
+          }}
           role={user?.role}
+          open={menuMo}
+          onClose={() => setMenuMo(false)}
         />
 
-        <main className="flex-1 p-6 overflow-y-auto">
+        <main className="flex-1 min-w-0 p-3 sm:p-4 md:p-6 overflow-y-auto">
           {loading ? (
             <div className="flex flex-col items-center justify-center h-64 text-slate-500 text-sm gap-2">
               <span>Đang tải dữ liệu hệ thống...</span>
@@ -256,12 +284,18 @@ export default function App() {
               {activeTab === 'monthly' && <MonthlyForecast currentBU={currentBU} user={user} />}
               {activeTab === 'weekly' && <WeeklyForecast currentBU={currentBU} user={user} />}
               {activeTab === 'approvals' && (
-                <Approvals currentBU={currentBU} user={user} onCountChange={setPendingApprovalsCount} />
+                <Approvals
+                  currentBU={currentBU} user={user} onCountChange={setPendingApprovalsCount}
+                  keHoachNamChoDuyet={choDuyetNam.items} onMoKeHoachNam={moKeHoachNam}
+                />
               )}
               {activeTab === 'actuals' && <Actuals currentBU={currentBU} user={user} />}
               {activeTab === 'annual' && (
                 <React.Suspense fallback={<div className="text-xs text-slate-500 p-4">Đang tải...</div>}>
-                  <AnnualPlan currentBU={currentBU} user={user} />
+                  <AnnualPlan
+                    currentBU={currentBU} user={user}
+                    choDuyetNam={choDuyetNam} onChonDonVi={setCurrentBU}
+                  />
                 </React.Suspense>
               )}
               {activeTab === 'exports' && (
@@ -276,6 +310,14 @@ export default function App() {
         </main>
       </div>
 
+      {hetPhien && (
+        <ReloginDialog
+          userId={user?.id || ''}
+          thongBao={hetPhien.thongBao}
+          onSuccess={handleReloginSuccess}
+          onLogout={handleLogout}
+        />
+      )}
       <DialogHost />
       <ToastHost />
     </div>

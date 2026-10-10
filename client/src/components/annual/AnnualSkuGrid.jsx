@@ -36,7 +36,7 @@ export default function AnnualSkuGrid({
   const oTong = (q, m, suaDuoc, onCommit, tieuDe, tt, onFix, tipFix) => (
     <td key={m} className="px-0.5 py-0.5 w-20 min-w-20">
       <div className="relative">
-        <CellInput value={q} disabled={!suaDuoc} title={tieuDe} onCommit={onCommit} highlight={tt === 'het'} />
+        <CellInput cot={m} value={q} disabled={!suaDuoc} title={tieuDe} onCommit={onCommit} highlight={tt === 'het'} />
         {editable && onFix && <NutFix trangThai={tt} onClick={onFix} title={tipFix} />}
       </div>
     </td>

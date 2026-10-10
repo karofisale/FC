@@ -7,10 +7,13 @@ import {
 import { monthLabel, vnPrevMonth } from '../utils/period';
 import { setDirty, confirmNavigateAway } from '../services/dirtyState';
 import { thongBao } from '../services/toastService';
+import { appConfirm } from '../services/dialogService';
 import { usePersistedState } from '../utils/usePersistedState';
 import { useTableSort } from '../utils/useTableSort';
 import { roleLabel } from '../utils/glossary';
 import { SortTh, StateRow } from '../components/TableStates';
+import { useGridEditing, parsePastedNumber, CHAN_LAN_CHUOT } from '../utils/useGridEditing';
+import { timXungDot, gopSo } from '../utils/actualsMerge';
 import CaoSapPanel from '../components/CaoSapPanel';
 
 const ImportActualsModal = React.lazy(() => import('../components/ImportActualsModal'));
@@ -33,6 +36,9 @@ const COT_SO_SANH = {
 };
 const maSku = (p) => p.sku_code;
 const maSoSanh = (r) => r.sku_code;
+// Lưới chỉ có MỘT cột nhập (Tổng) — dùng chung bộ phím mũi tên / dán Excel của Bảng 0 (utils/useGridEditing.js).
+const COT_NHAP = ['tong'];
+const maOSku = (sku) => sku;
 
 export default function Actuals({ currentBU, user }) {
   // Tháng mặc định = tháng TRƯỚC theo giờ VN; nhớ tháng người dùng chọn lần trước (Đợt 2 mục 9, 10).
@@ -45,6 +51,10 @@ export default function Actuals({ currentBU, user }) {
   const [actualsMap, setActualsMap] = useState({});
   const [dirtyKeys, setDirtyKeys] = useState(() => new Set());
   const [search, setSearch] = useState('');
+  // Số đang gõ dở + số server trả lần tải trước: để khi cào SAP / nhập ZSD450 xong thì HỢP NHẤT thay vì xoá ô đang sửa (loadGrid(true)).
+  const dangSua = useRef({ dirty: new Set(), map: {} });
+  const gocServer = useRef({});
+  useEffect(() => { dangSua.current = { dirty: dirtyKeys, map: actualsMap }; }, [dirtyKeys, actualsMap]);
 
   // Chặn đổi tab/đổi đơn vị làm mất ô chưa lưu mà không hỏi lại
   useEffect(() => {
@@ -70,8 +80,10 @@ export default function Actuals({ currentBU, user }) {
    * getFcVsActual. Bốn lượt này trước đây chạy ở hai effect riêng, tưởng là
    * song song nhưng Apps Script xử lý tuần tự nên chúng vẫn cộng dồn.
    */
-  const loadGrid = useCallback(async () => {
-    setLoading(true);
+  const loadGrid = useCallback(async (giuODangSua = false) => {
+    // giuODangSua: tải lại sau khi SAP / file ZSD450 vừa ghi số — không được xoá các ô người dùng đang sửa dở (bảng giữ nguyên, không nháy "Đang tải").
+    const giu = giuODangSua === true;
+    if (!giu) setLoading(true);
     setComparisonLoading(true);
     setLoiTai(null);
     try {
@@ -85,8 +97,30 @@ export default function Actuals({ currentBU, user }) {
 
       // May chu da cong san tong cua moi mien theo tung ma — luoi chi co mot
       // cot nen khong can biet so nam o mien nao.
-      setActualsMap({ ...(ws.totals || {}) });
-      setDirtyKeys(new Set());
+      const totals = { ...(ws.totals || {}) };
+      const { dirty, map } = dangSua.current;
+      if (giu && dirty.size > 0) {
+        // Hợp nhất (utils/actualsMerge.js): ô đang sửa dở được GIỮ; chỉ ô mà server vừa có số KHÁC mới là xung đột -> hỏi.
+        // Esc / "Giữ số tôi đang gõ" = giữ số của người dùng (an toàn hơn: không mất công gõ).
+        const xungDot = timXungDot({ totals, goc: gocServer.current, dirty, map });
+        let layTuServer = false;
+        if (xungDot.length) {
+          layTuServer = await appConfirm(
+            `SAP / file ZSD450 vừa ghi số mới cho ${xungDot.length} ô bạn đang sửa dở (vd ${xungDot.slice(0, 3).join(', ')}${xungDot.length > 3 ? '…' : ''}).\n\n`
+            + 'Giữ số bạn đang gõ (bấm Lưu thì ghi đè số SAP) hay lấy số mới từ SAP cho các ô đó?',
+            { title: 'Số đang sửa và số vừa nhập khác nhau', okLabel: 'Lấy số mới từ SAP', cancelLabel: 'Giữ số tôi đang gõ', danger: true }
+          );
+        }
+        const kq = gopSo({ totals, dirty, map, xungDot, layTuServer });
+        gocServer.current = totals;
+        setActualsMap(kq.map);
+        setDirtyKeys(kq.dirty);
+        if (kq.dirty.size) thongBao({ type: 'success', text: `Đã cập nhật số từ SAP. ${kq.dirty.size} ô bạn đang sửa dở được giữ nguyên (chưa lưu).` });
+      } else {
+        gocServer.current = totals;
+        setActualsMap(totals);
+        setDirtyKeys(new Set());
+      }
       setComparison(ws.comparison || null);
     } catch (err) {
       // Lỗi tải: bảng hiện lỗi + "Thử lại" (không kẹt "Đang tải…", không im lặng thành bảng rỗng).
@@ -124,6 +158,20 @@ export default function Actuals({ currentBU, user }) {
     setDirtyKeys((prev) => new Set(prev).add(skuCode));
   };
 
+  /** Áp nhiều ô cùng lúc (dán khối từ Excel, Ctrl+D) trong 1 lần cập nhật — cùng hợp đồng với Bảng 0. */
+  const handleCellsChange = (updates) => {
+    setActualsMap((prev) => {
+      const next = { ...prev };
+      updates.forEach(({ rowKey, value }) => { next[rowKey] = parsePastedNumber(value); });
+      return next;
+    });
+    setDirtyKeys((prev) => {
+      const next = new Set(prev);
+      updates.forEach(({ rowKey }) => next.add(rowKey));
+      return next;
+    });
+  };
+
   const handleSave = async () => {
     if (dirtyKeys.size === 0) {
       setMessage({ type: 'success', text: 'Không có thay đổi nào để lưu.' });
@@ -151,6 +199,8 @@ export default function Actuals({ currentBU, user }) {
         });
       });
       const res = await api.saveActuals(rows);
+      // Số vừa lưu là số server đang có: cập nhật mốc so sánh để lần hợp nhất sau không coi nó là "server vừa đổi".
+      [...dirtyKeys].forEach((sku) => { gocServer.current[sku] = actualsMap[sku] || 0; });
       setDirtyKeys(new Set());
       setMessage({ type: 'success', text: res.message });
       loadComparison();
@@ -191,6 +241,17 @@ export default function Actuals({ currentBU, user }) {
   const virtualRows = rowVirtualizer.getVirtualItems();
   const topPad = virtualRows.length ? virtualRows[0].start : 0;
   const bottomPad = virtualRows.length ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
+
+  // Phím mũi tên / Enter / Ctrl+D / dán nhiều dòng từ Excel — lưới đọc đúng thứ tự đang hiển thị (sapXep).
+  const grid = useGridEditing({
+    columns: COT_NHAP,
+    rows: sapXep,
+    getRowKey: maSku,
+    buildCellId: maOSku,
+    getCellValue: (sku) => actualsMap[sku] || 0,
+    onCellsChange: handleCellsChange,
+    scrollToRow: (idx) => rowVirtualizer.scrollToIndex(idx, { align: 'auto' })
+  });
 
   return (
     <div className="space-y-4">
@@ -365,7 +426,7 @@ export default function Actuals({ currentBU, user }) {
         businessUnitCode={currentBU}
         month={month}
         isEditor={isEditor}
-        onImported={loadGrid}
+        onImported={() => loadGrid(true)}
       />
 
       {/* Lưới nhập sản lượng thực hiện */}
@@ -398,7 +459,7 @@ export default function Actuals({ currentBU, user }) {
               {loading ? (
                 <StateRow colSpan={3} kind="loading" />
               ) : loiTai ? (
-                <StateRow colSpan={3} kind="error" text={loiTai} onRetry={loadGrid} />
+                <StateRow colSpan={3} kind="error" text={loiTai} onRetry={() => loadGrid()} />
               ) : filteredProducts.length === 0 ? (
                 <StateRow colSpan={3} kind="empty" text="Không tìm thấy SKU phù hợp" />
               ) : (
@@ -412,12 +473,16 @@ export default function Actuals({ currentBU, user }) {
                         <td className="py-2 px-3 border-r border-slate-200 font-sans font-medium text-slate-900 truncate max-w-xs">{p.name}</td>
                         <td className="p-1 text-right">
                           <input
+                            ref={grid.registerRef(p.sku_code)}
                             type="number"
                             min="0"
                             step="1"
                             disabled={!isEditor}
                             value={actualsMap[p.sku_code] ?? 0}
+                            {...CHAN_LAN_CHUOT}
                             onChange={(e) => handleCellChange(p.sku_code, e.target.value)}
+                            onKeyDown={(e) => { if (isEditor && e.key !== 'Tab') grid.handleKeyDown(e, vRow.index, 0); }}
+                            onPaste={(e) => isEditor && grid.handlePaste(e, vRow.index, 0)}
                             className={`w-full text-right px-2 py-1 rounded font-semibold outline-none transition disabled:text-slate-500 disabled:cursor-not-allowed ${
                               dirtyKeys.has(p.sku_code)
                                 ? 'bg-amber-50 ring-1 ring-amber-300 text-amber-900'
@@ -460,7 +525,7 @@ export default function Actuals({ currentBU, user }) {
             regionCode={regionCode}
             knownSkus={knownSkus}
             onClose={() => setShowImport(false)}
-            onImported={loadGrid}
+            onImported={() => loadGrid(true)}
           />
         </React.Suspense>
       )}

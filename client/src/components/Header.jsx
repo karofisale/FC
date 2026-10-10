@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Building2, ShieldCheck, LogOut, KeyRound, X, Loader2, CheckCircle2, AlertCircle, ArrowLeft, ChevronDown } from 'lucide-react';
+import { Building2, ShieldCheck, LogOut, KeyRound, X, Loader2, CheckCircle2, AlertCircle, ArrowLeft, ChevronDown, Menu } from 'lucide-react';
 import { api } from '../services/api';
 import { ROLE_LABELS } from '../services/auth';
 import KarofiMark from './KarofiMark';
@@ -20,17 +20,28 @@ const roiSangApp = (hanhDong, href) => (e) => {
   confirmLeaveApp(hanhDong).then((ok) => { if (ok) window.location.href = href; });
 };
 
-export default function Header({ user, currentBU, setCurrentBU, bus, onLogout }) {
+export default function Header({ user, currentBU, setCurrentBU, bus, onLogout, onOpenMenu, menuOpen = false }) {
   const [showPinDialog, setShowPinDialog] = useState(false);
   // Đọc một lần khi dựng: khối quyền nằm trong token, không đổi giữa các lần vẽ.
   const [appKhac] = useState(() => appKhacDungDuoc('FC'));
 
   return (
     <header className="bg-gradient-to-r from-blue-900 via-blue-800 to-blue-950 text-white shadow-md border-b border-blue-700 sticky top-0 z-30">
-      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-between gap-4">
+      <div className="max-w-[1600px] mx-auto px-3 sm:px-6 lg:px-8 py-2 flex items-center justify-between gap-2 sm:gap-4">
 
         {/* Logo & Title — 1 dòng duy nhất */}
-        <div className="flex items-center space-x-3 min-w-0">
+        <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
+          {/* Điện thoại: nút ☰ mở ngăn kéo menu (cột menu cố định chỉ hiện từ 768px) */}
+          <button
+            type="button"
+            onClick={onOpenMenu}
+            aria-label="Mở menu"
+            aria-controls="menu-chinh"
+            aria-expanded={menuOpen}
+            className="md:hidden flex-shrink-0 p-2 -ml-1 rounded-lg border border-blue-600/40 text-blue-100 hover:text-white hover:bg-blue-800/60"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
           {/* Đường về cổng. Cần thiết vì khi chạy như ứng dụng đã cài, cửa sổ
               không có nút back của trình duyệt. */}
           <a
@@ -59,22 +70,23 @@ export default function Header({ user, currentBU, setCurrentBU, bus, onLogout })
           <div className="w-8 h-8 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-inner flex-shrink-0">
             <KarofiMark className="w-5 h-5 text-blue-300" />
           </div>
-          <h1 className="text-base font-bold tracking-tight text-white whitespace-nowrap truncate">
+          <h1 className="hidden sm:block text-base font-bold tracking-tight text-white whitespace-nowrap truncate">
             Karofi FC <span className="font-normal text-blue-200">- SOP Plan</span>
           </h1>
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
 
           {/* Chọn đơn vị — chỉ hiện những đơn vị người dùng được phép */}
           {bus.length > 1 ? (
-            <div className="flex items-center bg-blue-950/40 border border-blue-600/40 rounded-lg px-3 py-1.5 shadow-inner">
-              <Building2 className="w-4 h-4 text-blue-400 mr-2" />
-              <span className="text-xs text-blue-200 mr-2">Đơn vị:</span>
+            <div className="flex items-center min-w-0 bg-blue-950/40 border border-blue-600/40 rounded-lg px-2 sm:px-3 py-1.5 shadow-inner">
+              <Building2 className="w-4 h-4 text-blue-400 mr-1.5 sm:mr-2 flex-shrink-0" />
+              <span className="hidden sm:inline text-xs text-blue-200 mr-2">Đơn vị:</span>
               <select
                 value={currentBU}
                 onChange={(e) => setCurrentBU(e.target.value)}
-                className="bg-transparent text-sm font-semibold text-white outline-none cursor-pointer pr-2"
+                aria-label="Đơn vị"
+                className="bg-transparent text-sm font-semibold text-white outline-none cursor-pointer pr-2 min-w-0 max-w-[7.5rem] sm:max-w-none"
               >
                 {bus.map((b) => (
                   <option key={b.code} value={b.code} className="bg-slate-900 text-white">
@@ -118,10 +130,11 @@ function UserMenu({ user, onOpenPin, onLogout }) {
     <div className="relative" ref={boxRef}>
       <button
         onClick={() => setOpen((o) => !o)}
+        aria-label={'Tài khoản: ' + (user?.full_name || '')}
         className="flex items-center gap-2 bg-blue-950/40 border border-blue-600/40 rounded-lg pl-3 pr-2 py-1.5 shadow-inner hover:bg-blue-800/60 transition"
       >
         <ShieldCheck className="w-4 h-4 text-emerald-400" />
-        <div className="leading-tight text-left">
+        <div className="leading-tight text-left hidden sm:block">
           <div className="text-sm font-semibold text-white">{user?.full_name}</div>
           <div className="text-[10px] text-blue-200">{ROLE_LABELS[user?.role] || user?.role}</div>
         </div>

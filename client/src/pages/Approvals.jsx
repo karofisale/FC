@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../services/api';
 import StatusBadge from '../components/StatusBadge';
-import { monthLabel } from '../utils/period';
+import HopChoDuyet from '../components/annual/HopChoDuyet';
+import { monthLabelFull } from '../utils/period';
 import { appConfirm } from '../services/dialogService';
 import { thongBao } from '../services/toastService';
 import { useTableSort } from '../utils/useTableSort';
@@ -23,10 +24,18 @@ const COT_DANH_SACH = {
   trangThai: { type: 'text', get: (a) => a.status }
 };
 
-export default function Approvals({ currentBU, user, onCountChange }) {
+/**
+ * Màn Phê duyệt. Danh sách tách làm HAI nhóm rõ ràng (Rà soát 4 app, Đợt 3 mục 5): "Chờ duyệt" (việc cần làm) và "Lịch sử"
+ * (đã duyệt / từ chối / bị thay thế) — trước đây trộn chung một danh sách nên đơn chờ chìm giữa các đơn cũ.
+ * `keHoachNamChoDuyet` + `onMoKeHoachNam`: kế hoạch năm chờ duyệt (App gom từ API sẵn có) — duyệt ở màn Kế hoạch năm nên chỉ liệt kê và dẫn sang.
+ */
+export default function Approvals({ currentBU, user, onCountChange, keHoachNamChoDuyet = [], onMoKeHoachNam }) {
   const [approvals, setApprovals] = useState([]);
-  const [selectedApproval, setSelectedApproval] = useState(null);
+  const [tab, setTab] = useState('cho');                 // 'cho' | 'lichSu'
+  const [selectedId, setSelectedId] = useState('');
   const [comment, setComment] = useState('');
+  const [loiYKien, setLoiYKien] = useState('');          // từ chối mà chưa ghi lý do
+  const oYKien = useRef(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [loiTai, setLoiTai] = useState(null);
@@ -50,7 +59,6 @@ export default function Approvals({ currentBU, user, onCountChange }) {
       const list = ws.approvals || [];
       setApprovals(list);
       const chosen = list[0] || null;
-      setSelectedApproval((prev) => list.find((a) => a.id === prev?.id) || chosen);
       onCountChange?.(list.filter((a) => a.status === 'pending').length);
       // Chỉ dùng được khi mục đang chọn đúng là mục backend đã tính sẵn
       if (ws.summary && chosen) setPreloadedSummary({ versionId: chosen.version_id, data: ws.summary });
@@ -66,6 +74,26 @@ export default function Approvals({ currentBU, user, onCountChange }) {
   useEffect(() => {
     if (currentBU) loadApprovals();
   }, [currentBU, loadApprovals]);
+
+  // Hai nhóm: việc cần làm (pending) và lịch sử (mọi trạng thái khác). Mục đang xem luôn thuộc nhóm đang mở:
+  // đổi nhóm / tải lại mà mục cũ không còn trong nhóm thì chọn mục đầu của nhóm.
+  const dsCho = approvals.filter((a) => a.status === 'pending');
+  const dsLichSu = approvals.filter((a) => a.status !== 'pending');
+  const dsHienTai = tab === 'cho' ? dsCho : dsLichSu;
+  const selectedApproval = dsHienTai.find((a) => a.id === selectedId) || dsHienTai[0] || null;
+
+  const chonYeuCau = (app) => {
+    // Ý kiến đang gõ thuộc về yêu cầu đang xem — đổi yêu cầu thì bỏ, kẻo gửi nhầm lý do của đơn này cho đơn khác.
+    if (app.id !== selectedApproval?.id) { setComment(''); setLoiYKien(''); }
+    setSelectedId(app.id);
+  };
+  const doiTab = (t) => {
+    if (t === tab) return;
+    setTab(t);
+    setSelectedId('');
+    setComment('');
+    setLoiYKien('');
+  };
 
   // Tải số liệu tổng hợp của version đang xem, để người duyệt thấy số
   // thật thay vì chỉ thấy tên đơn vị và tuần cập nhật.
@@ -95,6 +123,13 @@ export default function Approvals({ currentBU, user, onCountChange }) {
   const handleDecision = async (decision) => {
     if (!selectedApproval) return;
     const duyet = decision === 'approved';
+    const ly = comment.trim();
+    // Từ chối PHẢI có lý do (như Kế hoạch năm): đơn vị cần biết sửa gì — không để một lần từ chối trống trơn.
+    if (!duyet && !ly) {
+      setLoiYKien('Ghi lý do từ chối để đơn vị biết cần sửa gì.');
+      oYKien.current?.focus();
+      return;
+    }
     if (!(await appConfirm(
       duyet ? 'Duyệt kế hoạch này? Không thể hoàn tác sau khi duyệt.' : 'Từ chối kế hoạch này? Đơn vị sẽ phải sửa và gửi lại.',
       duyet
@@ -103,8 +138,9 @@ export default function Approvals({ currentBU, user, onCountChange }) {
     ))) return;
     setProcessing(true);
     try {
-      await api.decideApproval(selectedApproval.id, decision, comment);
+      await api.decideApproval(selectedApproval.id, decision, ly);
       setComment('');
+      setLoiYKien('');
       await loadApprovals();
       thongBao({ type: 'success', text: duyet ? 'Đã duyệt kế hoạch.' : 'Đã từ chối kế hoạch.' });
     } catch (err) {
@@ -115,7 +151,7 @@ export default function Approvals({ currentBU, user, onCountChange }) {
   };
 
   // Sắp xếp danh sách yêu cầu (theo đơn vị / chu kỳ / ngày gửi / trạng thái) và bảng số liệu theo nhóm hàng.
-  const { rows: dsXep, spec: sortDs, toggle: doiSapXepDs } = useTableSort(approvals, COT_DANH_SACH, maYeuCau);
+  const { rows: dsXep, spec: sortDs, toggle: doiSapXepDs } = useTableSort(dsHienTai, COT_DANH_SACH, maYeuCau);
   const cotNhom = {
     nhom: { type: 'text', get: (g) => g.product_group_name },
     tong: { type: 'number', get: (g) => g.total }
@@ -139,16 +175,32 @@ export default function Approvals({ currentBU, user, onCountChange }) {
         </div>
       </div>
 
+      {/* Kế hoạch NĂM đang chờ duyệt: duyệt ở màn Kế hoạch năm, ở đây chỉ liệt kê và dẫn sang đúng đơn vị × năm */}
+      {canApprove && keHoachNamChoDuyet.length > 0 && onMoKeHoachNam && (
+        <HopChoDuyet items={keHoachNamChoDuyet} onMo={onMoKeHoachNam} />
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
+
         {/* Left Column: Approval List */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-xs uppercase text-slate-700">
-            DANH SÁCH YÊU CẦU DUYỆT ({approvals.length})
+          <div role="tablist" aria-label="Nhóm yêu cầu duyệt" className="flex border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase">
+            {[['cho', 'Chờ duyệt', dsCho.length], ['lichSu', 'Lịch sử', dsLichSu.length]].map(([k, t, n]) => (
+              <button
+                key={k}
+                type="button"
+                role="tab"
+                aria-selected={tab === k}
+                onClick={() => doiTab(k)}
+                className={`flex-1 px-3 py-3 border-b-2 ${tab === k ? 'border-blue-600 text-blue-800 bg-white' : 'border-transparent text-slate-600 hover:bg-slate-100'}`}
+              >
+                {t} ({n})
+              </button>
+            ))}
           </div>
 
           {/* Sắp xếp danh sách: bấm lần 1 tăng, lần 2 giảm, lần 3 về thứ tự gốc */}
-          {approvals.length > 1 && (
+          {dsHienTai.length > 1 && (
             <div className="flex flex-wrap items-center gap-1 px-3 py-2 border-b border-slate-200 text-[11px] text-slate-600">
               <span className="mr-1">Sắp xếp:</span>
               {[['donVi', 'Đơn vị'], ['chuKy', 'Chu kỳ'], ['ngayGui', 'Ngày gửi'], ['trangThai', 'Trạng thái']].map(([k, t]) => (
@@ -170,24 +222,30 @@ export default function Approvals({ currentBU, user, onCountChange }) {
               <StateBlock kind="loading" text="Đang tải danh sách yêu cầu..." />
             ) : loiTai ? (
               <StateBlock kind="error" text={loiTai} onRetry={loadApprovals} />
-            ) : approvals.length === 0 ? (
-              <StateBlock kind="empty" text="Chưa có yêu cầu phê duyệt nào" />
+            ) : dsHienTai.length === 0 ? (
+              <StateBlock
+                kind="empty"
+                text={tab === 'cho'
+                  ? (dsLichSu.length ? 'Không có yêu cầu nào đang chờ duyệt. Xem tab Lịch sử để tra các lần duyệt trước.' : 'Chưa có yêu cầu phê duyệt nào')
+                  : 'Chưa có yêu cầu nào đã được xử lý'}
+              />
             ) : (
               dsXep.map(app => {
                 const isSelected = selectedApproval && selectedApproval.id === app.id;
                 return (
                   <div
                     key={app.id}
-                    onClick={() => setSelectedApproval(app)}
+                    onClick={() => chonYeuCau(app)}
                     className={`p-4 cursor-pointer transition ${isSelected ? 'bg-blue-50/80 border-l-4 border-blue-600' : 'hover:bg-slate-50'}`}
                   >
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center justify-between gap-2 mb-1">
                       <span className="font-bold text-slate-900 text-sm">{app.business_unit_code} - {app.business_unit_name}</span>
                       <StatusBadge status={app.status} />
                     </div>
-                    <p className="text-xs text-slate-600">Chu kỳ: {monthLabel(app.base_month)} | Tuần {app.update_week}</p>
+                    <p className="text-xs text-slate-600">Chu kỳ: {monthLabelFull(app.base_month)} | Tuần {app.update_week}</p>
                     <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> {ngayGioVN(app.requested_at)}
+                      <Clock className="w-3 h-3" /> Gửi {ngayGioVN(app.requested_at)}
+                      {app.decided_at ? ` · xử lý ${ngayGioVN(app.decided_at)}` : ''}
                     </p>
                   </div>
                 );
@@ -207,7 +265,7 @@ export default function Approvals({ currentBU, user, onCountChange }) {
                     Kế hoạch Forecast: {selectedApproval.business_unit_name} ({selectedApproval.business_unit_code})
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Chu kỳ: <strong>{monthLabel(selectedApproval.base_month)}</strong> | Cập nhật Tuần <strong>{selectedApproval.update_week}</strong>
+                    Chu kỳ: <strong>{monthLabelFull(selectedApproval.base_month)}</strong> | Cập nhật Tuần <strong>{selectedApproval.update_week}</strong>
                   </p>
                 </div>
                 <StatusBadge status={selectedApproval.status} />
@@ -277,7 +335,7 @@ export default function Approvals({ currentBU, user, onCountChange }) {
                         <tr>
                           <SortTh label="Nhóm hàng" sortKey="nhom" spec={sortNhom} onSort={doiSapXepNhom} className="text-left font-semibold py-2 px-3" />
                           {summary.months.map((m) => (
-                            <SortTh key={m} label={monthLabel(m)} sortKey={'t:' + m} spec={sortNhom} onSort={doiSapXepNhom} className="text-right font-semibold py-2 px-3 whitespace-nowrap" />
+                            <SortTh key={m} label={monthLabelFull(m)} sortKey={'t:' + m} spec={sortNhom} onSort={doiSapXepNhom} className="text-right font-semibold py-2 px-3 whitespace-nowrap" />
                           ))}
                           <SortTh label="Tổng" sortKey="tong" spec={sortNhom} onSort={doiSapXepNhom} className="text-right font-semibold py-2 px-3" />
                         </tr>
@@ -325,15 +383,25 @@ export default function Approvals({ currentBU, user, onCountChange }) {
                     Ý KIẾN PHÊ DUYỆT CỦA CẤP THẨM ĐỊNH
                   </h4>
 
-                  <textarea
-                    rows="3"
-                    placeholder="Nhập ghi chú hoặc lý do chấp thuận / từ chối kế hoạch này..."
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                    className="w-full p-3 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-500"
-                  />
+                  <div>
+                    <label htmlFor="y-kien-duyet" className="text-[11px] font-semibold text-slate-700 block mb-1">
+                      Ý kiến thẩm định — <span className="text-rose-700">bắt buộc khi từ chối</span>
+                    </label>
+                    <textarea
+                      id="y-kien-duyet"
+                      ref={oYKien}
+                      rows="3"
+                      placeholder="Ghi chú khi duyệt, hoặc lý do từ chối để đơn vị biết cần sửa gì..."
+                      value={comment}
+                      aria-invalid={!!loiYKien}
+                      aria-describedby={loiYKien ? 'y-kien-loi' : undefined}
+                      onChange={(e) => { setComment(e.target.value); if (loiYKien) setLoiYKien(''); }}
+                      className={`w-full p-3 bg-white border rounded-lg text-xs outline-none focus:border-blue-500 ${loiYKien ? 'border-rose-500 ring-1 ring-rose-300' : 'border-slate-300'}`}
+                    />
+                    {loiYKien && <p id="y-kien-loi" role="alert" className="text-[11px] text-rose-700 font-semibold mt-1">{loiYKien}</p>}
+                  </div>
 
-                  <div className="flex items-center space-x-3">
+                  <div className="flex flex-col sm:flex-row items-stretch gap-3">
                     <button
                       onClick={() => handleDecision('approved')}
                       disabled={processing}
@@ -358,7 +426,7 @@ export default function Approvals({ currentBU, user, onCountChange }) {
             </div>
           ) : (
             <div className="bg-white p-12 rounded-xl border border-slate-200 text-center text-slate-500 text-xs">
-              Chọn một yêu cầu phê duyệt ở cột bên trái để xem chi tiết
+              {tab === 'cho' ? 'Không có yêu cầu nào cần duyệt lúc này.' : 'Chọn một yêu cầu ở cột bên trái để xem chi tiết.'}
             </div>
           )}
         </div>

@@ -82,3 +82,11 @@ export function buildZpp702Workbook(rows) {
 export function downloadZpp702(rows, filename) {
   XLSX.writeFile(buildZpp702Workbook(rows), filename);
 }
+
+/**
+ * Nội dung file .xlsx dạng byte (Uint8Array) — để gộp nhiều file ZPP702 vào MỘT .zip tải một lần (utils/zipFiles.js).
+ * Tải liên tiếp nhiều file thì trình duyệt chặn / đổi thư mục từ file thứ hai (Rà soát 4 app, Đợt 3 mục 8).
+ */
+export function zpp702Bytes(rows) {
+  return new Uint8Array(XLSX.write(buildZpp702Workbook(rows), { type: 'array', bookType: 'xlsx' }));
+}

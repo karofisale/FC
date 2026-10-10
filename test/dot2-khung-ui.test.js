@@ -232,7 +232,7 @@ async function main() {
   check('StatusBadge đọc nhãn + màu từ glossary (một bảng), không còn map riêng', /from '\.\.\/utils\/glossary'/.test(badge) && !/draft:/.test(badge));
   const rawChildren = tatCaNguon.filter((f) => /\{\s*[\w.?]*\.(status|base_month|forecast_month|requested_at|decided_at)\s*\}\s*<\/|>\s*\{\s*[\w.?]*\.(status|base_month)\s*\}/.test(f.text));
   check('không JSX nào hiện thẳng .status / .base_month / ngày ISO làm chữ', rawChildren.length === 0, rawChildren.map((f) => f.rel));
-  check('Dashboard: ô "Trạng thái chu kỳ" dùng nhãn Việt; Approvals: chu kỳ = Tháng M/YY, ngày giờ = giờ VN', /statusLabel\(cycle\.status\)/.test(doc('pages/Dashboard.jsx')) && /monthLabel\(app\.base_month\)/.test(doc('pages/Approvals.jsx')) && /ngayGioVN\(app\.requested_at\)/.test(doc('pages/Approvals.jsx')));
+  check('Dashboard: ô "Trạng thái chu kỳ" dùng nhãn Việt; Approvals: chu kỳ = Tháng M/YYYY (monthLabelFull, đổi ở Đợt 3 từ Tháng M/YY), ngày giờ = giờ VN', /statusLabel\(cycle\.status\)/.test(doc('pages/Dashboard.jsx')) && /monthLabelFull\(app\.base_month\)/.test(doc('pages/Approvals.jsx')) && /ngayGioVN\(app\.requested_at\)/.test(doc('pages/Approvals.jsx')));
   check('Kế hoạch năm: nhãn trạng thái / loại bản lấy từ glossary (không còn NHAN_TT / MAU_TT riêng)', !/NHAN_TT|MAU_TT/.test(an) && /statusLabel\(/.test(an) && /NHAN_LOAI_KE_HOACH/.test(an));
   check('vai trò hiện bằng nhãn Việt (Actuals / Approvals), ROLE_LABELS ở glossary', /roleLabel\(user\?\.role\)/.test(doc('pages/Actuals.jsx')) && /roleLabel\(user\?\.role\)/.test(doc('pages/Approvals.jsx')) && /from '\.\.\/utils\/glossary'/.test(doc('services/auth.js')));
 

@@ -22,6 +22,13 @@ export function parsePastedNumber(raw) {
 }
 
 /**
+ * Ô số KHÔNG được đổi giá trị khi lăn chuột (Rà soát 4 app, Đợt 3 mục 2). Ô type="number" đang focus mà lăn chuột là trình duyệt
+ * tự tăng/giảm số — lăn trang xuống qua lưới là âm thầm sửa các ô dưới con trỏ, và ô đó còn hiện "chưa lưu" như người dùng vừa gõ.
+ * Bỏ focus khi lăn: trang cuộn bình thường, số giữ nguyên. Rải vào ô bằng `{...CHAN_LAN_CHUOT}`.
+ */
+export const CHAN_LAN_CHUOT = { onWheel: (e) => e.currentTarget.blur() };
+
+/**
  * Điều hướng bàn phím (Tab/Enter/mũi tên), dán khối nhiều dòng×cột từ
  * Excel, và fill-down cho lưới đã ảo hoá (@tanstack/react-virtual).
  *
@@ -43,8 +50,10 @@ export function parsePastedNumber(raw) {
  * @param {(updates: {rowKey, col, value}[]) => void} onCellsChange - áp
  *   dụng nhiều ô cùng lúc (dán khối, fill-down) trong đúng 1 lần cập nhật.
  * @param {(rowIndex: number) => void} scrollToRow - gọi rowVirtualizer.scrollToIndex.
+ * @param {(updates, colIdx, value) => Promise<boolean>} [xacNhanDienCot] - hỏi trước khi "điền xuống cả cột" ghi đè số đang có
+ *   (trả false = huỷ). Không truyền thì điền thẳng như cũ.
  */
-export function useGridEditing({ columns, rows, getRowKey, buildCellId, getCellValue, onCellsChange, scrollToRow }) {
+export function useGridEditing({ columns, rows, getRowKey, buildCellId, getCellValue, onCellsChange, scrollToRow, xacNhanDienCot }) {
   const cellRefs = useRef(new Map());
 
   const registerRef = useCallback((cellId) => (el) => {
@@ -149,12 +158,13 @@ export function useGridEditing({ columns, rows, getRowKey, buildCellId, getCellV
   }, [rows, columns, getRowKey, onCellsChange]);
 
   /** Lấy giá trị ô đầu cột (hàng đầu tiên đang hiển thị) rải xuống hết cột. */
-  const fillColumnDown = useCallback((colIdx) => {
+  const fillColumnDown = useCallback(async (colIdx) => {
     if (rows.length < 2) return;
     const value = getCellValue(getRowKey(rows[0]), columns[colIdx]);
     const updates = rows.slice(1).map((row) => ({ rowKey: getRowKey(row), col: columns[colIdx], value }));
+    if (xacNhanDienCot && !(await xacNhanDienCot(updates, colIdx, value))) return;
     onCellsChange(updates);
-  }, [rows, columns, getRowKey, getCellValue, onCellsChange]);
+  }, [rows, columns, getRowKey, getCellValue, onCellsChange, xacNhanDienCot]);
 
   return { registerRef, handleKeyDown, handlePaste, fillColumnDown };
 }

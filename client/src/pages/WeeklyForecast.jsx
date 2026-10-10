@@ -7,8 +7,8 @@ import AddProductModal from '../components/AddProductModal';
 // Tải lười — kéo theo thư viện xlsx (~290KB) chỉ để đọc file Excel, đa số
 // người dùng không bấm "Nhập từ file" mỗi lần vào trang này.
 const ImportForecastModal = React.lazy(() => import('../components/ImportForecastModal'));
-import { Save, Send, Search, Loader2, Wand2, ArrowDownToLine, PackagePlus, FileSpreadsheet } from 'lucide-react';
-import { monthsOfCycle, weeksOfMonth, weekLabel, monthLabel, normalizeMonth } from '../utils/period';
+import { Save, Send, Search, Loader2, Wand2, ArrowDownToLine, PackagePlus, FileSpreadsheet, ListChecks } from 'lucide-react';
+import { monthsOfCycle, weeksOfMonth, weekLabel, monthLabel, monthLabelFull, normalizeMonth } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
 import { appConfirm } from '../services/dialogService';
 import { thongBao } from '../services/toastService';
@@ -17,7 +17,10 @@ import { usePersistedState } from '../utils/usePersistedState';
 import { useTableSort } from '../utils/useTableSort';
 import { SortTh, StateRow } from '../components/TableStates';
 import MoreMenu from '../components/MoreMenu';
-import { useGridEditing, parsePastedNumber } from '../utils/useGridEditing';
+import { useGridEditing, parsePastedNumber, CHAN_LAN_CHUOT } from '../utils/useGridEditing';
+import { demGhiDe, cauHoiGhiDe } from '../utils/gridOverwrite';
+import { capNhatRaiDeu, laDongLech, tapSkuLech, tinhRaiDeuTatCa } from '../utils/weeklyDistribute';
+import { MAN_HINH } from '../utils/glossary';
 
 // Bảng này nặng nhất trong app — kênh XK 756 SKU × (số tuần × số miền)
 // ô input, có thể tới ~6000 ô nếu render hết cùng lúc. Chỉ dựng DOM cho
@@ -57,6 +60,10 @@ export default function WeeklyForecast({ currentBU, user }) {
   // Nhớ ô "chỉ hiện SKU có số lượng" giữa các lần mở (Đợt 2 mục 9).
   const [onlyNonZero, setOnlyNonZero] = usePersistedState('weeklyOnlyNonZero', true, (v) => typeof v === 'boolean');
   const [nonZeroSkus, setNonZeroSkus] = useState(() => new Set());
+  // Lọc "chỉ dòng lệch" (tổng tuần/miền khác FC tháng 1). Danh sách lệch được CHỐT lúc tải / lúc bật lọc, không tính lại theo từng phím gõ —
+  // cùng lý do với nonZeroSkus: sửa cho một dòng hết lệch mà nó biến mất ngay dưới con trỏ thì không gõ tiếp được.
+  const [chiLech, setChiLech] = useState(false);
+  const [lechSkus, setLechSkus] = useState(() => new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [loiTai, setLoiTai] = useState(null);
@@ -91,7 +98,12 @@ export default function WeeklyForecast({ currentBU, user }) {
   const choDuyet = selectedCycle?.status === 'submitted';
 
   /** Áp dữ liệu đã có sẵn (từ action gộp) vào state, không gọi mạng thêm. */
-  const applyForecasts = useCallback((monthlyQuantities, splits, valRes) => {
+  // Danh sách SKU / tuần / miền hiện hành, cho phần chốt danh sách "lệch" khi dữ liệu vừa tải (state chưa kịp cập nhật);
+  // loadAll truyền thẳng giá trị mới vào `nho` vì lúc đó products/regions vừa được set trong cùng lượt.
+  const ctxRef = useRef({ products: [], weeks: [], regionCodes: [] });
+  useEffect(() => { ctxRef.current = { products, weeks, regionCodes }; }, [products, weeks, regionCodes]);
+
+  const applyForecasts = useCallback((monthlyQuantities, splits, valRes, nho) => {
     const mMap = monthlyQuantities || {};
     setMonthlyMap(mMap);
 
@@ -101,6 +113,8 @@ export default function WeeklyForecast({ currentBU, user }) {
     });
     setWeeklyMap(wMap);
     setNonZeroSkus(computeNonZero(mMap, wMap));
+    const c = nho || ctxRef.current;
+    setLechSkus(tapSkuLech(c.products, mMap, wMap, c.weeks, c.regionCodes));
     setValidationResult(valRes || null);
     setDirtyKeys(new Set());
   }, [computeNonZero]);
@@ -160,7 +174,11 @@ export default function WeeklyForecast({ currentBU, user }) {
       setSelectedCycle(ws.cycle || null);
       setVersions(ws.versions || []);
       setSelectedVersion(ws.version || null);
-      applyForecasts(ws.monthlyQuantities, ws.splits, ws.validation);
+      const regionsMoi = ws.regions?.length ? ws.regions : regionList;
+      const thangGoc = normalizeMonth(ws.cycle?.base_month) || monthsOfCycle(ws.cycle)[0] || '';
+      applyForecasts(ws.monthlyQuantities, ws.splits, ws.validation, {
+        products: ws.products || [], weeks: thangGoc ? weeksOfMonth(thangGoc) : [], regionCodes: regionsMoi.map((r) => r.code)
+      });
       // Nhớ chu kỳ đang xem (theo đơn vị; dùng chung với Bảng 0) — Đợt 2 mục 9.
       if (ws.cycle?.id) savePref('cycle:' + currentBU, ws.cycle.id);
     } catch (err) {
@@ -229,18 +247,34 @@ export default function WeeklyForecast({ currentBU, user }) {
     });
   };
 
-  /** Rải đều số tháng 1 của một SKU ra các ô tuần × miền, phần dư dồn vào ô cuối. */
+  /** Rải đều số tháng 1 của một SKU ra các ô tuần × miền, phần dư dồn vào ô cuối (tính ở utils/weeklyDistribute.js). */
   const distributeEvenly = (skuCode) => {
-    const total = monthlyMap[skuCode] || 0;
-    const cells = weeks.flatMap((w) => regionCodes.map((r) => `${skuCode}_${w}_${r}`));
-    if (!cells.length) return;
+    const updates = capNhatRaiDeu(skuCode, monthlyMap[skuCode] || 0, weeks, regionCodes);
+    if (updates.length) handleCellsChange(updates);
+  };
 
-    const per = Math.floor(total / cells.length);
-    const remainder = total - per * cells.length;
-
-    cells.forEach((key, i) => {
-      setCell(key, i === cells.length - 1 ? per + remainder : per);
-    });
+  /**
+   * "Rải đều tất cả dòng lệch": cùng cách tính với nút rải đều từng dòng, áp cho mọi SKU đang lệch trong danh sách đang hiển thị.
+   * Có xem trước (bao nhiêu dòng, bao nhiêu ô đang có số sẽ bị thay) và hỏi xác nhận; chưa lưu cho tới khi bấm "Lưu bản thảo".
+   */
+  const raiDeuTatCaLech = async () => {
+    const kq = tinhRaiDeuTatCa({ danhSach: filteredProducts, monthlyMap, weeklyMap, tuan: weeks, mien: regionCodes });
+    if (!kq.dong) {
+      setMessage({ type: 'error', text: kq.boQua
+        ? `Không có dòng nào rải đều được: ${kq.boQua} SKU lệch nhưng số tháng 1 bằng 0 (rải đều chỉ là xoá số tuần/miền — hãy tự kiểm tra các dòng đó).`
+        : 'Không có dòng nào đang lệch.' });
+      return;
+    }
+    const phamVi = search.trim() !== '' ? ' trong các dòng khớp ô tìm kiếm' : '';
+    if (!(await appConfirm(
+      `Rải đều số tháng 1 ra ${weeks.length} tuần × ${regionCodes.length} miền cho ${kq.dong.toLocaleString('vi-VN')} SKU đang lệch${phamVi}.\n\n`
+      + `Số tuần/miền đang nhập của các SKU này sẽ bị thay bằng số chia đều${kq.oGhiDe ? ` (${kq.oGhiDe.toLocaleString('vi-VN')} ô đang có số sẽ đổi)` : ''}; phần dư dồn vào ô cuối. `
+      + (kq.boQua ? `${kq.boQua.toLocaleString('vi-VN')} SKU lệch nhưng có số tháng 1 bằng 0 sẽ KHÔNG bị đụng tới. ` : '')
+      + 'Chưa lưu cho tới khi bấm "Lưu bản thảo".',
+      { title: 'Rải đều tất cả dòng lệch?', okLabel: `Rải đều ${kq.dong.toLocaleString('vi-VN')} dòng`, danger: true }
+    ))) return;
+    handleCellsChange(kq.updates);
+    setMessage({ type: 'success', text: `Đã rải đều ${kq.dong.toLocaleString('vi-VN')} SKU — bấm "Lưu bản thảo" để lưu.` });
   };
 
   const saveChanges = async () => {
@@ -289,6 +323,15 @@ export default function WeeklyForecast({ currentBU, user }) {
 
   const handleSubmit = async () => {
     if (!selectedCycle || !selectedVersion) return;
+    // Gửi duyệt hỏi lại, nói rõ gửi cái gì (đơn vị, chu kỳ, bản, tổng) — xem MonthlyForecast.
+    const nhanBan = selectedVersion.iso_week_label || (selectedVersion.update_week ? `Tuần ${selectedVersion.update_week}` : 'bản đang chọn');
+    if (!(await appConfirm(
+      `Kiểm tra và gửi kế hoạch Forecast của đơn vị ${currentBU} — chu kỳ ${monthLabelFull(selectedCycle.base_month)}, bản ${nhanBan} — để thẩm định?\n\n`
+      + `Bảng tuần/miền: tổng ${tongCuoi.tuan.toLocaleString('vi-VN')} chiếc so với FC tháng 1 là ${tongCuoi.thang.toLocaleString('vi-VN')} chiếc.`
+      + (dirtyKeys.size ? ` ${dirtyKeys.size} ô chưa lưu sẽ được lưu trước khi gửi.` : '')
+      + (choDuyet ? ' Bản đang chờ duyệt: gửi lại sẽ thay yêu cầu cũ.' : ''),
+      { title: 'Kiểm tra và gửi phê duyệt?', okLabel: 'Gửi phê duyệt' }
+    ))) return;
     setSaving(true);
     setMessage(null);
     try {
@@ -320,6 +363,11 @@ export default function WeeklyForecast({ currentBU, user }) {
     if (checked) setNonZeroSkus(computeNonZero(monthlyMap, weeklyMap));
   };
 
+  const handleToggleLech = (checked) => {
+    setChiLech(checked);
+    if (checked) setLechSkus(tapSkuLech(products, monthlyMap, weeklyMap, weeks, regionCodes));
+  };
+
   const getSkuWeeklySum = (skuCode) =>
     weeks.reduce((sum, w) => sum + regionCodes.reduce(
       (s, r) => s + (weeklyMap[`${skuCode}_${w}_${r}`] || 0), 0
@@ -342,9 +390,16 @@ export default function WeeklyForecast({ currentBU, user }) {
       // ngay khi mot lenh setValues ghi lai o do. Set.has so theo kieu, nen
       // thieu String() la KHONG mot ma nao khop va bo loc quet sach bang.
       const matchNonZero = !onlyNonZero || nonZeroSkus.has(String(p.sku_code));
-      return matchSearch && matchNonZero;
+      const matchLech = !chiLech || lechSkus.has(String(p.sku_code));
+      return matchSearch && matchNonZero && matchLech;
     });
-  }, [products, search, onlyNonZero, nonZeroSkus]);
+  }, [products, search, onlyNonZero, nonZeroSkus, chiLech, lechSkus]);
+
+  // Số dòng đang lệch NGAY LÚC NÀY (chỉ để hiện con số trên nút — danh sách lọc dùng bản đã chốt ở trên).
+  const soDongLech = useMemo(
+    () => products.filter((p) => laDongLech(p.sku_code, monthlyMap, weeklyMap, weeks, regionCodes)).length,
+    [products, monthlyMap, weeklyMap, weeks, regionCodes]
+  );
 
   const columnCount = 3 + weeks.length * regionCodes.length + 2;
 
@@ -397,7 +452,15 @@ export default function WeeklyForecast({ currentBU, user }) {
     buildCellId: (sku, col) => `${sku}_${col.week}_${col.region}`,
     getCellValue: (sku, col) => weeklyMap[`${sku}_${col.week}_${col.region}`] || 0,
     onCellsChange: handleCellsChange,
-    scrollToRow: (idx) => rowVirtualizer.scrollToIndex(idx, { align: 'auto' })
+    scrollToRow: (idx) => rowVirtualizer.scrollToIndex(idx, { align: 'auto' }),
+    // "Điền xuống cả cột" chỉ chạm các dòng ĐANG HIỂN THỊ; có số cũ bị đè thì hỏi trước.
+    xacNhanDienCot: async (updates, colIdx, value) => {
+      const col = weeklyColumns[colIdx];
+      const dem = demGhiDe(updates, (sku, c) => weeklyMap[`${sku}_${c.week}_${c.region}`] || 0);
+      const cauHoi = cauHoiGhiDe(dem, `Điền ${Number(value).toLocaleString('vi-VN')} (số của dòng đầu) xuống ${updates.length.toLocaleString('vi-VN')} dòng đang hiển thị của cột ${weekLabel(baseMonth, col.week)} · ${col.region}.`);
+      if (!cauHoi) return true;
+      return appConfirm(cauHoi, { title: 'Điền xuống cả cột?', okLabel: `Ghi đè ${dem.ghiDe.toLocaleString('vi-VN')} ô`, danger: true });
+    }
   });
 
   return (
@@ -405,7 +468,7 @@ export default function WeeklyForecast({ currentBU, user }) {
 
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-bold text-slate-900">BẢNG 1: FORECAST TUẦN &amp; MIỀN</h2>
+          <h2 className="text-lg font-bold text-slate-900">{MAN_HINH.weekly.tieuDe} <span className="text-sm font-semibold text-slate-500" title={MAN_HINH.weekly.mota}>(Bảng 1)</span></h2>
           <p className="text-xs text-slate-500 mt-0.5">
             Đơn vị: <strong className="text-slate-800">{currentBU}</strong>
             {baseMonth && <> · Tháng chia tuần: <strong className="text-slate-800">{monthLabel(baseMonth)}</strong> ({weeks.length} tuần)</>}
@@ -415,7 +478,7 @@ export default function WeeklyForecast({ currentBU, user }) {
           </p>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Một nút chính theo "bước tiếp theo": còn ô chưa lưu thì Lưu là nút chính, hết thì Kiểm tra & gửi duyệt. */}
           <button
             onClick={handleSave}
@@ -458,8 +521,8 @@ export default function WeeklyForecast({ currentBU, user }) {
         </div>
       )}
 
-      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
-        <div className="relative flex-1">
+      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[12rem]">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
@@ -473,6 +536,22 @@ export default function WeeklyForecast({ currentBU, user }) {
           <input type="checkbox" checked={onlyNonZero} onChange={(e) => handleToggleNonZero(e.target.checked)} />
           Chỉ hiện SKU có số lượng
         </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-600 whitespace-nowrap" title="Chỉ hiện SKU có tổng tuần/miền khác FC tháng 1 (cột Lệch khác ✓)">
+          <input type="checkbox" checked={chiLech} onChange={(e) => handleToggleLech(e.target.checked)} />
+          Chỉ dòng lệch ({soDongLech.toLocaleString('vi-VN')})
+        </label>
+        {canWrite && (
+          <button
+            type="button"
+            onClick={raiDeuTatCaLech}
+            disabled={soDongLech === 0}
+            title="Chia đều số tháng 1 ra các ô tuần × miền cho mọi SKU đang lệch (có xem trước và hỏi xác nhận)"
+            className="flex items-center gap-1.5 border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
+          >
+            <ListChecks className="w-3.5 h-3.5" aria-hidden="true" />
+            Rải đều tất cả dòng lệch
+          </button>
+        )}
         {isEditor && (
           <>
             <button
@@ -562,7 +641,7 @@ export default function WeeklyForecast({ currentBU, user }) {
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-800 text-white font-semibold sticky top-0 z-20">
               <tr>
-                <SortTh rowSpan="2" label="Mã SKU" sortKey="sku" spec={sortLuoi} onSort={doiSapXep} className="py-2 px-3 border-r border-slate-700 w-28" />
+                <SortTh rowSpan="2" label="Mã SKU" sortKey="sku" spec={sortLuoi} onSort={doiSapXep} className="sticky left-0 z-30 bg-slate-800 shadow-[inset_-1px_0_0_#475569] py-2 px-3 border-r border-slate-700 w-28 min-w-28" />
                 <SortTh rowSpan="2" label="Tên sản phẩm" sortKey="ten" spec={sortLuoi} onSort={doiSapXep} className="py-2 px-3 border-r border-slate-700 min-w-[180px]" />
                 <SortTh rowSpan="2" label="FC tháng 1" sortKey="fc" spec={sortLuoi} onSort={doiSapXep} className="py-2 px-3 border-r border-slate-700 text-right w-24 bg-blue-900/60" />
                 {weeks.map((w) => (
@@ -618,7 +697,7 @@ export default function WeeklyForecast({ currentBU, user }) {
 
                   return (
                     <tr key={p.sku_code} className="hover:bg-blue-50/50 transition">
-                      <td className="py-2 px-3 border-r border-slate-200 font-bold text-slate-800">{p.sku_code}</td>
+                      <td className="sticky left-0 z-10 bg-white shadow-[inset_-1px_0_0_#e2e8f0] py-2 px-3 border-r border-slate-200 font-bold text-slate-800">{p.sku_code}</td>
                       <td className="py-2 px-3 border-r border-slate-200 font-sans font-medium text-slate-900 truncate max-w-xs">
                         <div className="flex items-center gap-2">
                           <span className="truncate">{p.name}</span>
@@ -649,6 +728,7 @@ export default function WeeklyForecast({ currentBU, user }) {
                               step="1"
                               disabled={!canWrite}
                               value={weeklyMap[key] ?? 0}
+                              {...CHAN_LAN_CHUOT}
                               onChange={(e) => handleCellChange(p.sku_code, col.week, col.region, e.target.value)}
                               onKeyDown={(e) => canWrite && grid.handleKeyDown(e, vRow.index, colIdx)}
                               onPaste={(e) => canWrite && grid.handlePaste(e, vRow.index, colIdx)}
@@ -681,7 +761,8 @@ export default function WeeklyForecast({ currentBU, user }) {
             {!loading && !loiTai && selectedVersion && products.length > 0 && (
               <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-900 sticky bottom-0 z-10">
                 <tr>
-                  <td colSpan="2" className="py-2.5 px-3 uppercase text-slate-700 text-right text-xs">
+                  <td className="sticky left-0 z-10 bg-slate-100 shadow-[inset_-1px_0_0_#cbd5e1] py-2.5 px-3 uppercase text-slate-700 text-xs">Tổng</td>
+                  <td className="py-2.5 px-3 uppercase text-slate-700 text-right text-xs">
                     Tổng cộng (chiếc):
                     {(search.trim() !== '' || onlyNonZero) && (
                       <span className="ml-2 normal-case font-normal text-[11px] text-slate-600">cả danh mục — không theo bộ lọc đang bật</span>

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { ChevronRight, ChevronDown, Lock, Unlock, Trash2 } from 'lucide-react';
 import {
   NHAN_THANG, tomTatKhach, tomTatDonVi, dinhDangSo, dinhDangPct, tyTrongPct, dinhDangGia, doiTuVnd, nhomTheoThiTruong
@@ -7,6 +7,7 @@ import { trangThaiFix, lechTheoMucTieu, saiSoChoPhep } from '../../utils/annualP
 import { useTableSort } from '../../utils/useTableSort';
 import { applyOrder } from '../../utils/tableSortCore';
 import { SortTh } from '../TableStates';
+import { parsePastedNumber } from '../../utils/useGridEditing';
 
 const COT1 = 'w-72 min-w-72 max-w-72';          // cột Khách / SKU (cố định khi kéo sang phải)
 const TONG_LEFT = 'left-72';                     // cột Tổng năm dính ngay sau cột 1
@@ -14,20 +15,109 @@ const TONG_LEFT = 'left-72';                     // cột Tổng năm dính ngay
 /** Tăng lên mỗi khi một thao tác sửa bị TỪ CHỐI (báo lỗi): các ô nhập đặt lại về số đang có thay vì giữ số vừa gõ. */
 export const LamLaiCtx = createContext(0);
 
-/** Ô số nguyên: sửa tại chỗ, chốt khi rời ô / Enter (không dựng lại cả bảng theo từng phím). */
-export function CellInput({ value, onCommit, disabled, title, highlight }) {
+/**
+ * Chạy MỘT LÔ thao tác sửa ô (dán nhiều ô từ Excel) như một bước duy nhất: nơi cung cấp (AnnualPlan) gom các lần sửa, nếu có
+ * ô nào bị từ chối thì HUỶ CẢ LÔ (chưa đổi gì) và báo lỗi, thành công thì ghi một bước Hoàn tác. `chayLo(viec, soO)`.
+ */
+export const LoCtx = createContext(null);
+
+// Ô nhập (phần tử input) -> hàm "áp giá trị này như người dùng vừa gõ vào ô đó". Dùng cho dán nhiều ô: tìm các ô đích bằng DOM
+// (theo dòng / cột đang hiển thị) rồi gọi đúng bộ xử lý sửa của từng ô, nên mọi quy tắc co giãn / Fix / từ chối vẫn áp như khi gõ tay.
+const ap = new WeakMap();
+
+/** Chạy lần lượt các (ô, giá trị) đã chọn — gọi trong `chayLo`. */
+export function apDungODan(muc) {
+  muc.forEach(({ el, giaTri }) => { const h = ap.get(el); if (h) h(giaTri); });
+}
+
+/** Ô nhập lân cận trong cùng bảng: 'xuong' / 'len' = cùng cột (cột tháng), 'trai' / 'phai' = cùng dòng. */
+function oLanCan(el, huong) {
+  const bang = el.closest('table');
+  if (!bang) return null;
+  const ds = [...bang.querySelectorAll('input[data-o-luoi]:not([disabled])')];
+  const i = ds.indexOf(el);
+  if (i < 0) return null;
+  if (huong === 'xuong') return ds.slice(i + 1).find((x) => x.dataset.cot === el.dataset.cot) || null;
+  if (huong === 'len') return ds.slice(0, i).reverse().find((x) => x.dataset.cot === el.dataset.cot) || null;
+  const cungDong = ds.filter((x) => x.closest('tr') === el.closest('tr'));
+  const j = cungDong.indexOf(el);
+  return (huong === 'phai' ? cungDong[j + 1] : cungDong[j - 1]) || null;
+}
+
+function diChuyen(el, huong) {
+  const dich = oLanCan(el, huong);
+  if (!dich) return false;
+  dich.focus();
+  if (typeof dich.select === 'function') dich.select();
+  return true;
+}
+
+/** Các ô đích của một khối dán, tính từ ô đang đứng: bỏ ô không sửa được / ngoài bảng / đã đúng bằng số dán. */
+function layODich(el, ma) {
+  const bang = el.closest('table');
+  if (!bang) return [];
+  const hang = [...bang.querySelectorAll('tr')].filter((tr) => tr.querySelector('input[data-o-luoi]:not([disabled])'));
+  const r0 = hang.indexOf(el.closest('tr'));
+  const c0 = Number(el.dataset.cot);
+  const muc = [];
+  ma.forEach((dong, r) => dong.forEach((raw, c) => {
+    const tr = hang[r0 + r];
+    const o = tr && tr.querySelector(`input[data-o-luoi][data-cot="${c0 + c}"]:not([disabled])`);
+    if (!o) return;
+    const giaTri = String(Math.max(0, Math.round(parsePastedNumber(raw))));
+    if (giaTri !== o.value) muc.push({ el: o, giaTri });
+  }));
+  return muc;
+}
+
+/**
+ * Ô số nguyên: sửa tại chỗ, chốt khi rời ô / Enter (không dựng lại cả bảng theo từng phím).
+ * Phím mũi tên lên / xuống đi theo cột tháng, trái / phải đi theo dòng (khi con trỏ ở mép ô), Enter chốt rồi xuống ô dưới.
+ * Dán nhiều ô từ Excel (có tab / xuống dòng) áp lần lượt như gõ tay, nguyên khối hoặc không gì cả; dán một giá trị thì để trình duyệt tự dán.
+ * `cot` = chỉ số tháng của ô (để biết ô nào cùng cột).
+ */
+export function CellInput({ value, onCommit, disabled, title, highlight, cot }) {
   const [v, setV] = useState(String(value));
   const lamLai = useContext(LamLaiCtx);
+  const chayLo = useContext(LoCtx);
+  const oRef = useRef(null);
+  const cb = useRef(onCommit);
+  useEffect(() => { cb.current = onCommit; });
   useEffect(() => { setV(String(value)); }, [value, lamLai]);
+  useEffect(() => {
+    const el = oRef.current;
+    if (!el) return undefined;
+    ap.set(el, (g) => cb.current(g));
+    return () => { ap.delete(el); };
+  }, []);
   return (
     <input
+      ref={oRef}
+      data-o-luoi="1"
+      data-cot={cot}
       value={v}
       disabled={disabled}
       title={title}
       inputMode="numeric"
       onChange={(e) => setV(e.target.value.replace(/[^\d]/g, ''))}
       onBlur={() => { if (v !== String(value)) onCommit(v === '' ? '0' : v); }}
-      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+      onPaste={(e) => {
+        const text = e.clipboardData?.getData('text');
+        if (!text || !chayLo) return;
+        const dong = text.replace(/\r/g, '').split('\n');
+        while (dong.length && dong[dong.length - 1] === '') dong.pop();
+        if (dong.length <= 1 && !String(dong[0] || '').includes('\t')) return;
+        e.preventDefault();
+        const dich = layODich(e.currentTarget, dong.map((d) => d.split('\t')));
+        if (dich.length) chayLo(() => apDungODan(dich), dich.length);
+      }}
+      onKeyDown={(e) => {
+        const el = e.currentTarget;
+        if (e.key === 'Enter') { e.preventDefault(); if (!diChuyen(el, 'xuong')) el.blur(); return; }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { if (diChuyen(el, e.key === 'ArrowDown' ? 'xuong' : 'len')) e.preventDefault(); return; }
+        if (e.key === 'ArrowLeft' && el.selectionStart === 0 && diChuyen(el, 'trai')) e.preventDefault();
+        else if (e.key === 'ArrowRight' && el.selectionEnd === el.value.length && diChuyen(el, 'phai')) e.preventDefault();
+      }}
       className={`w-full text-right font-mono text-[11px] px-1.5 py-1 rounded border ${
         disabled ? 'bg-slate-50 border-transparent text-slate-500' : 'bg-white border-slate-200 focus:border-blue-500 focus:outline-none'
       } ${highlight ? 'ring-1 ring-amber-400' : ''}`}
@@ -152,6 +242,7 @@ export default function AnnualGrid({
       <td key={m} className={`px-0.5 py-0.5 w-20 min-w-20 ${view === 'base' && m <= lastMonth ? 'bg-slate-50' : ''}`}>
         <div className="relative">
           <CellInput
+            cot={m}
             value={q}
             disabled={!duocSua}
             highlight={khoa}

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Calendar, Clock, CheckCircle2, Factory, Users, FileText } from 'lucide-react';
+import { MAN_HINH } from '../utils/glossary';
 
 export default function WorkflowGuide() {
   return (
@@ -9,7 +10,7 @@ export default function WorkflowGuide() {
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
         <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
           <Calendar className="w-5 h-5 text-blue-600" />
-          BẢNG 5: QUY TRÌNH & LỊCH TRÌNH LẬP SALES FORECAST
+          {MAN_HINH.guide.tieuDe} <span className="text-sm font-semibold text-slate-500" title={MAN_HINH.guide.mota}>(Bảng 5)</span>
         </h2>
         <p className="text-xs text-slate-500 mt-0.5">
           Quy chuẩn thời gian phối hợp giữa Tác nghiệp kinh doanh, Tài chính và Nhà máy Karofi.
@@ -20,7 +21,7 @@ export default function WorkflowGuide() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
         <h3 className="text-sm font-bold text-blue-900 uppercase tracking-wide border-b border-slate-200 pb-2 flex items-center gap-2">
           <FileText className="w-4 h-4 text-blue-600" />
-          1. QUY TRÌNH LẬP BẢN FORECAST THÁNG (BẢNG 0 - 04 THÁNG TIẾP THEO)
+          1. QUY TRÌNH LẬP BẢN FORECAST THÁNG (FORECAST 4 THÁNG — BẢNG 0)
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
@@ -74,7 +75,7 @@ export default function WorkflowGuide() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
         <h3 className="text-sm font-bold text-cyan-900 uppercase tracking-wide border-b border-slate-200 pb-2 flex items-center gap-2">
           <Clock className="w-4 h-4 text-cyan-600" />
-          2. QUY TRÌNH LẬP BẢN FORECAST TUẦN (BẢNG 1 - TUẦN & MIỀN CHO THÁNG 1)
+          2. QUY TRÌNH LẬP BẢN FORECAST TUẦN (CHIA TUẦN & MIỀN CHO THÁNG 1 — BẢNG 1)
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">

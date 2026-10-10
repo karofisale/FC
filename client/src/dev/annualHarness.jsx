@@ -2,10 +2,11 @@
  * annualHarness.jsx — CHỈ DEV. Dựng trang Kế hoạch năm với "máy chủ giả" trong bộ nhớ (dùng đúng bộ máy tính của app),
  * để thử giao diện không cần đăng nhập production. Mở /annual-harness.html?role=bu_editor (hoặc bu_approver, central_admin, viewer; &single=1).
  */
-import { StrictMode, useState } from 'react';
+import { StrictMode, useCallback, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../index.css';
 import AnnualPlan from '../pages/AnnualPlan';
+import { useChoDuyetNam } from '../components/annual/HopChoDuyet';
 import DialogHost from '../components/DialogHost';
 import ToastHost from '../components/ToastHost';
 import { vnYear } from '../utils/period';
@@ -98,8 +99,19 @@ api.saveAnnualPlanFinal = async ({ sourcePlanId, plan, reason }) => {
   return tre({ ok: true, planId: id, canhBao: [] });
 };
 
+// Hộp "Chờ duyệt" (người duyệt): máy chủ giả có hai đơn vị; OEM có bản của đơn vị đang thử, XK có bản năm sau chờ duyệt.
+api.getBUs = async () => [{ code: 'OEM', name: 'Domestic OEM' }, { code: 'XK', name: 'Export OEM' }];
+api.listAnnualPlans = async ({ bu }) => {
+  if (bu === 'XK') return tre({ plans: [{ id: 'AP-XK1', year: YEAR + 1, kind: 'base', revisionNo: 1, status: 'submitted', createdBy: 'ketoan', updatedAt: '2026-10-09T02:00:00Z', submittedAt: '2026-10-09T02:00:00Z' }] });
+  return tre({ plans: kho.plans.filter((p) => p.status === 'submitted').map((p) => ({ ...tomTat(p), submittedAt: new Date().toISOString() })) });
+};
+const layDonVi = async () => [{ code: 'OEM', name: 'Domestic OEM' }, { code: 'XK', name: 'Export OEM' }];
+
 function Khung() {
   const [role, setRole] = useState(ROLE);
+  const [bu, setBu] = useState('OEM');
+  const duyet = useCallback(() => layDonVi(), []);
+  const choDuyetNam = useChoDuyetNam(role === 'bu_approver' || role === 'central_admin', duyet);
   return (
     <div className="p-4 max-w-[1500px] mx-auto">
       <div className="text-[11px] text-slate-500 mb-2 flex items-center gap-2">
@@ -108,7 +120,7 @@ function Khung() {
           {['bu_editor', 'bu_approver', 'central_admin', 'viewer'].map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
       </div>
-      <AnnualPlan key={role} currentBU="OEM" user={{ role, business_unit_code: 'OEM' }} />
+      <AnnualPlan key={role} currentBU={bu} user={{ role, business_unit_code: 'OEM' }} choDuyetNam={choDuyetNam} onChonDonVi={setBu} />
       {/* Hộp thoại + toast dùng chung của app (App.jsx gắn hai thứ này; harness không qua App nên tự gắn) */}
       <DialogHost />
       <ToastHost />

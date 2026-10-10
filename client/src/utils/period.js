@@ -43,6 +43,12 @@ export function monthLabel(month) {
   return `Tháng ${Number(m)}/${String(year).slice(2)}`;
 }
 
+/** Nhãn đầy đủ 'Tháng 10/2026' — cho nơi người duyệt / người xem cần đọc rõ năm (màn Phê duyệt). */
+export function monthLabelFull(month) {
+  const [year, m] = normalizeMonth(month).split('-');
+  return `Tháng ${Number(m)}/${year}`;
+}
+
 /**
  * Số tuần bán hàng của một tháng, tính theo tuần bắt đầu từ thứ Hai.
  * Tháng có thể trải 4–6 tuần, nên bảng tuần phải co giãn theo tháng thật

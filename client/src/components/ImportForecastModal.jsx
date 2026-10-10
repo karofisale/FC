@@ -799,7 +799,7 @@ export default function ImportForecastModal({
                   {perSheet && (
                     <div className="space-y-2 pt-1">
                       <p className="text-[11px] text-slate-500">
-                        Sản lượng tháng của các miền sẽ được CỘNG lại (Bảng 0 không tách miền);
+                        Sản lượng tháng của các miền sẽ được CỘNG lại (Forecast 4 tháng không tách miền);
                         cột tuần của mỗi sheet vào đúng miền của sheet đó. Giữ nguyên một lần nhập
                         cho cả hai miền — nhập làm hai lượt thì lượt sau đè lượt trước.
                       </p>
@@ -917,7 +917,7 @@ export default function ImportForecastModal({
                         {hasWeekMapping && (
                           <div className={r.weekTotal === r.computed[0] ? 'text-slate-600' : 'text-amber-700 font-semibold'}>
                             tổng tuần {r.weekTotal.toLocaleString('vi-VN')} / tháng gốc {r.computed[0].toLocaleString('vi-VN')}
-                            {r.weekTotal === r.computed[0] ? ' — khớp' : ' — lệch, Bảng 1 sẽ báo chưa khớp'}
+                            {r.weekTotal === r.computed[0] ? ' — khớp' : ' — lệch, màn Chia tuần & miền sẽ báo chưa khớp'}
                           </div>
                         )}
                       </div>

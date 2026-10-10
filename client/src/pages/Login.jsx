@@ -12,9 +12,8 @@ export default function Login({ onSuccess }) {
   const [retrying, setRetrying] = useState(false);
   const [hienPin, setHienPin] = useState(false);
 
-  // Lần đăng nhập đầu tiên sau khi backend "ngủ" hoặc vừa deploy có thể
-  // dính cold-start của Apps Script — gasClient tự thử lại, chỉ báo cho
-  // người dùng biết để không tưởng app treo.
+  // Mạng chập chờn hoặc máy chủ chưa kịp trả lời: gasClient tự thử lại,
+  // chỉ báo cho người dùng biết để không tưởng app treo.
   useEffect(() => onRetry(() => setRetrying(true)), []);
 
   const handleSubmit = async (e) => {
@@ -127,7 +126,7 @@ export default function Login({ onSuccess }) {
 
           {retrying && (
             <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-center">
-              Máy chủ đang khởi động lại, đang thử kết nối lại...
+              Không kết nối được máy chủ — đang thử lại...
             </p>
           )}
 

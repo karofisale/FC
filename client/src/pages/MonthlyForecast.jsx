@@ -8,7 +8,7 @@ import AddProductModal from '../components/AddProductModal';
 const ImportForecastModal = React.lazy(() => import('../components/ImportForecastModal'));
 const ImportFromSourceModal = React.lazy(() => import('../components/ImportFromSourceModal'));
 import { Save, Send, Search, Filter, AlertCircle, Loader2, ArrowDownToLine, PackagePlus, FileSpreadsheet, CopyPlus, Target } from 'lucide-react';
-import { monthsOfCycle, monthLabel, weeksOfMonth } from '../utils/period';
+import { monthsOfCycle, monthLabel, monthLabelFull, weeksOfMonth } from '../utils/period';
 import { setDirty, confirmNavigateAway } from '../services/dirtyState';
 import { appConfirm } from '../services/dialogService';
 import { thongBao } from '../services/toastService';
@@ -16,6 +16,7 @@ import { loadPref, savePref } from '../services/prefs';
 import { usePersistedState } from '../utils/usePersistedState';
 import { useTableSort } from '../utils/useTableSort';
 import { SortTh, SortIcon, StateRow } from '../components/TableStates';
+import { MAN_HINH } from '../utils/glossary';
 import MoreMenu from '../components/MoreMenu';
 
 // Hai đơn vị có app nguồn để nhập thẳng. Các đơn vị khác vẫn nhập từ file như cũ.
@@ -32,7 +33,8 @@ const SOURCE_BUS = ['OEM', 'XK'];
 // do TCM tự sản xuất. Đồng bộ với gas/Config.gs, xem chú thích ở đó.
 const NHOM_MAY = ['NHOM_1', 'NHOM_2', 'NHOM_3'];   // Máy TCM sx, Máy nhập khẩu, Mockup
 const NHOM_LOI = ['NHOM_4'];             // Lõi
-import { useGridEditing, parsePastedNumber } from '../utils/useGridEditing';
+import { useGridEditing, parsePastedNumber, CHAN_LAN_CHUOT } from '../utils/useGridEditing';
+import { demGhiDe, cauHoiGhiDe } from '../utils/gridOverwrite';
 
 // Chỉ dựng DOM cho các dòng đang lọt vào khung nhìn — kênh XK có 756 SKU,
 // render đủ cả 756 dòng × N ô input cùng lúc từng làm giật khi gõ/cuộn.
@@ -200,6 +202,9 @@ export default function MonthlyForecast({ currentBU, user }) {
     }
   };
 
+  /** Số đang có của một ô (từ state thật) — cho phần đếm "bao nhiêu ô sẽ bị ghi đè". */
+  const layGiaTriO = (sku, thang) => forecastMap[`${sku}_${thang}`] || 0;
+
   const handleCellChange = (skuCode, month, value) => {
     const key = `${skuCode}_${month}`;
     const parsed = value === '' ? 0 : Number(value);
@@ -232,7 +237,7 @@ export default function MonthlyForecast({ currentBU, user }) {
    * thường — vẫn phải bấm "Lưu bản thảo" mới thật sự ghi xuống, đúng ý
    * "populate để sửa tiếp" chứ không phải ghi đè ngay lập tức.
    */
-  const handleCopyLastMonth = () => {
+  const handleCopyLastMonth = async () => {
     const targetMonth = months[months.length - 1];
     if (!copySrcMonth || !targetMonth || copySrcMonth === targetMonth) return;
     const updates = products.map((p) => ({
@@ -240,6 +245,12 @@ export default function MonthlyForecast({ currentBU, user }) {
       col: targetMonth,
       value: forecastMap[`${p.sku_code}_${copySrcMonth}`] || 0
     }));
+    // Cột đích đang có số thì hỏi trước khi ghi đè (nói rõ bao nhiêu ô, tổng bao nhiêu); cột trống thì copy thẳng.
+    const dem = demGhiDe(updates, layGiaTriO);
+    const cauHoi = cauHoiGhiDe(dem, `Copy số liệu ${monthLabel(copySrcMonth)} sang ${monthLabel(targetMonth)} cho ${updates.length.toLocaleString('vi-VN')} SKU.`);
+    if (cauHoi && !(await appConfirm(cauHoi, {
+      title: 'Ghi đè ' + monthLabel(targetMonth) + '?', okLabel: `Ghi đè ${dem.ghiDe.toLocaleString('vi-VN')} ô`, danger: true
+    }))) return;
     handleCellsChange(updates);
     setMessage({
       type: 'success',
@@ -326,6 +337,15 @@ export default function MonthlyForecast({ currentBU, user }) {
 
   const handleSubmit = async () => {
     if (!selectedCycle || !selectedVersion) return;
+    // Gửi duyệt là bước người duyệt thấy và có thể khoá số: hỏi lại, nói rõ gửi cái gì (đơn vị, chu kỳ, bản, tổng).
+    const nhanBan = selectedVersion.iso_week_label || (selectedVersion.update_week ? `Tuần ${selectedVersion.update_week}` : 'bản đang chọn');
+    if (!(await appConfirm(
+      `Gửi kế hoạch Forecast của đơn vị ${currentBU} — chu kỳ ${monthLabelFull(selectedCycle.base_month)}, bản ${nhanBan} — để thẩm định?\n\n`
+      + `Tổng ${grandTotal.toLocaleString('vi-VN')} chiếc trong ${months.length} tháng.`
+      + (dirtyKeys.size ? ` ${dirtyKeys.size} ô chưa lưu sẽ được lưu trước khi gửi.` : '')
+      + (choDuyet ? ' Bản đang chờ duyệt: gửi lại sẽ thay yêu cầu cũ.' : ''),
+      { title: 'Gửi phê duyệt?', okLabel: 'Gửi phê duyệt' }
+    ))) return;
     setSaving(true);
     setMessage(null);
     try {
@@ -529,7 +549,14 @@ export default function MonthlyForecast({ currentBU, user }) {
     buildCellId: (sku, month) => `${sku}_${month}`,
     getCellValue: (sku, month) => forecastMap[`${sku}_${month}`] || 0,
     onCellsChange: handleCellsChange,
-    scrollToRow: (idx) => rowVirtualizer.scrollToIndex(idx, { align: 'auto' })
+    scrollToRow: (idx) => rowVirtualizer.scrollToIndex(idx, { align: 'auto' }),
+    // "Điền xuống cả cột" chỉ chạm các dòng ĐANG HIỂN THỊ; có số cũ bị đè thì hỏi trước.
+    xacNhanDienCot: async (updates, colIdx, value) => {
+      const dem = demGhiDe(updates, layGiaTriO);
+      const cauHoi = cauHoiGhiDe(dem, `Điền ${Number(value).toLocaleString('vi-VN')} (số của dòng đầu) xuống ${updates.length.toLocaleString('vi-VN')} dòng đang hiển thị của cột ${monthLabel(months[colIdx])}.`);
+      if (!cauHoi) return true;
+      return appConfirm(cauHoi, { title: 'Điền xuống cả cột?', okLabel: `Ghi đè ${dem.ghiDe.toLocaleString('vi-VN')} ô`, danger: true });
+    }
   });
 
   return (
@@ -537,7 +564,7 @@ export default function MonthlyForecast({ currentBU, user }) {
 
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-bold text-slate-900">BẢNG 0: SALES FORECAST 4 THÁNG</h2>
+          <h2 className="text-lg font-bold text-slate-900">{MAN_HINH.monthly.tieuDe} <span className="text-sm font-semibold text-slate-500" title={MAN_HINH.monthly.mota}>(Bảng 0)</span></h2>
           <p className="text-xs text-slate-500 mt-0.5">
             Đơn vị: <strong className="text-slate-800">{currentBU}</strong>
             {dirtyKeys.size > 0 && (
@@ -548,7 +575,7 @@ export default function MonthlyForecast({ currentBU, user }) {
           </p>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Một nút chính theo "bước tiếp theo": còn ô chưa lưu thì Lưu là nút chính, hết thì Gửi phê duyệt. */}
           <button
             onClick={handleSave}
@@ -642,7 +669,7 @@ export default function MonthlyForecast({ currentBU, user }) {
           />
         </div>
 
-        <div className="flex items-center space-x-2 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <Filter className="w-4 h-4 text-slate-400" />
           <select
             value={nhomHieuLuc}
@@ -877,6 +904,7 @@ export default function MonthlyForecast({ currentBU, user }) {
                                 step="1"
                                 disabled={!canWrite}
                                 value={forecastMap[key] ?? 0}
+                                {...CHAN_LAN_CHUOT}
                                 onChange={(e) => handleCellChange(p.sku_code, m, e.target.value)}
                                 onKeyDown={(e) => canWrite && grid.handleKeyDown(e, vRow.index, colIdx)}
                                 onPaste={(e) => canWrite && grid.handlePaste(e, vRow.index, colIdx)}

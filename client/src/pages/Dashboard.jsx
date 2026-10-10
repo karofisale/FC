@@ -1,22 +1,24 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { api } from '../services/api';
-import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell 
-} from 'recharts';
-import { Package, TrendingUp, Layers, Activity, Trash2, Loader2 } from 'lucide-react';
-import { monthsOfCycle, monthLabel, normalizeMonth, vnYear } from '../utils/period';
+import { Package, TrendingUp, Layers, Activity, Trash2, Loader2, BarChart3, ChevronDown, ChevronRight } from 'lucide-react';
+import { monthsOfCycle, monthLabel, monthLabelFull, normalizeMonth, vnYear } from '../utils/period';
+import { tienRutGon, tienDayDu } from '../utils/formatMoney';
 import StatusBadge from '../components/StatusBadge';
 import { statusLabel } from '../utils/glossary';
 import { appConfirm } from '../services/dialogService';
 import { thongBao } from '../services/toastService';
 import { loadPref, savePref } from '../services/prefs';
+import { usePersistedState } from '../utils/usePersistedState';
 import { useTableSort } from '../utils/useTableSort';
 import { SortTh, StateRow } from '../components/TableStates';
 
+// Biểu đồ nằm ở một chunk riêng (kéo theo thư viện recharts ~108KB gzip): chỉ tải khi người dùng mở phần "Biểu đồ",
+// không còn tải cho mọi người chỉ vì họ mở màn Tổng quan (Đợt 3 mục 7).
+const taiBieuDo = () => import('../components/DashboardCharts');
+const DashboardCharts = React.lazy(taiBieuDo);
+
 const laChuoi = (v) => typeof v === 'string';
 const maDong = (r) => r.key;
-
-const COLORS = ['#0284c7', '#0d9488', '#f59e0b', '#8b5cf6', '#ec4899', '#64748b'];
 
 /**
  * Chu kỳ xoá được hay không — BẢN SAO của `chuKyXoaDuoc` ở fc-api/mutations.js (server mới là nơi quyết định; đây chỉ để ẩn/hiện nút):
@@ -38,6 +40,8 @@ export default function Dashboard({ currentBU, user }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  // Phần "Biểu đồ" thu gọn mặc định, nhớ lựa chọn: người đã mở một lần thì lần sau mở sẵn (và mới tải recharts lúc đó).
+  const [hienBieuDo, setHienBieuDo] = usePersistedState('dashCharts', false, (v) => typeof v === 'boolean');
 
   const isAdmin = user?.role === 'central_admin';
 
@@ -194,8 +198,7 @@ export default function Dashboard({ currentBU, user }) {
           >
             {cycles.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.business_unit_code} · {monthLabel(c.base_month)} · {String(c.base_month).slice(0, 4)}
-                {c.status === 'draft' ? ' (nháp)' : ''}
+                {c.business_unit_code} · {monthLabelFull(c.base_month)} · {statusLabel(c.status)}
               </option>
             ))}
           </select>
@@ -277,61 +280,35 @@ export default function Dashboard({ currentBU, user }) {
 
       </div>
 
-      {/* Visual Analytics Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Chart 1: Bar chart by Business Unit */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center justify-between">
-            <span>SẢN LƯỢNG KẾ HOẠCH THEO ĐƠN VỊ KINH DOANH</span>
-            <span className="text-xs text-slate-500 font-normal">
-              {cycleMonths.length
-                ? `Bảng 0.SUM (${monthLabel(cycleMonths[0])} → ${monthLabel(cycleMonths[cycleMonths.length - 1])})`
-                : 'Bảng 0.SUM'}
-            </span>
-          </h3>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartDataBU}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip formatter={(val) => Number(val).toLocaleString('vi-VN')} />
-                <Bar dataKey="sản_lượng" fill="#0284c7" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+      {/* Biểu đồ: thu gọn mặc định; mở ra mới tải thư viện biểu đồ (React.lazy) */}
+      <div>
+        <button
+          type="button"
+          onClick={() => setHienBieuDo((v) => !v)}
+          onMouseEnter={taiBieuDo}
+          onFocus={taiBieuDo}
+          aria-expanded={hienBieuDo}
+          aria-controls="vung-bieu-do"
+          title="Biểu đồ được tải khi mở (thư viện vẽ biểu đồ khá nặng, không cần cho người chỉ xem bảng)"
+          className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl shadow-sm px-4 py-2.5 text-xs font-bold text-slate-800 w-full sm:w-auto"
+        >
+          {hienBieuDo ? <ChevronDown className="w-4 h-4" aria-hidden="true" /> : <ChevronRight className="w-4 h-4" aria-hidden="true" />}
+          <BarChart3 className="w-4 h-4 text-blue-700" aria-hidden="true" />
+          {hienBieuDo ? 'Ẩn biểu đồ' : 'Xem biểu đồ sản lượng'}
+        </button>
+        {hienBieuDo && (
+          <div id="vung-bieu-do" className="mt-4">
+            <React.Suspense fallback={<div className="bg-white p-5 rounded-xl border border-slate-200 text-xs text-slate-500">Đang tải biểu đồ...</div>}>
+              <DashboardCharts
+                dataBU={chartDataBU}
+                dataGroup={chartDataGroup}
+                khungThoiGian={cycleMonths.length
+                  ? `Bảng 0.SUM (${monthLabel(cycleMonths[0])} → ${monthLabel(cycleMonths[cycleMonths.length - 1])})`
+                  : 'Bảng 0.SUM'}
+              />
+            </React.Suspense>
           </div>
-        </div>
-
-        {/* Chart 2: Pie chart by Product Group */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center justify-between">
-            <span>CƠ CẤU SẢN LƯỢNG THEO NHÓM HÀNG</span>
-            <span className="text-xs text-slate-500 font-normal">Tỷ trọng %</span>
-          </h3>
-          <div className="h-64 flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={chartDataGroup}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={90}
-                  paddingAngle={5}
-                  dataKey="value"
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                >
-                  {chartDataGroup.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(val) => Number(val).toLocaleString('vi-VN')} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
+        )}
       </div>
 
       {/* Aggregated B0.SUM Table */}
@@ -360,7 +337,8 @@ export default function Dashboard({ currentBU, user }) {
               <tr className="border-b border-slate-200">
                 {monthCols.map((m) => (
                   <th key={m} className="pb-2 px-4 text-right font-normal text-[11px] text-slate-500 font-mono">
-                    {(monthTotals[m]?.revenue || 0).toLocaleString('vi-VN')} đ
+                    {/* Doanh thu rút gọn tỷ / triệu cho dễ đọc; số đồng đầy đủ ở tooltip */}
+                    <span title={tienDayDu(monthTotals[m]?.revenue || 0)} className="cursor-help">{tienRutGon(monthTotals[m]?.revenue || 0)}</span>
                   </th>
                 ))}
               </tr>
@@ -412,7 +390,7 @@ export default function Dashboard({ currentBU, user }) {
         </div>
 
         <p className="px-6 py-2 text-[11px] text-slate-500 border-t border-slate-100">
-          Số trong ô là sản lượng (chiếc). Dòng nhạt dưới tên tháng là doanh thu dự kiến của cả tháng (VNĐ).
+          Số trong ô là sản lượng (chiếc). Dòng nhạt dưới tên tháng là doanh thu dự kiến của cả tháng, rút gọn theo tỷ / triệu đồng (rê chuột vào số để xem đầy đủ).
         </p>
       </div>
 
