@@ -71,6 +71,8 @@ export default function WeeklyForecast({ currentBU, user }) {
   const canReopen = user?.role === 'bu_approver' || user?.role === 'central_admin';
   const cycleLocked = selectedCycle?.status === 'approved' || selectedCycle?.status === 'locked';
   const canWrite = isEditor && !!selectedVersion && !cycleLocked;
+  // Đang chờ duyệt: lưu là server rút yêu cầu duyệt (xem MonthlyForecast).
+  const choDuyet = selectedCycle?.status === 'submitted';
 
   /** Áp dữ liệu đã có sẵn (từ action gộp) vào state, không gọi mạng thêm. */
   const applyForecasts = useCallback((monthlyQuantities, splits, valRes) => {
@@ -242,12 +244,16 @@ export default function WeeklyForecast({ currentBU, user }) {
   };
 
   const handleSave = async () => {
+    if (choDuyet && dirtyKeys.size > 0
+      && !window.confirm('Bản đang chờ duyệt — lưu sẽ rút yêu cầu duyệt, cần gửi lại. Vẫn lưu?')) return;
     setSaving(true);
     setMessage(null);
     try {
       const res = await saveChanges();
-      const valRes = await api.validateWeeklySplits(selectedVersion.id);
-      setValidationResult(valRes);
+      // Server vừa đưa chu kỳ về nháp: nạp lại cả màn để trạng thái đúng với server
+      // (loadAll tính lại cả phần kiểm tra khớp số).
+      if (res.approvalWithdrawn) await loadAll(selectedCycle.id, selectedVersion.id);
+      else setValidationResult(await api.validateWeeklySplits(selectedVersion.id));
       setMessage({
         type: 'success',
         text: res.skipped ? 'Không có thay đổi nào để lưu.' : res.message
@@ -407,6 +413,12 @@ export default function WeeklyForecast({ currentBU, user }) {
 
       <ValidationAlert validationResult={validationResult} />
 
+      {choDuyet && isEditor && (
+        <div className="bg-amber-50 border border-amber-300 text-amber-900 text-xs rounded-lg p-3">
+          Bản đang chờ duyệt — lưu thay đổi sẽ rút yêu cầu duyệt, cần gửi lại.
+        </div>
+      )}
+
       <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -454,30 +466,42 @@ export default function WeeklyForecast({ currentBU, user }) {
             weekColumns={weeks}
             weekBaseMonthLabel={baseMonth ? monthLabel(baseMonth) : ''}
             regionCodes={regionCodes}
+            versionId={selectedVersion?.id}
+            unsavedCount={dirtyKeys.size}
+            cycleStatus={selectedCycle?.status}
             onClose={() => setShowImport(false)}
             onProductsAdded={(newProducts) => {
               setProducts((prev) => [...prev, ...newProducts]);
             }}
             onImported={async ({ monthlyUpdates, weeklyUpdates }) => {
               const parts = [];
+              let daRut = false;
               if (monthlyUpdates.length) {
                 const lines = monthlyUpdates.map(({ rowKey, col, value }) => ({
                   skuCode: rowKey, forecastMonth: col, quantity: value
                 }));
                 // Nhập lại = ghi đè trọn bản kế hoạch này: SKU không còn trong file
                 // phải biến mất, không được nằm lại cộng vào tổng.
-                await api.saveMonthlyLines(selectedVersion.id, lines, true);
+                const r = await api.saveMonthlyLines(selectedVersion.id, lines, true);
+                daRut = daRut || !!r.approvalWithdrawn;
                 parts.push(`${lines.length} ô Bảng tháng`);
               }
               if (weeklyUpdates.length) {
                 const splits = weeklyUpdates.map(({ rowKey, col, value }) => ({
                   skuCode: rowKey, weekNumber: col.week, regionCode: col.region, quantity: value
                 }));
-                await api.saveWeeklySplits(selectedVersion.id, splits, true);
+                const r = await api.saveWeeklySplits(selectedVersion.id, splits, true);
+                daRut = daRut || !!r.approvalWithdrawn;
                 parts.push(`${splits.length} ô Bảng tuần/miền`);
               }
-              await loadForecasts(selectedVersion.id, normalizeMonth(selectedCycle.base_month));
-              setMessage({ type: 'success', text: parts.length ? `Đã lưu ${parts.join(' và ')}.` : 'Không có ô nào được cập nhật.' });
+              // Rút duyệt -> trạng thái chu kỳ đổi, nạp lại cả màn.
+              if (daRut) await loadAll(selectedCycle.id, selectedVersion.id);
+              else await loadForecasts(selectedVersion.id, normalizeMonth(selectedCycle.base_month));
+              setMessage({
+                type: 'success',
+                text: (parts.length ? `Đã lưu ${parts.join(' và ')}.` : 'Không có ô nào được cập nhật.')
+                  + (daRut ? ' Bản đang chờ duyệt đã được rút về nháp — cần gửi duyệt lại.' : '')
+              });
             }}
           />
         </React.Suspense>

@@ -9,7 +9,7 @@ const ImportForecastModal = React.lazy(() => import('../components/ImportForecas
 const ImportFromSourceModal = React.lazy(() => import('../components/ImportFromSourceModal'));
 import { Save, Send, Search, Filter, AlertCircle, CheckCircle2, Loader2, ArrowDownToLine, PackagePlus, FileSpreadsheet, CopyPlus, Target } from 'lucide-react';
 import { monthsOfCycle, monthLabel, weeksOfMonth } from '../utils/period';
-import { setDirty } from '../services/dirtyState';
+import { setDirty, confirmNavigateAway } from '../services/dirtyState';
 
 // Hai đơn vị có app nguồn để nhập thẳng. Các đơn vị khác vẫn nhập từ file như cũ.
 const SOURCE_BUS = ['OEM', 'XK'];
@@ -75,6 +75,9 @@ export default function MonthlyForecast({ currentBU, user }) {
   const canReopen = user?.role === 'bu_approver' || user?.role === 'central_admin';
   const cycleLocked = selectedCycle?.status === 'approved' || selectedCycle?.status === 'locked';
   const canWrite = isEditor && !!selectedVersion && !cycleLocked;
+  // Đang chờ duyệt vẫn sửa được (09/10/2026), nhưng lưu là server RÚT yêu cầu
+  // duyệt trong cùng lượt ghi — người duyệt không thể duyệt số khác số đã xem.
+  const choDuyet = selectedCycle?.status === 'submitted';
 
   /** Tập SKU có ít nhất một tháng > 0, tính từ một map số lượng. */
   const computeNonZero = useCallback((map) => {
@@ -276,10 +279,15 @@ export default function MonthlyForecast({ currentBU, user }) {
   };
 
   const handleSave = async () => {
+    if (choDuyet && dirtyKeys.size > 0
+      && !window.confirm('Bản đang chờ duyệt — lưu sẽ rút yêu cầu duyệt, cần gửi lại. Vẫn lưu?')) return;
     setSaving(true);
     setMessage(null);
     try {
       const res = await saveChanges();
+      // Server vừa đưa chu kỳ về nháp: nạp lại để huy hiệu trạng thái + danh
+      // sách chu kỳ đúng với server (loadAll xoá thông báo nên đặt sau).
+      if (res.approvalWithdrawn) await loadAll(selectedCycle.id, selectedVersion.id);
       setMessage({
         type: 'success',
         text: res.skipped ? 'Không có thay đổi nào để lưu.' : res.message
@@ -589,6 +597,11 @@ export default function MonthlyForecast({ currentBU, user }) {
           Chu kỳ đã được duyệt/khoá — bảng ở chế độ chỉ xem.
         </div>
       )}
+      {choDuyet && isEditor && (
+        <div className="bg-amber-50 border border-amber-300 text-amber-900 text-xs rounded-lg p-3">
+          Bản đang chờ duyệt — lưu thay đổi sẽ rút yêu cầu duyệt, cần gửi lại.
+        </div>
+      )}
 
       <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="relative flex-1 w-full">
@@ -637,7 +650,7 @@ export default function MonthlyForecast({ currentBU, user }) {
               </button>
               {SOURCE_BUS.includes(currentBU) && (
                 <button
-                  onClick={() => setShowImportSource(true)}
+                  onClick={() => { if (confirmNavigateAway('Nhập từ app nguồn (mở sang bản cập nhật mới)')) setShowImportSource(true); }}
                   className="flex items-center gap-1.5 border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
                 >
                   <ArrowDownToLine className="w-3.5 h-3.5" />
@@ -698,30 +711,42 @@ export default function MonthlyForecast({ currentBU, user }) {
             weekColumns={months[0] ? weeksOfMonth(months[0]) : []}
             weekBaseMonthLabel={months[0] ? monthLabel(months[0]) : ''}
             regionCodes={regions.map((r) => r.code)}
+            versionId={selectedVersion?.id}
+            unsavedCount={dirtyKeys.size}
+            cycleStatus={selectedCycle?.status}
             onClose={() => setShowImport(false)}
             onProductsAdded={(newProducts) => {
               setProducts((prev) => [...prev, ...newProducts]);
             }}
             onImported={async ({ monthlyUpdates, weeklyUpdates }) => {
               const parts = [];
+              let daRut = false;
               if (monthlyUpdates.length) {
                 const lines = monthlyUpdates.map(({ rowKey, col, value }) => ({
                   skuCode: rowKey, forecastMonth: col, quantity: value
                 }));
                 // Nhập lại = ghi đè trọn bản kế hoạch này: SKU không còn trong file
                 // phải biến mất, không được nằm lại cộng vào tổng.
-                await api.saveMonthlyLines(selectedVersion.id, lines, true);
+                const r = await api.saveMonthlyLines(selectedVersion.id, lines, true);
+                daRut = daRut || !!r.approvalWithdrawn;
                 parts.push(`${lines.length} ô Bảng tháng`);
               }
               if (weeklyUpdates.length) {
                 const splits = weeklyUpdates.map(({ rowKey, col, value }) => ({
                   skuCode: rowKey, weekNumber: col.week, regionCode: col.region, quantity: value
                 }));
-                await api.saveWeeklySplits(selectedVersion.id, splits, true);
+                const r = await api.saveWeeklySplits(selectedVersion.id, splits, true);
+                daRut = daRut || !!r.approvalWithdrawn;
                 parts.push(`${splits.length} ô Bảng tuần/miền`);
               }
-              if (monthlyUpdates.length) await loadLines(selectedVersion.id);
-              setMessage({ type: 'success', text: parts.length ? `Đã lưu ${parts.join(' và ')}.` : 'Không có ô nào được cập nhật.' });
+              // Rút duyệt -> trạng thái chu kỳ đổi, nạp lại cả màn; không thì chỉ nạp lại lưới tháng.
+              if (daRut) await loadAll(selectedCycle.id, selectedVersion.id);
+              else if (monthlyUpdates.length) await loadLines(selectedVersion.id);
+              setMessage({
+                type: 'success',
+                text: (parts.length ? `Đã lưu ${parts.join(' và ')}.` : 'Không có ô nào được cập nhật.')
+                  + (daRut ? ' Bản đang chờ duyệt đã được rút về nháp — cần gửi duyệt lại.' : '')
+              });
             }}
           />
         </React.Suspense>

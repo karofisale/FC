@@ -15,7 +15,7 @@ export const KAROFI_APPS = [
     nhan: 'Forecast',
     href: '/FC/',
     mo_ta: 'Lập và chốt kế hoạch sản lượng theo kỳ cho từng đơn vị kinh doanh.',
-    api: 'https://script.google.com/macros/s/AKfycbyyzw_uTdteqLobl6TB1DvcBxqE4BiorHFksXLx4Zc5jItQJD943vjXSynAecurccmS/exec'
+    api: 'https://zzbnxyvjpiuhxauagbgh.supabase.co/functions/v1/fc-api'   // fc-api (Edge) thay Apps Script FC đã đóng băng — 09/10/2026
   },
   {
     key: 'OEM',

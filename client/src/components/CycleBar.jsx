@@ -3,6 +3,7 @@ import { CalendarPlus, GitBranch, Loader2, AlertCircle, Unlock, X } from 'lucide
 import StatusBadge from './StatusBadge';
 import { api } from '../services/api';
 import { currentMonth, isoWeekLabel, monthLabel, todayISO } from '../utils/period';
+import { confirmNavigateAway } from '../services/dirtyState';
 
 /**
  * Thanh chọn chu kỳ / bản cập nhật, kèm ba thao tác mà bản cũ không có
@@ -12,6 +13,12 @@ import { currentMonth, isoWeekLabel, monthLabel, todayISO } from '../utils/perio
  * canReopen tách riêng khỏi canEdit vì đây là quyền của người THẨM ĐỊNH:
  * người đã duyệt mới là người được rút lại phê duyệt, không phải người lập
  * kế hoạch. Backend cũng kiểm lại vai trò này, nút chỉ là lớp hiển thị.
+ *
+ * Đổi chu kỳ / bản cập nhật, mở chu kỳ mới, tạo bản tuần mới đều NẠP LẠI lưới
+ * của trang cha -> ô chưa lưu mất sạch mà không ai hỏi (đổi tab/đơn vị thì đã
+ * hỏi từ trước). Hỏi ở đây bằng chính confirmNavigateAway, một chỗ cho cả
+ * MonthlyForecast lẫn WeeklyForecast (09/10/2026). Select là controlled, nên
+ * bấm Huỷ thì giá trị tự quay về lựa chọn cũ.
  */
 export default function CycleBar({
   currentBU,
@@ -42,6 +49,7 @@ export default function CycleBar({
   }, [currentBU, selectedCycle?.id, selectedVersion?.id]);
 
   const createCycle = async () => {
+    if (!confirmNavigateAway('Mở chu kỳ mới')) return;
     setError(null);
     setCreating('cycle');
     try {
@@ -60,6 +68,7 @@ export default function CycleBar({
 
   const createVersion = async () => {
     if (!selectedCycle) return;
+    if (!confirmNavigateAway('Tạo bản cập nhật tuần mới')) return;
     // Tạo bản mới là nhân bản toàn bộ số từ bản gần nhất (copyFromPrevious) —
     // bấm nhầm là có ngay một bản cập nhật thừa phải dọn tay, nên hỏi lại
     // giống mẫu Duyệt/Từ chối ở Approvals.jsx.
@@ -109,7 +118,7 @@ export default function CycleBar({
           {cycles.length > 0 ? (
             <select
               value={selectedCycle?.id || ''}
-              onChange={(e) => onSelectCycle(cycles.find((c) => c.id === e.target.value))}
+              onChange={(e) => { if (confirmNavigateAway('Đổi chu kỳ')) onSelectCycle(cycles.find((c) => c.id === e.target.value)); }}
               className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500"
             >
               {cycles.map((c) => (
@@ -130,7 +139,7 @@ export default function CycleBar({
             <span className="text-xs text-slate-500 whitespace-nowrap">Bản cập nhật:</span>
             <select
               value={selectedVersion?.id || ''}
-              onChange={(e) => onSelectVersion(versions.find((v) => v.id === e.target.value))}
+              onChange={(e) => { if (confirmNavigateAway('Đổi bản cập nhật')) onSelectVersion(versions.find((v) => v.id === e.target.value)); }}
               className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500"
             >
               {versions.map((v) => (

@@ -20,8 +20,18 @@ export function isDirty() {
   return dirty;
 }
 
-/** Hỏi xác nhận nếu đang dirty; trả về true nếu được phép điều hướng tiếp. */
-export function confirmNavigateAway() {
+/**
+ * Hỏi xác nhận nếu đang dirty; trả về true nếu được phép điều hướng tiếp.
+ *
+ * @param {string} [hanhDong] việc sắp làm, vd 'Đổi chu kỳ' — dùng khi việc đó
+ *   không phải rời trang mà là nạp lại lưới NGAY TRÊN trang (đổi chu kỳ / bản
+ *   cập nhật / tháng / năm). Mất ô chưa lưu y hệt rời trang, nên phải hỏi
+ *   giống hệt; chỉ câu chữ khác cho đúng việc người dùng vừa bấm.
+ */
+export function confirmNavigateAway(hanhDong) {
   if (!dirty) return true;
-  return window.confirm(reason + '\n\nBạn có chắc muốn rời khỏi trang này?');
+  const cauHoi = hanhDong
+    ? hanhDong + ' sẽ BỎ các thay đổi chưa lưu này. Vẫn tiếp tục?'
+    : 'Bạn có chắc muốn rời khỏi trang này?';
+  return window.confirm(reason + '\n\n' + cauHoi);
 }

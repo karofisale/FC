@@ -5,7 +5,7 @@ import {
   Save, Search, AlertCircle, CheckCircle2, Loader2, TrendingUp, TrendingDown, Minus, FileDown
 } from 'lucide-react';
 import { monthLabel } from '../utils/period';
-import { setDirty } from '../services/dirtyState';
+import { setDirty, confirmNavigateAway } from '../services/dirtyState';
 import CaoSapPanel from '../components/CaoSapPanel';
 
 const ImportActualsModal = React.lazy(() => import('../components/ImportActualsModal'));
@@ -191,10 +191,11 @@ export default function Actuals({ currentBU, user }) {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Đổi tháng là nạp lại lưới -> ô chưa lưu mất; hỏi như khi rời trang (09/10/2026) */}
           <input
             type="month"
             value={month.slice(0, 7)}
-            onChange={(e) => setMonth(`${e.target.value}-01`)}
+            onChange={(e) => { if (confirmNavigateAway('Đổi tháng')) setMonth(`${e.target.value}-01`); }}
             className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-blue-500"
           />
           {/* Miền dành cho sản lượng thực hiện (scope = 'actual'): ZSD450 không tách

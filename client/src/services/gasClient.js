@@ -72,7 +72,20 @@ const NON_IDEMPOTENT_ACTIONS = new Set([
   // Nhập SOP tạo ra một bản cập nhật mới. Gọi lại sau khi hết giờ chờ mà lần
   // trước thực ra đã chạy xong sẽ tạo bản THỨ HAI — đúng thứ danh sách này
   // sinh ra để chặn.
-  'importSopFromSource'
+  'importSopFromSource',
+  // Kế hoạch năm (09/10/2026 — trước đó thiếu cả nhóm này):
+  //  - saveAnnualPlanFinal: mỗi lần gọi tạo MỘT phiên bản Final mới -> gửi lại
+  //    là thêm một bản Final trùng và đẩy bản vừa tạo thành "Đã thay thế".
+  //  - submitAnnualPlan / decideAnnualPlan: lần hai báo "chỉ gửi/duyệt được
+  //    bản ..." cho một lượt thực ra đã thành công; duyệt còn điền KPI OEM.
+  //  - applyAnnualPlanToKpi: ghi đè KPI năm OEM — không được tự chạy lại.
+  //  - discardAnnualPlan: xoá bản nháp; lần hai báo "không tìm thấy".
+  //  - saveAnnualPlan: ghi đè trọn bản, có kiểm phiên bản (expectedUpdatedAt)
+  //    — lượt gửi lại sau một lượt đã ghi xong sẽ bị báo nhầm là "người khác
+  //    vừa lưu". Thà báo mất kết nối để người dùng tự bấm lưu lại.
+  // createAnnualPlan KHÔNG cần: đã có bản đang soạn thì server trả lại bản đó.
+  'saveAnnualPlanFinal', 'submitAnnualPlan', 'decideAnnualPlan', 'applyAnnualPlanToKpi',
+  'discardAnnualPlan', 'saveAnnualPlan'
 ]);
 
 export class ApiError extends Error {

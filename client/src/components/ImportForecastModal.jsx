@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   X, Upload, Sheet, Loader2, AlertCircle, ArrowLeft, ArrowRight,
-  CheckCircle2, FileSpreadsheet
+  CheckCircle2, FileSpreadsheet, Eye
 } from 'lucide-react';
 import { api } from '../services/api';
 import { parsePastedNumber } from '../utils/useGridEditing';
@@ -17,7 +17,14 @@ const NONE = '__none__';
  * Nhập forecast hàng loạt từ file Excel tải lên hoặc một tab Google
  * Sheet ngoài. Luồng: chọn nguồn -> (nếu nhiều tab, chọn tab) -> gán cột
  * (mã SKU + từng tháng, và tuỳ chọn từng tuần) -> phát hiện SKU chưa có
- * trong danh mục, cho điền nhanh rồi ghi hàng loạt -> lưu thẳng lên server.
+ * trong danh mục, cho điền nhanh rồi ghi hàng loạt -> XEM TRƯỚC -> người dùng
+ * bấm xác nhận "Ghi đè N dòng" mới lưu lên server.
+ *
+ * Bước xem trước (09/10/2026): bản cũ bấm "Đọc dữ liệu" là ghi + THAY TRỌN
+ * bản cập nhật ngay (replaceAll), không cho xem lại; gán lệch một cột là số
+ * sai đã vào kế hoạch. Giờ nút đầu chỉ đọc và hiện tóm tắt (bao nhiêu dòng,
+ * sẽ xoá bao nhiêu dòng đang có, mã nào chưa có trong danh mục, ô chưa lưu
+ * trên lưới sẽ mất, bản đang chờ duyệt sẽ bị rút) — chỉ nút xác nhận mới ghi.
  *
  * File nguồn không cố định dòng nào là tiêu đề/bắt đầu dữ liệu (một số
  * file xuất có vài dòng tiêu đề/ghi chú phía trên bảng thật), nên người
@@ -40,21 +47,27 @@ const NONE = '__none__';
  *   có sẽ ghi 0 (không giữ nguyên số cũ) để tổng tuần luôn khớp với dữ
  *   liệu vừa nhập.
  * onImported({ monthlyUpdates, weeklyUpdates }): gọi (và được await) sau
- *   khi người dùng xác nhận — updates dạng [{ rowKey: skuCode, col, value }].
+ *   khi người dùng bấm xác nhận ở bước xem trước — updates dạng
+ *   [{ rowKey: skuCode, col, value }].
  *   Trang cha tự lưu thẳng lên server (saveMonthlyLines/saveWeeklySplits)
  *   và tải lại dữ liệu, vì bảng còn lại có thể không đang mở để tô ô chờ lưu.
  * onProductsAdded(products): gọi khi có SKU mới vừa được ghi vào danh
  *   mục — trang cha cần đẩy ngay vào state `products` của mình (giống
  *   AddProductModal.onAdded), nếu không SKU mới không hiện lên lưới và
  *   không được tính vào tổng cho tới khi tải lại trang.
+ * versionId: bản cập nhật sẽ bị ghi đè — chỉ để ĐẾM số dòng đang có cho bước
+ *   xem trước. unsavedCount: số ô chưa lưu trên lưới của trang cha (ghi đè
+ *   xong trang nạp lại lưới, các ô đó mất). cycleStatus: 'submitted' thì ghi
+ *   đè sẽ rút yêu cầu duyệt (server tự làm) — nói trước cho người dùng biết.
  */
 export default function ImportForecastModal({
   currentBU, groups, bus,
   monthColumns, monthColumnLabel,
   weekColumns, regionCodes = [], weekBaseMonthLabel,
+  versionId, unsavedCount = 0, cycleStatus,
   onClose, onImported, onProductsAdded
 }) {
-  const [step, setStep] = useState('source'); // source | sheetPicker | mapping | missing | done
+  const [step, setStep] = useState('source'); // source | sheetPicker | mapping | preview | missing | done
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -102,6 +115,9 @@ export default function ImportForecastModal({
   const [bulkChannel, setBulkChannel] = useState(currentBU || bus[0]?.code || '');
   const [result, setResult] = useState(null);
   const [resultCounts, setResultCounts] = useState({ monthly: 0, weekly: 0 });
+  // Số dòng ĐANG CÓ trong bản cập nhật, để bước xem trước nói được "sẽ xoá M dòng".
+  // null = chưa đếm / không đếm được (vẫn cho ghi, chỉ là không nói được con số).
+  const [dangCo, setDangCo] = useState(null);
 
   // Esc đóng modal — mọi bước của luồng chỉ dùng input/select thường, không
   // có dropdown gợi ý riêng nào cần chặn Esc trước, nên đóng thẳng dù đang
@@ -475,19 +491,71 @@ export default function ImportForecastModal({
       });
 
       setParsedRows(parsed);
-      const missing = Array.from(missingMap.values());
-      if (missing.length) {
-        setMissingSkus(missing);
-        setStep('missing');
-      } else {
-        await applyImport(parsed);
-      }
+      setMissingSkus(Array.from(missingMap.values()));
+      setDangCo(await demDongDangCo(parsed));
+      setStep('preview');
     } catch (err) {
       setError(err.message);
     } finally {
       setBusy(false);
     }
   }
+
+  /**
+   * Đếm số dòng đang có của bản cập nhật ở ĐÚNG những bảng sẽ bị thay (file
+   * không gán cột tuần thì Bảng tuần/miền không bị đụng, không cần đếm). Lỗi
+   * đọc không chặn việc nhập — chỉ là bước xem trước không nói được con số.
+   */
+  async function demDongDangCo(rows) {
+    if (!versionId) return null;
+    const coThang = rows.some((r) => Object.keys(r.values).length > 0);
+    const coTuan = rows.some((r) => r.weekValues);
+    try {
+      const [m, w] = await Promise.all([
+        coThang ? api.getMonthlyLines(versionId) : Promise.resolve(null),
+        coTuan ? api.getWeeklySplits(versionId) : Promise.resolve(null)
+      ]);
+      return { monthly: m ? m.length : null, weekly: w ? w.length : null };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Tóm tắt cho bước xem trước — tính từ đúng danh sách dòng sẽ được ghi. */
+  const xemTruoc = useMemo(() => {
+    const coThang = parsedRows.some((r) => Object.keys(r.values).length > 0);
+    const coTuan = parsedRows.some((r) => r.weekValues);
+    const tongThang = monthColumns.map((col) => parsedRows.reduce((s, r) => s + (Number(r.values[colKey(col)]) || 0), 0));
+    let oThang = 0, oTuan = 0, tongTuan = 0;
+    parsedRows.forEach((r) => {
+      Object.values(r.values).forEach((v) => { if (Number(v) > 0) oThang++; });
+      if (r.weekValues) {
+        Object.values(r.weekValues).forEach((byRegion) => Object.values(byRegion).forEach((v) => {
+          if (Number(v) > 0) { oTuan++; tongTuan += Number(v); }
+        }));
+      }
+    });
+    return { soDong: parsedRows.length, coThang, coTuan, tongThang, oThang, oTuan, tongTuan };
+  }, [parsedRows, monthColumns]);
+
+  /** Ghi đè xong trang cha nạp lại lưới -> ô đang sửa dở mất. Hỏi lại ngay trước lúc ghi. */
+  const xacNhanBoOChuaLuu = () => unsavedCount <= 0 || window.confirm(
+    `Bảng đang có ${unsavedCount} ô chưa lưu. Ghi đè từ file sẽ BỎ các ô này (nạp lại số vừa nhập). Vẫn ghi đè?`
+  );
+
+  /** Bước xem trước -> xác nhận -> mới ghi. Chỉ dùng khi KHÔNG có mã chưa có trong danh mục. */
+  const handleConfirmWrite = async () => {
+    if (!xacNhanBoOChuaLuu()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await applyImport(parsedRows);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // ---- Bước 3 (nếu có): thêm SKU thiếu hàng loạt ----
 
@@ -505,6 +573,7 @@ export default function ImportForecastModal({
       setError(`Còn ${incomplete.length} SKU chưa nhập tên: ${incomplete.map((p) => p.skuCode).slice(0, 5).join(', ')}${incomplete.length > 5 ? '...' : ''}`);
       return;
     }
+    if (!xacNhanBoOChuaLuu()) return;
     setBusy(true);
     setError(null);
     try {
@@ -944,7 +1013,7 @@ export default function ImportForecastModal({
                       ? 'Không tìm thấy dòng phân cách mang tên miền đó ở cột mã SKU. Kiểm lại ô "Cột mã SKU" đã trỏ đúng cột chứa chữ "Miền Bắc" / "Miền Nam" chưa.'
                       : 'Chọn sheet cho miền còn thiếu ở phần trên.'}
                   </p>
-                  <p className="mt-1">Nhập thiếu một miền sẽ làm mất số của miền đó, nên nút Đọc dữ liệu tạm khoá.</p>
+                  <p className="mt-1">Nhập thiếu một miền sẽ làm mất số của miền đó, nên nút Xem trước tạm khoá.</p>
                 </div>
               )}
 
@@ -957,9 +1026,76 @@ export default function ImportForecastModal({
                   disabled={!canProceedMapping || busy}
                   className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-1.5 rounded-lg text-xs font-semibold"
                 >
-                  {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRight className="w-3.5 h-3.5" />}
-                  Đọc dữ liệu
+                  {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
+                  Xem trước
                 </button>
+              </div>
+              <p className="text-[11px] text-slate-500 text-right">Chưa ghi gì — bước sau cho xem tóm tắt rồi mới xác nhận ghi đè.</p>
+            </div>
+          )}
+
+          {step === 'preview' && (
+            <div className="space-y-3">
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1.5 text-xs text-slate-700">
+                <p className="font-bold text-slate-900">Xem trước — CHƯA ghi gì</p>
+                <p>
+                  Đọc được <strong>{xemTruoc.soDong.toLocaleString('vi-VN')} dòng</strong> (mã SKU) từ file
+                  {xemTruoc.coThang && <> · {xemTruoc.oThang.toLocaleString('vi-VN')} ô tháng có số</>}
+                  {xemTruoc.coTuan && <> · {xemTruoc.oTuan.toLocaleString('vi-VN')} ô tuần/miền có số</>}.
+                </p>
+                {xemTruoc.coThang && (
+                  <p className="font-mono text-[11px] text-slate-600">
+                    {monthColumns.map((col, i) => `${monthColumnLabel(col)}: ${xemTruoc.tongThang[i].toLocaleString('vi-VN')}`).join(' · ')}
+                  </p>
+                )}
+                {xemTruoc.coTuan && (
+                  <p className="font-mono text-[11px] text-slate-600">Tổng tuần/miền ({weekBaseMonthLabel}): {xemTruoc.tongTuan.toLocaleString('vi-VN')}</p>
+                )}
+              </div>
+
+              <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 space-y-1 text-xs text-amber-900">
+                <p className="font-bold">Sẽ GHI ĐÈ TRỌN bản cập nhật đang mở:</p>
+                {xemTruoc.coThang && (
+                  <p>• Bảng tháng: xoá {dangCo?.monthly != null ? <strong>{dangCo.monthly.toLocaleString('vi-VN')} dòng</strong> : 'toàn bộ các dòng'} đang có, thay bằng số trong file (mã không có trong file sẽ về 0).</p>
+                )}
+                {xemTruoc.coTuan
+                  ? <p>• Bảng tuần/miền: xoá {dangCo?.weekly != null ? <strong>{dangCo.weekly.toLocaleString('vi-VN')} dòng</strong> : 'toàn bộ các dòng'} đang có, thay bằng số trong file.</p>
+                  : <p>• Bảng tuần/miền: không đổi (file không gán cột tuần).</p>}
+                {unsavedCount > 0 && (
+                  <p className="font-semibold text-rose-700">• Lưới đang có {unsavedCount} ô chưa lưu — ghi đè sẽ BỎ các ô này.</p>
+                )}
+                {cycleStatus === 'submitted' && (
+                  <p className="font-semibold text-rose-700">• Bản đang chờ duyệt — ghi đè sẽ rút yêu cầu duyệt, cần gửi lại.</p>
+                )}
+              </div>
+
+              {missingSkus.length > 0 && (
+                <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 text-xs text-rose-800 space-y-1">
+                  <p className="font-bold">{missingSkus.length} mã chưa có trong danh mục — phải khai báo trước khi ghi:</p>
+                  <p className="font-mono text-[11px] break-words">
+                    {missingSkus.slice(0, 30).map((m) => m.skuCode).join(', ')}{missingSkus.length > 30 ? ` … và ${missingSkus.length - 30} mã nữa` : ''}
+                  </p>
+                </div>
+              )}
+
+              <div className="flex justify-between pt-2">
+                <button onClick={() => setStep('mapping')} disabled={busy} className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700">
+                  <ArrowLeft className="w-3.5 h-3.5" /> Quay lại gán cột
+                </button>
+                {missingSkus.length > 0 ? (
+                  <button onClick={() => setStep('missing')} className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-semibold">
+                    Tiếp: khai báo {missingSkus.length} mã mới <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleConfirmWrite}
+                    disabled={busy || !xemTruoc.soDong}
+                    className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white px-4 py-1.5 rounded-lg text-xs font-semibold"
+                  >
+                    {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                    Ghi đè {xemTruoc.soDong.toLocaleString('vi-VN')} dòng
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -976,13 +1112,13 @@ export default function ImportForecastModal({
               onApplyBulk={applyBulkToAllMissing}
               onUpdateRow={updateMissingRow}
               onConfirm={handleConfirmMissing}
-              onBack={() => setStep('mapping')}
+              onBack={() => setStep('preview')}
               busy={busy}
-              confirmLabel={`Thêm ${missingSkus.length} SKU & áp số liệu`}
+              confirmLabel={`Thêm ${missingSkus.length} SKU & ghi đè ${xemTruoc.soDong.toLocaleString('vi-VN')} dòng`}
               intro={(
                 <>
                   Phát hiện <strong>{missingSkus.length} mã SKU</strong> chưa có trong danh mục Products.
-                  Điền đủ thông tin bên dưới để thêm hàng loạt trước khi áp số lượng.
+                  Điền đủ thông tin bên dưới để thêm hàng loạt — bấm nút xác nhận là thêm mã VÀ ghi đè bản cập nhật như ở bước xem trước.
                 </>
               )}
             />
