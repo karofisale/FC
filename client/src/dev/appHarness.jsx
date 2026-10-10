@@ -11,6 +11,8 @@ import { vnMonth } from '../utils/period';
 const q = new URLSearchParams(window.location.search);
 const ROLE = q.get('role') || 'central_admin';
 const BU = q.get('bu') || 'OEM';
+// ?cu=1: giả lập MÁY CHỦ CŨ chưa có hai action Đợt 4 (countPendingApprovals, listPendingAnnualPlans) — để thử đường dự phòng của client mới.
+const MAY_CHU_CU = q.get('cu') === '1';
 
 const BUS = [{ code: 'OEM', name: 'Domestic OEM' }, { code: 'XK', name: 'Xuất khẩu' }, { code: 'GT2', name: 'Kênh GT2' }];
 const REGIONS = [{ code: 'MB', name: 'Miền Bắc' }, { code: 'MN', name: 'Miền Nam' }];
@@ -68,6 +70,17 @@ const ketQua = (action, p) => {
     case 'logout': return { ok: true };
     case 'getBootstrap': return { businessUnits: BUS, regions: REGIONS, productGroups: GROUPS, user: USER };
     case 'getApprovals': return approvals.filter((a) => !p.status || a.status === p.status);
+    case 'countPendingApprovals': return MAY_CHU_CU ? { error: 'Action chưa được cài đặt: ' + action }
+      : { count: approvals.filter((a) => a.status === 'pending' && (ROLE === 'central_admin' || ROLE === 'viewer' || a.business_unit_code === BU)).length };
+    case 'listPendingAnnualPlans': {
+      if (MAY_CHU_CU) return { error: 'Action chưa được cài đặt: ' + action };
+      if (ROLE !== 'central_admin' && ROLE !== 'bu_approver') return { error: 'FORBIDDEN: Vai trò "' + ROLE + '" không được phép thực hiện thao tác này.' };
+      const tat = [
+        { id: 'ap1', businessUnitCode: 'OEM', unitName: 'Domestic OEM', year: 2027, kind: 'base', revisionNo: 1, status: 'submitted', submittedBy: 'ketoan', submittedAt: '2026-10-08T02:00:00Z', createdBy: 'ketoan', updatedAt: '2026-10-08T02:00:00Z', totalRevenueVnd: 128_400_000_000 },
+        { id: 'ap9', businessUnitCode: 'XK', unitName: 'Export OEM', year: 2027, kind: 'base', revisionNo: 2, status: 'submitted', submittedBy: 'ketoan', submittedAt: '2026-10-09T02:00:00Z', createdBy: 'ketoan', updatedAt: '2026-10-09T02:00:00Z', totalRevenueVnd: 0 }
+      ];
+      return { plans: tat.filter((x) => ROLE === 'central_admin' || x.businessUnitCode === BU) };
+    }
     case 'getApprovalsWorkspace': return { approvals, summary: tongHop() };
     case 'getVersionSummary': return tongHop();
     case 'decideApproval': { const a = approvals.find((x) => x.id === p.approvalId); if (a) { a.status = p.decision; a.decided_at = new Date().toISOString(); a.comment = p.comment; } trangThai.quyetDinh.push({ id: p.approvalId, decision: p.decision, comment: p.comment }); return { ok: true }; }

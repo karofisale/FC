@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ClipboardCheck, ArrowRight, AlertCircle } from 'lucide-react';
 import { api } from '../../services/api';
 import { allowedBUs } from '../../services/auth';
-import { gomKeHoachNamChoDuyet } from '../../utils/annualPending';
+import { gomChoDuyet } from '../../utils/annualPending';
+import { tienRutGon, tienDayDu } from '../../utils/formatMoney';
 import { NHAN_LOAI_KE_HOACH, ngayVN } from '../../utils/glossary';
 
 const KHONG_CO = { items: [], loi: [], daTai: false };
@@ -10,16 +11,20 @@ const KHONG_CO = { items: [], loi: [], daTai: false };
 /**
  * Hook gom MỌI kế hoạch năm đang chờ duyệt (đơn vị × năm) cho người duyệt — Rà soát 4 app, Đợt 3 mục 6.
  * Dùng ở App (đếm cho badge menu) rồi chuyền xuống màn Kế hoạch năm / Phê duyệt, nên chỉ gọi mạng một lần.
- * `batDau` = false (người không có quyền duyệt) thì không gọi gì. `layDonVi` ghi đè được nguồn danh sách đơn vị (trang thử cục bộ).
+ * `batDau` = false (người không có quyền duyệt) thì không gọi gì. Đợt 4: MỘT lượt `listPendingAnnualPlans`; server cũ chưa có action đó thì tự
+ * dự phòng về cách cũ (listAnnualPlans từng đơn vị — lúc đó mới đọc danh sách đơn vị; `layDonVi` ghi đè được nguồn này, trang thử cục bộ).
  */
 export function useChoDuyetNam(batDau, layDonVi) {
   const [kq, setKq] = useState(KHONG_CO);
   const nap = useCallback(async () => {
     if (!batDau) { setKq(KHONG_CO); return; }
     try {
-      const dsDonVi = layDonVi ? await layDonVi() : allowedBUs(await api.getBUs());
-      const r = await gomKeHoachNamChoDuyet(api.listAnnualPlans, dsDonVi);
-      setKq({ ...r, daTai: true });
+      const r = await gomChoDuyet({
+        motLuot: api.listPendingAnnualPlans,
+        liet: api.listAnnualPlans,
+        layDonVi: async () => (layDonVi ? await layDonVi() : allowedBUs(await api.getBUs()))
+      });
+      setKq({ items: r.items, loi: r.loi, daTai: true });
     } catch {
       // Hộp chờ duyệt / badge chỉ là phần phụ: không đọc được thì để trống, đừng làm hỏng cả app.
       setKq({ items: [], loi: [], daTai: true });
@@ -50,7 +55,12 @@ export default function HopChoDuyet({ items = [], loi = [], dangMo, onMo, classN
                 <span className="font-semibold min-w-0">{x.bu}{x.tenDonVi && x.tenDonVi !== x.bu ? ' — ' + x.tenDonVi : ''}</span>
                 <span>Năm {x.nam}</span>
                 <span className="text-amber-800">{NHAN_LOAI_KE_HOACH[x.loai] || 'Kế hoạch'} #{x.lanSua}</span>
-                {x.guiLuc && <span className="text-amber-800">gửi {ngayVN(x.guiLuc)}</span>}
+                {(x.guiLuc || x.nguoiGui) && (
+                  <span className="text-amber-800">
+                    {x.nguoiGui ? `${x.nguoiGui} gửi` : 'gửi'}{x.guiLuc ? ' ' + ngayVN(x.guiLuc) : ''}
+                  </span>
+                )}
+                {x.tong > 0 && <span className="text-amber-800" title={tienDayDu(x.tong)}>Tổng {tienRutGon(x.tong)}</span>}
                 <button
                   type="button"
                   onClick={() => onMo(x)}

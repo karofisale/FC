@@ -8,6 +8,8 @@
  */
 import { callGAS } from './gasClient';
 import { getToken } from './auth';
+import { demYeuCauChoDuyet } from '../utils/annualPending';
+import { taoCacheCoHan } from '../utils/cacheCoHan';
 
 function auth(payload = {}) {
   return { ...payload, token: getToken() };
@@ -23,37 +25,27 @@ function auth(payload = {}) {
  * getBootstrap giống hệt nhau. Ba lượt gọi Apps Script, mỗi lượt 1-5 giây,
  * cho đúng một tập dữ liệu.
  */
-let bootstrapPromise = null;
+//
+// Đợt 4: cache có HẠN (10 phút, utils/cacheCoHan.js). Trước đây giữ tới khi tải lại trang — người khác thêm / sửa SKU thì máy này không thấy
+// cả ngày. Hết hạn thì lượt đọc kế tiếp tải mới; mọi lần GHI danh mục ở máy này vẫn xoá cache ngay (addProduct / addProducts / updateProduct /
+// upsertProducts), đăng nhập / đăng xuất / hết phiên cũng xoá (clearBootstrapCache).
+export const HAN_CACHE_DANH_MUC_MS = 10 * 60 * 1000;
+const cacheDanhMuc = taoCacheCoHan(HAN_CACHE_DANH_MUC_MS);   // khoá 'bootstrap' và 'products:<tham số>'
 
 // Danh mục sản phẩm ~750 SKU. Mỗi lần chuyển tab là trang bị unmount và mất
 // sạch state, nên không cache ở đây thì cứ quay lại tab là tải lại toàn bộ.
 // Khoá theo toàn bộ tham số để không trả nhầm kết quả đã lọc theo kênh/nhóm.
-const productsCache = new Map();
-
 export function clearBootstrapCache() {
-  bootstrapPromise = null;
-  productsCache.clear();
+  cacheDanhMuc.xoa();
 }
 
 function bootstrap() {
-  if (!bootstrapPromise) {
-    bootstrapPromise = callGAS('getBootstrap', auth()).catch((err) => {
-      bootstrapPromise = null; // lỗi thì cho phép thử lại, không cache lỗi
-      throw err;
-    });
-  }
-  return bootstrapPromise;
+  return cacheDanhMuc.lay('bootstrap', () => callGAS('getBootstrap', auth()));
 }
 
 function getProductsCached(params) {
-  const key = JSON.stringify([params.bu || '', params.group || '', params.search || '']);
-  if (!productsCache.has(key)) {
-    productsCache.set(key, callGAS('getProducts', auth(params)).catch((err) => {
-      productsCache.delete(key);
-      throw err;
-    }));
-  }
-  return productsCache.get(key);
+  const key = 'products:' + JSON.stringify([params.bu || '', params.group || '', params.search || '']);
+  return cacheDanhMuc.lay(key, () => callGAS('getProducts', auth(params)));
 }
 
 export const api = {
@@ -65,17 +57,17 @@ export const api = {
   getProducts: (params = {}) => getProductsCached(params),
   // Thêm SKU mới làm danh mục đổi -> bỏ cache để lần đọc sau lấy bản mới
   addProduct: (product) =>
-    callGAS('addProduct', auth({ product })).then((res) => { productsCache.clear(); return res; }),
+    callGAS('addProduct', auth({ product })).then((res) => { clearBootstrapCache(); return res; }),
   addProducts: (products) =>
-    callGAS('addProducts', auth({ products })).then((res) => { productsCache.clear(); return res; }),
+    callGAS('addProducts', auth({ products })).then((res) => { clearBootstrapCache(); return res; }),
   // Sửa một SKU đã có. Gửi trường nào thì server ghi trường đó — trường vắng
   // mặt nghĩa là "không đụng tới", nên đừng gửi kèm null cho các ô để trống.
   updateProduct: (product) =>
-    callGAS('updateProduct', auth({ product })).then((res) => { productsCache.clear(); return res; }),
+    callGAS('updateProduct', auth({ product })).then((res) => { clearBootstrapCache(); return res; }),
   // Dán hàng loạt CÓ ghi đè mã đã tồn tại. Khác addProducts (bỏ qua mã đã có)
   // nên là hai lối riêng: giao diện phải bắt người dùng chọn có ý thức.
   upsertProducts: (products) =>
-    callGAS('upsertProducts', auth({ products })).then((res) => { productsCache.clear(); return res; }),
+    callGAS('upsertProducts', auth({ products })).then((res) => { clearBootstrapCache(); return res; }),
   readExternalSheet: (spreadsheetId, sheetName) => callGAS('readExternalSheet', auth({ spreadsheetId, sheetName })),
 
   // Nhập kế hoạch thẳng từ app OEM / app Xuất khẩu. dryRun = chỉ tính và trả
@@ -124,6 +116,8 @@ export const api = {
 
   // ----- phê duyệt -----
   getApprovals: (params = {}) => callGAS('getApprovals', auth(params)),
+  // Đợt 4: chỉ ĐẾM yêu cầu đang chờ (chấm số menu lúc mở app), không tải cả danh sách. Server cũ chưa có action này thì rơi về getApprovals.
+  countPendingApprovals: () => demYeuCauChoDuyet((action, payload) => callGAS(action, auth(payload))),
   submitCycle: (cycleId, versionId) => callGAS('submitCycle', auth({ cycleId, versionId })),
   // Mở lại chu kỳ đã duyệt để sửa số. Backend bắt buộc vai trò thẩm định và
   // có lý do, rồi ghi vào AuthLog.
@@ -144,6 +138,8 @@ export const api = {
   // ----- kế hoạch năm (05/10/2026) -----
   getAnnualPlanWorkspace: (params) => callGAS('getAnnualPlanWorkspace', auth(params)),
   listAnnualPlans: (params) => callGAS('listAnnualPlans', auth(params)),
+  // Đợt 4: MỌI kế hoạch năm đang chờ duyệt mà người này duyệt được, một lượt (server cũ chưa có -> utils/annualPending.js tự dự phòng)
+  listPendingAnnualPlans: () => callGAS('listPendingAnnualPlans', auth()),
   createAnnualPlan: (params) => callGAS('createAnnualPlan', auth(params)),
   saveAnnualPlan: (params) => callGAS('saveAnnualPlan', auth(params)),
   discardAnnualPlan: (params) => callGAS('discardAnnualPlan', auth(params)),

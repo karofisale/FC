@@ -105,6 +105,13 @@ api.listAnnualPlans = async ({ bu }) => {
   if (bu === 'XK') return tre({ plans: [{ id: 'AP-XK1', year: YEAR + 1, kind: 'base', revisionNo: 1, status: 'submitted', createdBy: 'ketoan', updatedAt: '2026-10-09T02:00:00Z', submittedAt: '2026-10-09T02:00:00Z' }] });
   return tre({ plans: kho.plans.filter((p) => p.status === 'submitted').map((p) => ({ ...tomTat(p), submittedAt: new Date().toISOString() })) });
 };
+// Đợt 4: một action gom mọi bản chờ duyệt (hộp "Chờ duyệt" gọi cái này; ?cu=1 giả lập máy chủ cũ -> hộp tự dự phòng về listAnnualPlans từng đơn vị)
+api.listPendingAnnualPlans = async () => {
+  if (q.get('cu') === '1') throw new Error('Action chưa được cài đặt: listPendingAnnualPlans');
+  const dsOem = (await api.listAnnualPlans({ bu: 'OEM' })).plans.filter((p) => p.status === 'submitted').map((p) => ({ ...p, businessUnitCode: 'OEM', unitName: 'Domestic OEM', submittedBy: p.createdBy, totalRevenueVnd: 12_500_000_000 }));
+  const dsXk = (await api.listAnnualPlans({ bu: 'XK' })).plans.filter((p) => p.status === 'submitted').map((p) => ({ ...p, businessUnitCode: 'XK', unitName: 'Export OEM', submittedBy: p.createdBy, totalRevenueVnd: 0 }));
+  return { plans: [...dsOem, ...dsXk] };
+};
 const layDonVi = async () => [{ code: 'OEM', name: 'Domestic OEM' }, { code: 'XK', name: 'Export OEM' }];
 
 function Khung() {

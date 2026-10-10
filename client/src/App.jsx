@@ -143,13 +143,12 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      // getApprovals lọc theo session (bu/role trong token đăng nhập, xem
-      // getApprovals_ ở Queries.gs) chứ không dùng gì từ getBootstrap trả về,
-      // nên gọi song song thay vì đợi bootstrap xong mới gọi tiếp — rút ngắn
-      // độ trễ khởi động. Approvals lỗi thì coi như 0, không chặn cả trang.
-      const [boot, approvals] = await Promise.all([
+      // Số yêu cầu chờ duyệt (chấm số ở menu) lọc theo session phía server (bu/role trong token), không dùng gì từ getBootstrap, nên gọi
+      // song song thay vì đợi bootstrap xong. Đợt 4: chỉ ĐẾM (countPendingApprovals) thay vì tải cả danh sách kèm tên người chỉ để lấy
+      // độ dài; server cũ chưa có action đó thì api tự rơi về getApprovals. Lỗi thì coi như 0, không chặn cả trang.
+      const [boot, soChoDuyet] = await Promise.all([
         api.getBootstrap(),
-        api.getApprovals({ status: 'pending' }).catch(() => [])
+        api.countPendingApprovals().catch(() => 0)
       ]);
       const list = allowedBUs(boot.businessUnits || []);
       setBus(list);
@@ -157,7 +156,7 @@ export default function App() {
         if (prev && list.some((b) => b.code === prev)) return prev;
         return boot.user.business_unit_code || list[0]?.code || '';
       });
-      setPendingApprovalsCount(Array.isArray(approvals) ? approvals.length : 0);
+      setPendingApprovalsCount(soChoDuyet);
     } catch (err) {
       setError(err.message);
     } finally {
