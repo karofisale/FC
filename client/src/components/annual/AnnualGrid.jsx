@@ -4,6 +4,9 @@ import {
   NHAN_THANG, tomTatKhach, tomTatDonVi, dinhDangSo, dinhDangPct, tyTrongPct, dinhDangGia, doiTuVnd, nhomTheoThiTruong
 } from '../../utils/annualPlanModel';
 import { trangThaiFix, lechTheoMucTieu, saiSoChoPhep } from '../../utils/annualPlanSkuOps';
+import { useTableSort } from '../../utils/useTableSort';
+import { applyOrder } from '../../utils/tableSortCore';
+import { SortTh } from '../TableStates';
 
 const COT1 = 'w-72 min-w-72 max-w-72';          // cột Khách / SKU (cố định khi kéo sang phải)
 const TONG_LEFT = 'left-72';                     // cột Tổng năm dính ngay sau cột 1
@@ -104,12 +107,34 @@ export default function AnnualGrid({
   state, view, editable, expanded, onToggle, onEditCell, onToggleLock, onDeleteSku, onDeleteCustomer, onShareChange, single,
   fmt, nhan, tien, dangLoc, onEditMonthTotal, onEditCustomerMonth, onToggleFix, nhomTT, info
 }) {
-  const kh = tomTatKhach(state);
+  const khGoc = tomTatKhach(state);
   const [dongTT, setDongTT] = useState(() => new Set());           // thị trường đang thu gọn (mặc định mở hết)
-  // Export OEM: gom khách theo THỊ TRƯỜNG trước, rồi mới tới khách → SKU
-  const dsNhom = nhomTT && !single ? nhomTheoThiTruong(state, info) : [{ key: '', ten: '', khach: kh }];
   const dv = tomTatDonVi(state);
   const arr = view === 'base' ? 'base' : 'plan';
+
+  // Sắp xếp theo cột (Khách / SKU, Tổng năm, từng tháng). Đây là bảng CÓ Ô NHẬP nên thứ tự được CHỐT lúc bấm tiêu đề
+  // (xem useTableSort): sửa số không làm dòng nhảy chỗ dưới con trỏ, và sắp xếp chỉ đảo thứ tự hiển thị — không đụng dữ liệu.
+  const cotKhach = {
+    ten: { type: 'text', get: (c) => c.name || c.key },
+    tong: { type: 'number', get: (c) => (view === 'base' ? c.baseTotal : c.planTotal) }
+  };
+  const cotSku = {
+    ten: { type: 'text', get: (l) => l.skuCode || l.tempSkuId },
+    tong: { type: 'number', get: (l) => (view === 'base' ? l.qtyBase : l.qty).reduce((s, v) => s + (Number(v) || 0), 0) }
+  };
+  NHAN_THANG.forEach((_, m) => {
+    cotKhach['m:' + m] = { type: 'number', get: (c) => c[arr][m] };
+    cotSku['m:' + m] = { type: 'number', get: (l) => (view === 'base' ? l.qtyBase : l.qty)[m] };
+  });
+  const sk = useTableSort(khGoc, cotKhach, (c) => c.key);
+  const sl = useTableSort(state.lines, cotSku, (l) => l.key);
+  const sortSpec = single ? sl.spec : sk.spec;
+  const doiSapXep = single ? sl.toggle : sk.toggle;
+  const kh = sk.rows;
+  // Export OEM: gom khách theo THỊ TRƯỜNG trước, rồi mới tới khách → SKU (thứ tự khách trong từng nhóm theo cột đã chọn)
+  const dsNhom = nhomTT && !single
+    ? nhomTheoThiTruong(state, info).map((g) => ({ ...g, khach: applyOrder(g.khach, sk.order, (c) => c.key) }))
+    : [{ key: '', ten: '', khach: kh }];
   const soTong = view === 'base' ? dv.baseTotal : dv.planTotal;
   const doanhThuDv = view === 'base' ? dv.base : dv.plan;
   const lastMonth = state.baselineLastMonth;
@@ -137,7 +162,7 @@ export default function AnnualGrid({
             <button
               onClick={() => onToggleLock(l.key, m)}
               title={khoa ? 'Bỏ chốt ô' : 'Chốt ô'}
-              className={`absolute -top-1 -right-0.5 ${khoa ? 'text-amber-500' : 'text-transparent hover:text-slate-400'}`}
+              className={`absolute -top-1 -right-0.5 ${khoa ? 'text-amber-700' : 'text-transparent hover:text-slate-400'}`}
             >
               {khoa ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
             </button>
@@ -186,7 +211,7 @@ export default function AnnualGrid({
                           {mo ? <ChevronDown className="w-3.5 h-3.5 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 shrink-0" />}
                           <span className="truncate" title={c.name}>{c.name || c.key}</span>
                           {c.isNew && <span className="text-[9px] font-sans bg-emerald-100 text-emerald-700 rounded px-1">mới</span>}
-                          <span className="text-[10px] font-normal text-slate-400 shrink-0">({c.lines.length})</span>
+                          <span className="text-[10px] font-normal text-slate-500 shrink-0">({c.lines.length})</span>
                         </button>
                         {editable && view === 'plan' && (
                           <button onClick={() => onDeleteCustomer(c.key)} title="Bớt khách này" className="text-slate-300 hover:text-rose-600 shrink-0">
@@ -212,15 +237,12 @@ export default function AnnualGrid({
       <table className="border-separate border-spacing-0 text-xs">
         <thead>
           <tr className="bg-slate-800 text-slate-200">
-            <th className={`sticky top-0 left-0 z-30 bg-slate-800 ${COT1} text-left px-3 py-2 font-semibold`}>
-              {single ? 'SKU (SL cái)' : 'Khách hàng (doanh thu, ' + nhan + ')'}
-            </th>
-            <th className={`sticky top-0 ${TONG_LEFT} z-30 bg-slate-800 w-24 min-w-24 text-right px-2 py-2 font-semibold`}>Tổng năm</th>
+            <SortTh label={single ? 'SKU (SL cái)' : 'Khách hàng (doanh thu, ' + nhan + ')'} sortKey="ten" spec={sortSpec} onSort={doiSapXep} className={`sticky top-0 left-0 z-30 bg-slate-800 ${COT1} text-left px-3 py-2 font-semibold`} />
+            <SortTh label="Tổng năm" sortKey="tong" spec={sortSpec} onSort={doiSapXep} className={`sticky top-0 ${TONG_LEFT} z-30 bg-slate-800 w-24 min-w-24 text-right px-2 py-2 font-semibold`} />
             {NHAN_THANG.map((t, m) => (
-              <th key={t} className="sticky top-0 z-20 bg-slate-800 w-20 min-w-20 text-right px-2 py-2 font-semibold">
-                {t}
+              <SortTh key={t} label={t} sortKey={'m:' + m} spec={sortSpec} onSort={doiSapXep} className="sticky top-0 z-20 bg-slate-800 w-20 min-w-20 text-right px-2 py-2 font-semibold">
                 {view === 'base' && <div className={`text-[9px] font-normal ${m <= lastMonth ? 'text-emerald-300' : 'text-amber-300'}`}>{m <= lastMonth ? 'thực hiện' : 'dự kiến'}</div>}
-              </th>
+              </SortTh>
             ))}
           </tr>
         </thead>
@@ -228,7 +250,7 @@ export default function AnnualGrid({
           <tr className="bg-blue-50 font-bold text-slate-900">
             <td className={`sticky left-0 z-10 bg-blue-50 ${COT1} px-3 py-1.5`}>
               Tổng doanh thu ({nhan}){dangLoc ? <span className="ml-1 text-[9px] font-semibold text-blue-700">đang lọc</span> : null}
-              {choSuaTongThang ? <span className="text-[9px] font-normal text-slate-400 ml-1">(tháng dự kiến sửa được)</span> : null}
+              {choSuaTongThang ? <span className="text-[9px] font-normal text-slate-500 ml-1">(tháng dự kiến sửa được)</span> : null}
             </td>
             <td className={`sticky ${TONG_LEFT} z-10 bg-blue-50 text-right px-2 py-1.5 font-mono`}>{fmt(soTong)}</td>
             {doanhThuDv.map((v, m) => (
@@ -239,7 +261,7 @@ export default function AnnualGrid({
           </tr>
           <tr className="bg-blue-50/60 text-slate-700">
             <td className={`sticky left-0 z-10 bg-blue-50 ${COT1} px-3 py-1`}>
-              Tỷ trọng tháng (%){view === 'plan' && editable ? <span className="text-[9px] text-slate-400 ml-1">(sửa được)</span> : null}
+              Tỷ trọng tháng (%){view === 'plan' && editable ? <span className="text-[9px] text-slate-500 ml-1">(sửa được)</span> : null}
             </td>
             <td className={`sticky ${TONG_LEFT} z-10 bg-blue-50 text-right px-2 py-1 font-mono`}>100,00</td>
             {NHAN_THANG.map((_, m) => (
@@ -256,7 +278,7 @@ export default function AnnualGrid({
               <td className={`sticky ${TONG_LEFT} z-10 bg-blue-50 text-right px-2 py-1 font-mono text-[11px]`}>{fmt(lechMt.reduce((a, b) => a + b, 0))}</td>
               {lechMt.map((v, m) => {
                 const lech = Math.abs(v) > saiSoChoPhep(state, m);
-                return <td key={m} className={`text-right px-2 py-1 font-mono text-[11px] ${lech ? 'text-rose-600 font-bold' : 'text-slate-400'}`} title={lech ? 'Lệch quá sai số làm tròn — Apply lại hoặc chỉnh khách khác để khớp' : 'Khớp mục tiêu tháng'}>{lech ? (v > 0 ? '+' : '') + fmt(v) : '✓'}</td>;
+                return <td key={m} className={`text-right px-2 py-1 font-mono text-[11px] ${lech ? 'text-rose-600 font-bold' : 'text-slate-500'}`} title={lech ? 'Lệch quá sai số làm tròn — Apply lại hoặc chỉnh khách khác để khớp' : 'Khớp mục tiêu tháng'}>{lech ? (v > 0 ? '+' : '') + fmt(v) : '✓'}</td>;
               })}
             </tr>
           )}
@@ -269,7 +291,7 @@ export default function AnnualGrid({
           )}
 
           {single
-            ? state.lines.map((l) => dongSku(l, true))
+            ? sl.rows.map((l) => dongSku(l, true))
             : dsNhom.map((g) => (
               <React.Fragment key={'tt:' + g.key}>
                 {nhomTT && (
@@ -289,7 +311,7 @@ export default function AnnualGrid({
               </React.Fragment>
             ))}
           {!state.lines.length && (
-            <tr><td colSpan={14} className="text-center text-slate-400 py-8">Chưa có dòng nào.</td></tr>
+            <tr><td colSpan={14} className="text-center text-slate-500 py-8">Chưa có dòng nào.</td></tr>
           )}
         </tbody>
       </table>

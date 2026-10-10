@@ -1,26 +1,42 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { api } from '../services/api';
 import {
-  Save, Search, AlertCircle, CheckCircle2, Loader2, TrendingUp, TrendingDown, Minus, FileDown
+  Save, Search, Loader2, TrendingUp, TrendingDown, Minus, FileDown
 } from 'lucide-react';
-import { monthLabel } from '../utils/period';
+import { monthLabel, vnPrevMonth } from '../utils/period';
 import { setDirty, confirmNavigateAway } from '../services/dirtyState';
+import { thongBao } from '../services/toastService';
+import { usePersistedState } from '../utils/usePersistedState';
+import { useTableSort } from '../utils/useTableSort';
+import { roleLabel } from '../utils/glossary';
+import { SortTh, StateRow } from '../components/TableStates';
 import CaoSapPanel from '../components/CaoSapPanel';
 
 const ImportActualsModal = React.lazy(() => import('../components/ImportActualsModal'));
 
 const ROW_HEIGHT_PX = 37;
 
-function previousMonthISO() {
-  const d = new Date();
-  d.setDate(1);
-  d.setMonth(d.getMonth() - 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-}
+// Thông báo kết quả đi qua toast xếp hàng (Đợt 2 mục 2): thành công tự tắt ~4 giây, lỗi nằm lại tới khi bấm ×.
+const setMessage = thongBao;
+const laThangHopLe = (v) => typeof v === 'string' && /^\d{4}-\d{2}-01$/.test(v);
+const SO_DONG_SO_SANH = 50;
+const CHUA_CO = [];
+const COT_SO_SANH = {
+  sku: { type: 'text', get: (r) => r.sku_code },
+  ten: { type: 'text', get: (r) => (r.product_name && r.product_name !== r.sku_code ? r.product_name : '') },
+  fc: { type: 'number', get: (r) => r.forecast_qty },
+  khNam: { type: 'number', get: (r) => r.annual_ref_qty },
+  khGoc: { type: 'number', get: (r) => r.annual_base_qty },
+  thucHien: { type: 'number', get: (r) => r.actual_qty },
+  lech: { type: 'number', get: (r) => r.variance_qty }
+};
+const maSku = (p) => p.sku_code;
+const maSoSanh = (r) => r.sku_code;
 
 export default function Actuals({ currentBU, user }) {
-  const [month, setMonth] = useState(previousMonthISO());
+  // Tháng mặc định = tháng TRƯỚC theo giờ VN; nhớ tháng người dùng chọn lần trước (Đợt 2 mục 9, 10).
+  const [month, setMonth] = usePersistedState('actualsMonth', vnPrevMonth, laThangHopLe);
   const [products, setProducts] = useState([]);
   // Mien de GHI (TQ), va cac mien cu con giu so cua thang nay. Luc luu phai
   // dat 0 cho cac mien cu, neu khong tong se khac han so vua go.
@@ -37,7 +53,7 @@ export default function Actuals({ currentBU, user }) {
   }, [dirtyKeys]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState(null);
+  const [loiTai, setLoiTai] = useState(null);
 
   const [comparison, setComparison] = useState(null);
   const [comparisonLoading, setComparisonLoading] = useState(false);
@@ -57,7 +73,7 @@ export default function Actuals({ currentBU, user }) {
   const loadGrid = useCallback(async () => {
     setLoading(true);
     setComparisonLoading(true);
-    setMessage(null);
+    setLoiTai(null);
     try {
       const ws = await api.getActualsWorkspace({ bu: currentBU, month });
       setProducts(ws.products || []);
@@ -73,7 +89,8 @@ export default function Actuals({ currentBU, user }) {
       setDirtyKeys(new Set());
       setComparison(ws.comparison || null);
     } catch (err) {
-      setMessage({ type: 'error', text: err.message });
+      // Lỗi tải: bảng hiện lỗi + "Thử lại" (không kẹt "Đang tải…", không im lặng thành bảng rỗng).
+      setLoiTai(err.message);
       setComparison(null);
     } finally {
       setLoading(false);
@@ -113,7 +130,6 @@ export default function Actuals({ currentBU, user }) {
       return;
     }
     setSaving(true);
-    setMessage(null);
     try {
       // Ghi toan bo so vao mien TQ. Ma nao con so cu o MB/MN thi dat 0 cho
       // chung — khong lam vay thi tong se la (so vua go + so cu), tuc bang
@@ -152,11 +168,22 @@ export default function Actuals({ currentBU, user }) {
       || String(p.name).toLowerCase().includes(s);
   });
 
+  // Sắp xếp theo cột: thứ tự chốt lúc bấm tiêu đề, KHÔNG nhảy dòng khi đang gõ số (xem useTableSort).
+  const cotLuoi = {
+    sku: { type: 'text', get: (p) => p.sku_code },
+    ten: { type: 'text', get: (p) => p.name },
+    tong: { type: 'number', get: (p) => actualsMap[p.sku_code] || 0 }
+  };
+  const { rows: sapXep, spec: sortLuoi, toggle: doiSapXep } = useTableSort(filteredProducts, cotLuoi, maSku);
+
+  const dongSoSanh = useMemo(() => (comparison && comparison.rows ? comparison.rows.slice(0, SO_DONG_SO_SANH) : CHUA_CO), [comparison]);
+  const { rows: soSanhXep, spec: sortSoSanh, toggle: doiSapXepSoSanh } = useTableSort(dongSoSanh, COT_SO_SANH, maSoSanh);
+
   const knownSkus = new Set(products.map((p) => String(p.sku_code).trim()));
 
   const scrollParentRef = useRef(null);
   const rowVirtualizer = useVirtualizer({
-    count: filteredProducts.length,
+    count: sapXep.length,
     getScrollElement: () => scrollParentRef.current,
     estimateSize: () => ROW_HEIGHT_PX,
     overscan: 12
@@ -195,7 +222,11 @@ export default function Actuals({ currentBU, user }) {
           <input
             type="month"
             value={month.slice(0, 7)}
-            onChange={(e) => { if (confirmNavigateAway('Đổi tháng')) setMonth(`${e.target.value}-01`); }}
+            onChange={async (e) => {
+              // Đọc giá trị TRƯỚC await (sau await ô controlled đã bị vẽ lại về giá trị cũ); ô bị xoá trống thì bỏ qua.
+              const v = e.target.value;
+              if (v && await confirmNavigateAway('Đổi tháng')) setMonth(`${v}-01`);
+            }}
             className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-blue-500"
           />
           {/* Miền dành cho sản lượng thực hiện (scope = 'actual'): ZSD450 không tách
@@ -214,7 +245,7 @@ export default function Actuals({ currentBU, user }) {
           <button
             onClick={handleSave}
             disabled={saving || !isEditor || dirtyKeys.size === 0}
-            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow transition disabled:opacity-50"
+            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow transition disabled:opacity-50"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             {saving ? 'Đang lưu...' : 'Lưu thực hiện'}
@@ -222,22 +253,9 @@ export default function Actuals({ currentBU, user }) {
         </div>
       </div>
 
-      {message && (
-        <div className={`p-3 rounded-lg text-xs flex items-start gap-2 ${
-          message.type === 'success'
-            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-            : 'bg-rose-50 text-rose-800 border border-rose-200'
-        }`}>
-          {message.type === 'success'
-            ? <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-            : <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />}
-          <span>{message.text}</span>
-        </div>
-      )}
-
       {!isEditor && (
         <div className="bg-slate-100 border border-slate-300 text-slate-700 text-xs rounded-lg p-3">
-          Vai trò <strong>{user?.role}</strong> chỉ được xem, không nhập được sản lượng thực hiện.
+          Vai trò <strong>{roleLabel(user?.role)}</strong> chỉ được xem, không nhập được sản lượng thực hiện.
         </div>
       )}
 
@@ -260,7 +278,7 @@ export default function Actuals({ currentBU, user }) {
           </p>
         )}
         {comparisonLoading ? (
-          <div className="text-xs text-slate-400 flex items-center gap-2">
+          <div className="text-xs text-slate-500 flex items-center gap-2">
             <Loader2 className="w-3.5 h-3.5 animate-spin" /> Đang tính toán...
           </div>
         ) : !comparison || !comparison.cycleFound ? (
@@ -302,21 +320,21 @@ export default function Actuals({ currentBU, user }) {
                 <table className="w-full text-[11px] font-mono">
                   <thead className="bg-slate-50 text-slate-500 sticky top-0">
                     <tr>
-                      <th className="text-left py-1.5 px-2 font-sans font-semibold">SKU</th>
-                      <th className="text-left py-1.5 px-2 font-sans font-semibold">Tên SKU</th>
-                      <th className="text-right py-1.5 px-2 font-sans font-semibold">FC</th>
+                      <SortTh label="SKU" sortKey="sku" spec={sortSoSanh} onSort={doiSapXepSoSanh} className="text-left py-1.5 px-2 font-sans font-semibold" />
+                      <SortTh label="Tên SKU" sortKey="ten" spec={sortSoSanh} onSort={doiSapXepSoSanh} className="text-left py-1.5 px-2 font-sans font-semibold" />
+                      <SortTh label="FC" sortKey="fc" spec={sortSoSanh} onSort={doiSapXepSoSanh} className="text-right py-1.5 px-2 font-sans font-semibold" />
                       {comparison.annualPlan && (
-                        <th className="text-right py-1.5 px-2 font-sans font-semibold text-violet-700" title={'Kế hoạch năm: ' + comparison.annualPlan.refLabel}>KH năm</th>
+                        <SortTh label="KH năm" hint={'Kế hoạch năm: ' + comparison.annualPlan.refLabel} sortKey="khNam" spec={sortSoSanh} onSort={doiSapXepSoSanh} className="text-right py-1.5 px-2 font-sans font-semibold text-violet-700" />
                       )}
                       {comparison.annualPlan && !comparison.annualPlan.refIsBase && (
-                        <th className="text-right py-1.5 px-2 font-sans font-semibold text-slate-500" title="Bản gốc đã duyệt (mốc đo)">KH gốc</th>
+                        <SortTh label="KH gốc" hint="Bản gốc đã duyệt (mốc đo)" sortKey="khGoc" spec={sortSoSanh} onSort={doiSapXepSoSanh} className="text-right py-1.5 px-2 font-sans font-semibold text-slate-600" />
                       )}
-                      <th className="text-right py-1.5 px-2 font-sans font-semibold">Thực hiện</th>
-                      <th className="text-right py-1.5 px-2 font-sans font-semibold">Lệch</th>
+                      <SortTh label="Thực hiện" sortKey="thucHien" spec={sortSoSanh} onSort={doiSapXepSoSanh} className="text-right py-1.5 px-2 font-sans font-semibold" />
+                      <SortTh label="Lệch" sortKey="lech" spec={sortSoSanh} onSort={doiSapXepSoSanh} className="text-right py-1.5 px-2 font-sans font-semibold" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {comparison.rows.slice(0, 50).map((r) => (
+                    {soSanhXep.map((r) => (
                       <tr key={r.sku_code}>
                         <td className="py-1 px-2 font-bold text-slate-800">{r.sku_code}</td>
                         <td className="py-1 px-2 font-sans text-slate-600">{r.product_name && r.product_name !== r.sku_code ? r.product_name : ''}</td>
@@ -324,17 +342,17 @@ export default function Actuals({ currentBU, user }) {
                         {comparison.annualPlan && <td className="py-1 px-2 text-right text-violet-700">{(r.annual_ref_qty || 0).toLocaleString('vi-VN')}</td>}
                         {comparison.annualPlan && !comparison.annualPlan.refIsBase && <td className="py-1 px-2 text-right text-slate-500">{(r.annual_base_qty || 0).toLocaleString('vi-VN')}</td>}
                         <td className="py-1 px-2 text-right text-blue-700">{r.actual_qty.toLocaleString('vi-VN')}</td>
-                        <td className={`py-1 px-2 text-right font-bold ${r.variance_qty > 0 ? 'text-emerald-600' : r.variance_qty < 0 ? 'text-rose-600' : 'text-slate-400'}`}>
+                        <td className={`py-1 px-2 text-right font-bold ${r.variance_qty > 0 ? 'text-emerald-700' : r.variance_qty < 0 ? 'text-rose-600' : 'text-slate-500'}`}>
                           {r.variance_qty > 0 ? '+' : ''}{r.variance_qty.toLocaleString('vi-VN')}
-                          {r.variance_pct !== null && <span className="text-slate-400 font-sans"> ({r.variance_pct > 0 ? '+' : ''}{r.variance_pct}%)</span>}
+                          {r.variance_pct !== null && <span className="text-slate-500 font-sans"> ({r.variance_pct > 0 ? '+' : ''}{r.variance_pct}%)</span>}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 {comparison.rows.length > 50 && (
-                  <div className="text-[10px] text-slate-400 text-center py-1.5 font-sans">
-                    Hiện 50/{comparison.rows.length} SKU lệch nhiều nhất
+                  <div className="text-[10px] text-slate-500 text-center py-1.5 font-sans">
+                    Hiện {SO_DONG_SO_SANH}/{comparison.rows.length} SKU lệch nhiều nhất
                   </div>
                 )}
               </div>
@@ -369,23 +387,25 @@ export default function Actuals({ currentBU, user }) {
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-800 text-white font-semibold sticky top-0 z-20">
               <tr>
-                <th className="py-2.5 px-3 border-r border-slate-700 w-28">Mã SKU</th>
-                <th className="py-2.5 px-3 border-r border-slate-700 min-w-[200px]">Tên sản phẩm</th>
+                <SortTh label="Mã SKU" sortKey="sku" spec={sortLuoi} onSort={doiSapXep} className="py-2.5 px-3 border-r border-slate-700 w-28" />
+                <SortTh label="Tên sản phẩm" sortKey="ten" spec={sortLuoi} onSort={doiSapXep} className="py-2.5 px-3 border-r border-slate-700 min-w-[200px]" />
                 {/* MỘT cột. Sản lượng thực hiện không tách miền: nguồn ZSD450 không
                     có cột miền, và phần đối chiếu cũng chỉ so tổng. */}
-                <th className="py-2.5 px-3 text-right w-32 bg-cyan-900/60">Tổng</th>
+                <SortTh label="Tổng" sortKey="tong" spec={sortLuoi} onSort={doiSapXep} className="py-2.5 px-3 text-right w-32 bg-cyan-900/60" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 font-mono">
               {loading ? (
-                <tr><td colSpan={3} className="py-8 text-center text-slate-400 font-sans">Đang tải dữ liệu...</td></tr>
+                <StateRow colSpan={3} kind="loading" />
+              ) : loiTai ? (
+                <StateRow colSpan={3} kind="error" text={loiTai} onRetry={loadGrid} />
               ) : filteredProducts.length === 0 ? (
-                <tr><td colSpan={3} className="py-8 text-center text-slate-400 font-sans">Không tìm thấy SKU phù hợp</td></tr>
+                <StateRow colSpan={3} kind="empty" text="Không tìm thấy SKU phù hợp" />
               ) : (
                 <>
                   {topPad > 0 && <tr style={{ height: topPad }} aria-hidden="true" />}
                   {virtualRows.map((vRow) => {
-                    const p = filteredProducts[vRow.index];
+                    const p = sapXep[vRow.index];
                     return (
                       <tr key={p.sku_code} className="hover:bg-blue-50/50 transition">
                         <td className="py-2 px-3 border-r border-slate-200 font-bold text-slate-800">{p.sku_code}</td>
@@ -412,6 +432,19 @@ export default function Actuals({ currentBU, user }) {
                 </>
               )}
             </tbody>
+            {!loading && !loiTai && products.length > 0 && (
+              <tfoot className="bg-slate-100 border-t-2 border-slate-300 font-bold text-slate-900 sticky bottom-0 z-10">
+                <tr>
+                  <td colSpan={2} className="py-2.5 px-3 text-right uppercase text-xs text-slate-700">
+                    Tổng cộng (chiếc)
+                    {filteredProducts.length !== products.length && (
+                      <span className="ml-2 normal-case font-normal text-[11px] text-slate-600">cả tháng — không theo ô tìm kiếm</span>
+                    )}
+                  </td>
+                  <td className="py-2.5 px-3 text-right font-mono">{tongTatCa.toLocaleString('vi-VN')}</td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>

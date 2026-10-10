@@ -7,15 +7,30 @@ import AddProductModal from '../components/AddProductModal';
 // Tải lười — kéo theo thư viện xlsx (~290KB) chỉ để đọc file Excel, đa số
 // người dùng không bấm "Nhập từ file" mỗi lần vào trang này.
 const ImportForecastModal = React.lazy(() => import('../components/ImportForecastModal'));
-import { Save, Send, Search, CheckCircle2, AlertCircle, Loader2, Wand2, ArrowDownToLine, PackagePlus, FileSpreadsheet } from 'lucide-react';
+import { Save, Send, Search, Loader2, Wand2, ArrowDownToLine, PackagePlus, FileSpreadsheet } from 'lucide-react';
 import { monthsOfCycle, weeksOfMonth, weekLabel, monthLabel, normalizeMonth } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
+import { appConfirm } from '../services/dialogService';
+import { thongBao } from '../services/toastService';
+import { loadPref, savePref } from '../services/prefs';
+import { usePersistedState } from '../utils/usePersistedState';
+import { useTableSort } from '../utils/useTableSort';
+import { SortTh, StateRow } from '../components/TableStates';
+import MoreMenu from '../components/MoreMenu';
 import { useGridEditing, parsePastedNumber } from '../utils/useGridEditing';
 
 // Bảng này nặng nhất trong app — kênh XK 756 SKU × (số tuần × số miền)
 // ô input, có thể tới ~6000 ô nếu render hết cùng lúc. Chỉ dựng DOM cho
 // dòng đang lọt khung nhìn.
 const ROW_HEIGHT_PX = 37;
+
+// Thông báo kết quả đi qua toast xếp hàng (Đợt 2 mục 2): thành công tự tắt ~4 giây, lỗi nằm lại tới khi bấm ×.
+const setMessage = thongBao;
+const laChuoi = (v) => typeof v === 'string';
+const maSku = (p) => p.sku_code;
+// Nút chính (xanh) và nút phụ (trắng viền): mỗi màn chỉ MỘT nút chính (Đợt 2 mục 4).
+const NUT_CHINH = 'flex items-center space-x-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow transition disabled:opacity-50';
+const NUT_PHU = 'flex items-center space-x-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3.5 py-2 rounded-lg text-xs font-semibold shadow-sm transition disabled:opacity-50';
 
 export default function WeeklyForecast({ currentBU, user }) {
   const [cycles, setCycles] = useState([]);
@@ -39,11 +54,12 @@ export default function WeeklyForecast({ currentBU, user }) {
   }, [dirtyKeys]);
   const [validationResult, setValidationResult] = useState(null);
   const [search, setSearch] = useState('');
-  const [onlyNonZero, setOnlyNonZero] = useState(true);
+  // Nhớ ô "chỉ hiện SKU có số lượng" giữa các lần mở (Đợt 2 mục 9).
+  const [onlyNonZero, setOnlyNonZero] = usePersistedState('weeklyOnlyNonZero', true, (v) => typeof v === 'boolean');
   const [nonZeroSkus, setNonZeroSkus] = useState(() => new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState(null);
+  const [loiTai, setLoiTai] = useState(null);
 
   const baseMonth = normalizeMonth(selectedCycle?.base_month) || monthsOfCycle(selectedCycle)[0] || '';
   // Memo hoá để mảng giữ nguyên định danh giữa các lần render, nếu không mọi
@@ -126,7 +142,7 @@ export default function WeeklyForecast({ currentBU, user }) {
    */
   const loadAll = useCallback(async (preferCycleId, preferVersionId) => {
     setLoading(true);
-    setMessage(null);
+    setLoiTai(null);
     try {
       const [ws, regionList, groupList, buList] = await Promise.all([
         api.getWeeklyWorkspace({ bu: currentBU, cycleId: preferCycleId, versionId: preferVersionId }),
@@ -145,19 +161,24 @@ export default function WeeklyForecast({ currentBU, user }) {
       setVersions(ws.versions || []);
       setSelectedVersion(ws.version || null);
       applyForecasts(ws.monthlyQuantities, ws.splits, ws.validation);
+      // Nhớ chu kỳ đang xem (theo đơn vị; dùng chung với Bảng 0) — Đợt 2 mục 9.
+      if (ws.cycle?.id) savePref('cycle:' + currentBU, ws.cycle.id);
     } catch (err) {
-      setMessage({ type: 'error', text: err.message });
+      // Lỗi tải: bảng hiện lỗi + "Thử lại" (không im lặng thành bảng rỗng).
+      setLoiTai(err.message);
     } finally {
       setLoading(false);
     }
   }, [currentBU, applyForecasts]);
 
+  // Lần mở đầu: vào lại đúng chu kỳ lần trước (server rơi về chu kỳ mới nhất nếu mã đó không còn).
   useEffect(() => {
-    if (currentBU) loadAll();
+    if (currentBU) loadAll(loadPref('cycle:' + currentBU, undefined, laChuoi));
   }, [currentBU, loadAll]);
 
   const handleSelectCycle = async (cycle) => {
     if (!cycle) return;
+    savePref('cycle:' + currentBU, cycle.id);
     setSelectedCycle(cycle);
     setLoading(true);
     try {
@@ -245,9 +266,10 @@ export default function WeeklyForecast({ currentBU, user }) {
 
   const handleSave = async () => {
     if (choDuyet && dirtyKeys.size > 0
-      && !window.confirm('Bản đang chờ duyệt — lưu sẽ rút yêu cầu duyệt, cần gửi lại. Vẫn lưu?')) return;
+      && !(await appConfirm('Bản đang chờ duyệt — lưu sẽ rút yêu cầu duyệt, cần gửi lại. Vẫn lưu?', {
+        title: 'Lưu sẽ rút yêu cầu duyệt', okLabel: 'Lưu và rút yêu cầu duyệt'
+      }))) return;
     setSaving(true);
-    setMessage(null);
     try {
       const res = await saveChanges();
       // Server vừa đưa chu kỳ về nháp: nạp lại cả màn để trạng thái đúng với server
@@ -326,9 +348,38 @@ export default function WeeklyForecast({ currentBU, user }) {
 
   const columnCount = 3 + weeks.length * regionCodes.length + 2;
 
+  // Sắp xếp theo cột. Thứ tự CHỐT lúc bấm tiêu đề (xem useTableSort): gõ số không làm dòng nhảy chỗ,
+  // và sắp xếp không đụng tới dữ liệu đang sửa — chỉ đảo thứ tự hiển thị.
+  const cotLuoi = {
+    sku: { type: 'text', get: (p) => p.sku_code },
+    ten: { type: 'text', get: (p) => p.name },
+    fc: { type: 'number', get: (p) => monthlyMap[p.sku_code] || 0 },
+    tuan: { type: 'number', get: (p) => getSkuWeeklySum(p.sku_code) },
+    lech: { type: 'number', get: (p) => getSkuWeeklySum(p.sku_code) - (monthlyMap[p.sku_code] || 0) }
+  };
+  const { rows: sapXep, spec: sortLuoi, toggle: doiSapXep } = useTableSort(filteredProducts, cotLuoi, maSku);
+
+  // Dòng tổng ở chân bảng: FC tháng 1, từng ô tuần/miền, tổng tuần, lệch — cộng trên TOÀN BỘ danh mục
+  // (không theo ô tìm kiếm / ô "chỉ hiện SKU có số lượng"), cùng quy ước với Bảng 0.
+  const tongCuoi = useMemo(() => {
+    const cot = {};
+    let thang = 0;
+    let tuan = 0;
+    products.forEach((p) => {
+      thang += monthlyMap[p.sku_code] || 0;
+      weeks.forEach((w) => regionCodes.forEach((r) => {
+        const q = weeklyMap[`${p.sku_code}_${w}_${r}`] || 0;
+        if (!q) return;
+        cot[`${w}_${r}`] = (cot[`${w}_${r}`] || 0) + q;
+        tuan += q;
+      }));
+    });
+    return { cot, thang, tuan };
+  }, [products, monthlyMap, weeklyMap, weeks, regionCodes]);
+
   const scrollParentRef = useRef(null);
   const rowVirtualizer = useVirtualizer({
-    count: filteredProducts.length,
+    count: sapXep.length,
     getScrollElement: () => scrollParentRef.current,
     estimateSize: () => ROW_HEIGHT_PX,
     overscan: 12
@@ -341,7 +392,7 @@ export default function WeeklyForecast({ currentBU, user }) {
   const weeklyColumns = weeks.flatMap((w) => regionCodes.map((r) => ({ week: w, region: r })));
   const grid = useGridEditing({
     columns: weeklyColumns,
-    rows: filteredProducts,
+    rows: sapXep,
     getRowKey: (p) => p.sku_code,
     buildCellId: (sku, col) => `${sku}_${col.week}_${col.region}`,
     getCellValue: (sku, col) => weeklyMap[`${sku}_${col.week}_${col.region}`] || 0,
@@ -365,10 +416,11 @@ export default function WeeklyForecast({ currentBU, user }) {
         </div>
 
         <div className="flex items-center space-x-2">
+          {/* Một nút chính theo "bước tiếp theo": còn ô chưa lưu thì Lưu là nút chính, hết thì Kiểm tra & gửi duyệt. */}
           <button
             onClick={handleSave}
             disabled={saving || !canWrite || dirtyKeys.size === 0}
-            className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow transition disabled:opacity-50"
+            className={dirtyKeys.size > 0 ? NUT_CHINH : NUT_PHU}
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             <span>{saving ? 'Đang lưu...' : 'Lưu bản thảo'}</span>
@@ -377,7 +429,7 @@ export default function WeeklyForecast({ currentBU, user }) {
           <button
             onClick={handleSubmit}
             disabled={saving || !canWrite}
-            className="flex items-center space-x-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow transition disabled:opacity-50"
+            className={dirtyKeys.size > 0 ? NUT_PHU : NUT_CHINH}
           >
             <Send className="w-4 h-4" />
             <span>Kiểm tra &amp; gửi duyệt</span>
@@ -397,19 +449,6 @@ export default function WeeklyForecast({ currentBU, user }) {
         canReopen={canReopen}
         onChanged={(cycleId, versionId) => loadAll(cycleId, versionId)}
       />
-
-      {message && (
-        <div className={`p-3 rounded-lg text-xs flex items-start space-x-2 ${
-          message.type === 'success'
-            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-            : 'bg-rose-50 text-rose-800 border border-rose-200'
-        }`}>
-          {message.type === 'success'
-            ? <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-            : <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />}
-          <span>{message.text}</span>
-        </div>
-      )}
 
       <ValidationAlert validationResult={validationResult} />
 
@@ -437,20 +476,17 @@ export default function WeeklyForecast({ currentBU, user }) {
         {isEditor && (
           <>
             <button
-              onClick={() => setShowAddProduct(true)}
-              className="flex items-center gap-1.5 border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
-            >
-              <PackagePlus className="w-3.5 h-3.5" />
-              Thêm SKU
-            </button>
-            <button
               onClick={() => setShowImport(true)}
               disabled={!canWrite}
-              className="flex items-center gap-1.5 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 text-emerald-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
+              className="flex items-center gap-1.5 border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
               Nhập từ file
             </button>
+            {/* Thao tác ít dùng gom vào "⋯ Thêm" để màn chỉ còn một nút chính. */}
+            <MoreMenu items={[
+              { label: 'Thêm SKU vào danh mục', icon: PackagePlus, onClick: () => setShowAddProduct(true) }
+            ]} />
           </>
         )}
       </div>
@@ -526,9 +562,9 @@ export default function WeeklyForecast({ currentBU, user }) {
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-800 text-white font-semibold sticky top-0 z-20">
               <tr>
-                <th rowSpan="2" className="py-2 px-3 border-r border-slate-700 w-28">Mã SKU</th>
-                <th rowSpan="2" className="py-2 px-3 border-r border-slate-700 min-w-[180px]">Tên sản phẩm</th>
-                <th rowSpan="2" className="py-2 px-3 border-r border-slate-700 text-right w-24 bg-blue-900/60">FC tháng 1</th>
+                <SortTh rowSpan="2" label="Mã SKU" sortKey="sku" spec={sortLuoi} onSort={doiSapXep} className="py-2 px-3 border-r border-slate-700 w-28" />
+                <SortTh rowSpan="2" label="Tên sản phẩm" sortKey="ten" spec={sortLuoi} onSort={doiSapXep} className="py-2 px-3 border-r border-slate-700 min-w-[180px]" />
+                <SortTh rowSpan="2" label="FC tháng 1" sortKey="fc" spec={sortLuoi} onSort={doiSapXep} className="py-2 px-3 border-r border-slate-700 text-right w-24 bg-blue-900/60" />
                 {weeks.map((w) => (
                   <th
                     key={w}
@@ -538,8 +574,8 @@ export default function WeeklyForecast({ currentBU, user }) {
                     {weekLabel(baseMonth, w)}
                   </th>
                 ))}
-                <th rowSpan="2" className="py-2 px-3 border-r border-slate-700 text-right w-24 bg-cyan-900/60">Tổng tuần</th>
-                <th rowSpan="2" className="py-2 px-3 text-right w-24">Lệch</th>
+                <SortTh rowSpan="2" label="Tổng tuần" sortKey="tuan" spec={sortLuoi} onSort={doiSapXep} className="py-2 px-3 border-r border-slate-700 text-right w-24 bg-cyan-900/60" />
+                <SortTh rowSpan="2" label="Lệch" sortKey="lech" spec={sortLuoi} onSort={doiSapXep} className="py-2 px-3 text-right w-24" />
               </tr>
               <tr>
                 {weeklyColumns.map((col, colIdx) => (
@@ -564,28 +600,18 @@ export default function WeeklyForecast({ currentBU, user }) {
 
             <tbody className="divide-y divide-slate-200 font-mono">
               {loading ? (
-                <tr>
-                  <td colSpan={columnCount} className="py-8 text-center text-slate-400 font-sans">
-                    Đang tải dữ liệu...
-                  </td>
-                </tr>
+                <StateRow colSpan={columnCount} kind="loading" />
+              ) : loiTai ? (
+                <StateRow colSpan={columnCount} kind="error" text={loiTai} onRetry={() => loadAll(selectedCycle?.id, selectedVersion?.id)} />
               ) : !selectedVersion ? (
-                <tr>
-                  <td colSpan={columnCount} className="py-8 text-center text-slate-400 font-sans">
-                    Chưa có chu kỳ nào cho đơn vị này. Mở chu kỳ ở thanh phía trên trước.
-                  </td>
-                </tr>
+                <StateRow colSpan={columnCount} kind="empty" text="Chưa có chu kỳ nào cho đơn vị này. Mở chu kỳ ở thanh phía trên trước." />
               ) : filteredProducts.length === 0 ? (
-                <tr>
-                  <td colSpan={columnCount} className="py-8 text-center text-slate-400 font-sans">
-                    Không tìm thấy SKU phù hợp
-                  </td>
-                </tr>
+                <StateRow colSpan={columnCount} kind="empty" text="Không tìm thấy SKU phù hợp" />
               ) : (
                 <>
                   {topPad > 0 && <tr style={{ height: topPad }} aria-hidden="true" />}
                   {virtualRows.map((vRow) => {
-                  const p = filteredProducts[vRow.index];
+                  const p = sapXep[vRow.index];
                   const monthQty = monthlyMap[p.sku_code] || 0;
                   const weekSum = getSkuWeeklySum(p.sku_code);
                   const diff = weekSum - monthQty;
@@ -640,7 +666,7 @@ export default function WeeklyForecast({ currentBU, user }) {
                         {weekSum.toLocaleString('vi-VN')}
                       </td>
                       <td className={`py-2 px-3 text-right font-bold ${
-                        diff === 0 ? 'text-emerald-600' : 'text-rose-600 bg-rose-50'
+                        diff === 0 ? 'text-emerald-700' : 'text-rose-700 bg-rose-50'
                       }`}>
                         {diff === 0 ? '✓' : diff > 0 ? `+${diff.toLocaleString('vi-VN')}` : diff.toLocaleString('vi-VN')}
                       </td>
@@ -651,6 +677,29 @@ export default function WeeklyForecast({ currentBU, user }) {
                 </>
               )}
             </tbody>
+
+            {!loading && !loiTai && selectedVersion && products.length > 0 && (
+              <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-900 sticky bottom-0 z-10">
+                <tr>
+                  <td colSpan="2" className="py-2.5 px-3 uppercase text-slate-700 text-right text-xs">
+                    Tổng cộng (chiếc):
+                    {(search.trim() !== '' || onlyNonZero) && (
+                      <span className="ml-2 normal-case font-normal text-[11px] text-slate-600">cả danh mục — không theo bộ lọc đang bật</span>
+                    )}
+                  </td>
+                  <td className="py-2.5 px-3 text-right font-mono text-blue-900">{tongCuoi.thang.toLocaleString('vi-VN')}</td>
+                  {weeklyColumns.map((col) => (
+                    <td key={`${col.week}-${col.region}`} className="py-2.5 px-2 text-right font-mono text-[11px]">
+                      {(tongCuoi.cot[`${col.week}_${col.region}`] || 0).toLocaleString('vi-VN')}
+                    </td>
+                  ))}
+                  <td className="py-2.5 px-3 text-right font-mono text-cyan-900">{tongCuoi.tuan.toLocaleString('vi-VN')}</td>
+                  <td className={`py-2.5 px-3 text-right font-mono ${tongCuoi.tuan === tongCuoi.thang ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {tongCuoi.tuan === tongCuoi.thang ? '✓' : (tongCuoi.tuan > tongCuoi.thang ? '+' : '') + (tongCuoi.tuan - tongCuoi.thang).toLocaleString('vi-VN')}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>

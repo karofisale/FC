@@ -1,11 +1,28 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { api } from '../services/api';
-import { Package, Search, Filter, AlertCircle, PackagePlus, ClipboardPaste, PencilLine, CheckCircle2 } from 'lucide-react';
+import { Search, Filter, PackagePlus, ClipboardPaste, PencilLine } from 'lucide-react';
 import AddProductModal from '../components/AddProductModal';
 import BulkProductsModal from '../components/BulkProductsModal';
+import { MENU_ICON } from '../utils/menu';
+import { SortTh, StateRow } from '../components/TableStates';
+import { useTableSort } from '../utils/useTableSort';
+import { usePersistedState } from '../utils/usePersistedState';
+import { thongBao as guiToast } from '../services/toastService';
 
 const ROW_HEIGHT_PX = 39;
+const Icon = MENU_ICON.products;       // tiêu đề trang dùng đúng icon của mục menu
+const laChuoi = (v) => typeof v === 'string';
+const maSku = (p) => p.sku_code;
+const COT_SKU = {
+  sku: { type: 'text', get: (p) => p.sku_code },
+  ten: { type: 'text', get: (p) => p.name },
+  model: { type: 'text', get: (p) => p.short_name },
+  nhom: { type: 'text', get: (p) => p.product_group_name },
+  congNghe: { type: 'text', get: (p) => p.technology },
+  kenh: { type: 'text', get: (p) => p.default_channel },
+  gia: { type: 'number', get: (p) => p.avg_price }
+};
 
 export default function Products({ currentBU, user }) {
   // Ai duoc sua danh muc: cung bo vai tro voi cua ghi o server
@@ -17,12 +34,12 @@ export default function Products({ currentBU, user }) {
   const [dangSua, setDangSua] = useState(null);   // san pham dang mo trong modal sua
   const [themMoi, setThemMoi] = useState(false);
   const [danHangLoat, setDanHangLoat] = useState(false);
-  const [thongBao, setThongBao] = useState(null);
   const [groups, setGroups] = useState([]);
   const [bus, setBus] = useState([]);
   const [search, setSearch] = useState('');
-  const [selectedGroup, setSelectedGroup] = useState('ALL');
-  const [selectedBU, setSelectedBU] = useState('ALL');
+  // Nhớ bộ lọc nhóm / kênh giữa các lần mở (Đợt 2 mục 9). Giá trị đã nhớ mà không còn trong danh sách thì coi như "Tất cả".
+  const [selectedGroup, setSelectedGroup] = usePersistedState('productsGroup', 'ALL', laChuoi);
+  const [selectedBU, setSelectedBU] = usePersistedState('productsBU', 'ALL', laChuoi);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -50,19 +67,25 @@ export default function Products({ currentBU, user }) {
     loadData();
   }, [loadData]);
 
+  const nhomHieuLuc = groups.some((g) => g.code === selectedGroup) ? selectedGroup : 'ALL';
+  const kenhHieuLuc = bus.some((b) => b.code === selectedBU) ? selectedBU : 'ALL';
+
   const filteredProducts = products.filter(p => {
     const s = search.trim().toLowerCase();
     const matchSearch = s === ''
       || String(p.sku_code).toLowerCase().includes(s)
       || String(p.name).toLowerCase().includes(s);
-    const matchGroup = selectedGroup === 'ALL' || p.product_group_code === selectedGroup;
-    const matchBU = selectedBU === 'ALL' || p.default_channel === selectedBU;
+    const matchGroup = nhomHieuLuc === 'ALL' || p.product_group_code === nhomHieuLuc;
+    const matchBU = kenhHieuLuc === 'ALL' || p.default_channel === kenhHieuLuc;
     return matchSearch && matchGroup && matchBU;
   });
 
+  // Sắp xếp theo cột (chữ / số): bấm tiêu đề — tăng, giảm, rồi về thứ tự gốc.
+  const { rows: sapXep, spec: sortSku, toggle: doiSapXep } = useTableSort(filteredProducts, COT_SKU, maSku);
+
   const scrollParentRef = useRef(null);
   const rowVirtualizer = useVirtualizer({
-    count: filteredProducts.length,
+    count: sapXep.length,
     getScrollElement: () => scrollParentRef.current,
     estimateSize: () => ROW_HEIGHT_PX,
     overscan: 12
@@ -78,7 +101,7 @@ export default function Products({ currentBU, user }) {
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <Package className="w-5 h-5 text-blue-600" />
+            <Icon className="w-5 h-5 text-blue-600" />
             DANH MỤC SẢN PHẨM (SKU MASTER CATALOG)
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
@@ -103,24 +126,6 @@ export default function Products({ currentBU, user }) {
         )}
       </div>
 
-      {thongBao && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-lg p-3 flex items-start gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-          <span className="flex-1">{thongBao}</span>
-          <button onClick={() => setThongBao(null)} className="underline font-semibold">Đóng</button>
-        </div>
-      )}
-
-      {error && (
-        <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg p-3 flex items-start gap-2">
-          <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <span>{error}</span>
-            <button onClick={loadData} className="ml-2 underline font-semibold">Thử lại</button>
-          </div>
-        </div>
-      )}
-
       {/* Filter controls */}
       <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-3">
         <div className="relative flex-1 w-full">
@@ -137,7 +142,7 @@ export default function Products({ currentBU, user }) {
         <div className="flex items-center space-x-2 w-full md:w-auto">
           <Filter className="w-4 h-4 text-slate-400" />
           <select
-            value={selectedGroup}
+            value={nhomHieuLuc}
             onChange={(e) => setSelectedGroup(e.target.value)}
             className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-700 outline-none"
           >
@@ -148,7 +153,7 @@ export default function Products({ currentBU, user }) {
           </select>
 
           <select
-            value={selectedBU}
+            value={kenhHieuLuc}
             onChange={(e) => setSelectedBU(e.target.value)}
             className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-700 outline-none"
           >
@@ -166,24 +171,28 @@ export default function Products({ currentBU, user }) {
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-800 text-white font-semibold sticky top-0 z-20">
               <tr>
-                <th className="py-2.5 px-4">Mã SKU</th>
-                <th className="py-2.5 px-4">Tên sản phẩm</th>
-                <th className="py-2.5 px-4">Model (Tên gọi tắt)</th>
-                <th className="py-2.5 px-4">Nhóm sản phẩm</th>
-                <th className="py-2.5 px-4">Công nghệ</th>
-                <th className="py-2.5 px-4">Kênh mặc định</th>
-                <th className="py-2.5 px-4 text-right">Giá ghi nhận DT (VNĐ)</th>
+                <SortTh label="Mã SKU" sortKey="sku" spec={sortSku} onSort={doiSapXep} className="py-2.5 px-4" />
+                <SortTh label="Tên sản phẩm" sortKey="ten" spec={sortSku} onSort={doiSapXep} className="py-2.5 px-4" />
+                <SortTh label="Model (Tên gọi tắt)" sortKey="model" spec={sortSku} onSort={doiSapXep} className="py-2.5 px-4" />
+                <SortTh label="Nhóm sản phẩm" sortKey="nhom" spec={sortSku} onSort={doiSapXep} className="py-2.5 px-4" />
+                <SortTh label="Công nghệ" sortKey="congNghe" spec={sortSku} onSort={doiSapXep} className="py-2.5 px-4" />
+                <SortTh label="Kênh mặc định" sortKey="kenh" spec={sortSku} onSort={doiSapXep} className="py-2.5 px-4" />
+                <SortTh label="Giá ghi nhận DT (VNĐ)" sortKey="gia" spec={sortSku} onSort={doiSapXep} className="py-2.5 px-4 text-right" />
                 {isEditor && <th className="py-2.5 px-4 w-10"></th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 font-mono">
-              {filteredProducts.length === 0 ? (
-                <tr><td colSpan={isEditor ? 8 : 7} className="py-8 text-center text-slate-400 font-sans">Không tìm thấy SKU phù hợp</td></tr>
+              {loading ? (
+                <StateRow colSpan={isEditor ? 8 : 7} kind="loading" />
+              ) : error ? (
+                <StateRow colSpan={isEditor ? 8 : 7} kind="error" text={error} onRetry={loadData} />
+              ) : filteredProducts.length === 0 ? (
+                <StateRow colSpan={isEditor ? 8 : 7} kind="empty" text="Không tìm thấy SKU phù hợp" />
               ) : (
                 <>
                   {topPad > 0 && <tr style={{ height: topPad }} aria-hidden="true" />}
                   {virtualRows.map((vRow) => {
-                    const p = filteredProducts[vRow.index];
+                    const p = sapXep[vRow.index];
                     return (
                       <tr key={p.sku_code} className="hover:bg-slate-50">
                         <td className="py-2.5 px-4 font-bold text-blue-900">{p.sku_code}</td>
@@ -198,7 +207,7 @@ export default function Products({ currentBU, user }) {
                         {isEditor && (
                           <td className="py-2.5 px-4">
                             <button onClick={() => setDangSua(p)} title={'Sửa ' + p.sku_code}
-                              className="p-1 rounded hover:bg-blue-50 text-slate-400 hover:text-blue-600">
+                              className="p-1 rounded hover:bg-blue-50 text-slate-500 hover:text-blue-600">
                               <PencilLine className="w-3.5 h-3.5" />
                             </button>
                           </td>
@@ -224,7 +233,7 @@ export default function Products({ currentBU, user }) {
           onAdded={(sp, message) => {
             setThemMoi(false);
             setDangSua(null);
-            setThongBao(message || ('Đã lưu SKU ' + (sp?.sku_code || '') + '.'));
+            guiToast({ type: 'success', text: message || ('Đã lưu SKU ' + (sp?.sku_code || '') + '.') });
             // Vá thẳng vào mảng products bằng object addProduct_/updateProduct_ đã
             // trả về, thay vì loadData() cả getProducts+getGroups+getBUs chỉ để
             // đổi ĐÚNG MỘT dòng (~1.141+ SKU tải lại một cách vô ích). Ngừng dùng
@@ -253,7 +262,7 @@ export default function Products({ currentBU, user }) {
           onClose={() => setDanHangLoat(false)}
           onDone={(message) => {
             setDanHangLoat(false);
-            setThongBao(message);
+            guiToast({ type: 'success', text: message });
             loadData();
           }}
         />

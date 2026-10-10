@@ -15,7 +15,7 @@
     "gas:open": "cd gas && clasp open",
     "gas:logs": "cd gas && clasp logs --watch",
     "seed:products": "node tools/seed-products.mjs",
-    "test": "node test/productpaste.test.js && node test/normalizemonth.test.js gas/Utils.gs && node test/pricesync.test.js gas/PriceSync.gs && node test/portalstats.test.js && node test/migrate.test.js && node test/sheetdb.test.js && node test/mutations.test.js && node test/dot1-client.test.js && node tools/test-annual-plan-model.mjs && node tools/test-annual-plan-sku.mjs && node tools/test-annual-plan-excel.mjs"
+    "test": "node test/productpaste.test.js && node test/normalizemonth.test.js gas/Utils.gs && node test/pricesync.test.js gas/PriceSync.gs && node test/portalstats.test.js && node test/migrate.test.js && node test/sheetdb.test.js && node test/mutations.test.js && node test/dot1-client.test.js && node test/dot2-khung-ui.test.js && node tools/test-annual-plan-model.mjs && node tools/test-annual-plan-sku.mjs && node tools/test-annual-plan-excel.mjs"
   },
   "devDependencies": {
     "@google/clasp": "^3.4.1"

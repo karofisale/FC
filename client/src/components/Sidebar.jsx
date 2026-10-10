@@ -1,18 +1,6 @@
 import React, { useState } from 'react';
-import {
-  LayoutDashboard,
-  CalendarDays,
-  CalendarRange,
-  CheckCircle2,
-  Package,
-  HelpCircle,
-  FileSpreadsheet,
-  TrendingUp,
-  Target,
-  Download,
-  PanelLeftClose,
-  PanelLeftOpen
-} from 'lucide-react';
+import { FileSpreadsheet, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { MENU_ITEMS } from '../utils/menu';
 
 const COLLAPSE_KEY = 'karofi_fc_sidebar_collapsed';
 
@@ -37,19 +25,10 @@ export default function Sidebar({ activeTab, setActiveTab, pendingCount = 0, rol
     });
   };
 
-  const menuItems = [
-    { id: 'dashboard', label: 'Tổng quan & Báo cáo', icon: LayoutDashboard, badge: null },
-    { id: 'monthly', label: 'Bảng 0: Forecast 4 Tháng', icon: CalendarDays, badge: null },
-    { id: 'weekly', label: 'Bảng 1: Forecast Tuần/Miền', icon: CalendarRange, badge: null },
-    { id: 'approvals', label: 'Quy trình Phê duyệt', icon: CheckCircle2, badge: pendingCount > 0 ? pendingCount : null },
-    { id: 'actuals', label: 'Sản lượng Thực hiện', icon: TrendingUp, badge: null },
-    { id: 'annual', label: 'Kế hoạch năm', icon: Target, badge: null },
-    { id: 'products', label: 'Danh mục SKU', icon: Package, badge: null },
-    ...(role === 'central_admin' || role === 'viewer'
-      ? [{ id: 'exports', label: 'Xuất Báo cáo', icon: Download, badge: null }]
-      : []),
-    { id: 'guide', label: 'Sơ đồ Quy trình B5', icon: HelpCircle, badge: null }
-  ];
+  // Danh sách mục + icon nằm ở utils/menu.js (mỗi mục một icon riêng, không trùng).
+  const menuItems = MENU_ITEMS
+    .filter((m) => !m.roles || m.roles.includes(role))
+    .map((m) => ({ ...m, badge: m.id === 'approvals' && pendingCount > 0 ? pendingCount : null }));
 
   return (
     <aside
@@ -57,7 +36,7 @@ export default function Sidebar({ activeTab, setActiveTab, pendingCount = 0, rol
     >
       <div className={`flex items-center mb-3 ${collapsed ? 'justify-center' : 'justify-between px-1'}`}>
         {!collapsed && (
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
             DANH MỤC CHỨC NĂNG
           </span>
         )}
@@ -105,7 +84,7 @@ export default function Sidebar({ activeTab, setActiveTab, pendingCount = 0, rol
       </nav>
 
       {!collapsed && (
-        <div className="pt-4 border-t border-slate-800 text-xs text-slate-500 space-y-2">
+        <div className="pt-4 border-t border-slate-800 text-xs text-slate-400 space-y-2">
           <div className="flex items-center gap-2">
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
             <span>Excel Model: XK_OEM_GT2_2026</span>

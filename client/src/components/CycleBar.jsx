@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { CalendarPlus, GitBranch, Loader2, AlertCircle, Unlock, X } from 'lucide-react';
 import StatusBadge from './StatusBadge';
+import Dialog from './Dialog';
 import { api } from '../services/api';
 import { currentMonth, isoWeekLabel, monthLabel, todayISO } from '../utils/period';
 import { confirmNavigateAway } from '../services/dirtyState';
+import { appConfirm } from '../services/dialogService';
 
 /**
  * Thanh chọn chu kỳ / bản cập nhật, kèm ba thao tác mà bản cũ không có
@@ -49,7 +51,7 @@ export default function CycleBar({
   }, [currentBU, selectedCycle?.id, selectedVersion?.id]);
 
   const createCycle = async () => {
-    if (!confirmNavigateAway('Mở chu kỳ mới')) return;
+    if (!(await confirmNavigateAway('Mở chu kỳ mới'))) return;
     setError(null);
     setCreating('cycle');
     try {
@@ -68,11 +70,13 @@ export default function CycleBar({
 
   const createVersion = async () => {
     if (!selectedCycle) return;
-    if (!confirmNavigateAway('Tạo bản cập nhật tuần mới')) return;
+    if (!(await confirmNavigateAway('Tạo bản cập nhật tuần mới'))) return;
     // Tạo bản mới là nhân bản toàn bộ số từ bản gần nhất (copyFromPrevious) —
     // bấm nhầm là có ngay một bản cập nhật thừa phải dọn tay, nên hỏi lại
     // giống mẫu Duyệt/Từ chối ở Approvals.jsx.
-    if (!window.confirm('Tạo bản cập nhật tuần mới, kế thừa số của bản gần nhất?')) return;
+    if (!(await appConfirm('Tạo bản cập nhật tuần mới, kế thừa số của bản gần nhất?', {
+      title: 'Tạo bản cập nhật tuần mới', okLabel: 'Tạo bản mới'
+    }))) return;
     setError(null);
     setCreating('version');
     try {
@@ -118,7 +122,11 @@ export default function CycleBar({
           {cycles.length > 0 ? (
             <select
               value={selectedCycle?.id || ''}
-              onChange={(e) => { if (confirmNavigateAway('Đổi chu kỳ')) onSelectCycle(cycles.find((c) => c.id === e.target.value)); }}
+              onChange={async (e) => {
+                // Đọc giá trị TRƯỚC await: sau await React đã vẽ lại ô chọn (controlled) về giá trị cũ.
+                const id = e.target.value;
+                if (await confirmNavigateAway('Đổi chu kỳ')) onSelectCycle(cycles.find((c) => c.id === id));
+              }}
               className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500"
             >
               {cycles.map((c) => (
@@ -128,7 +136,7 @@ export default function CycleBar({
               ))}
             </select>
           ) : (
-            <span className="text-xs text-slate-400 italic">Chưa có chu kỳ nào cho {currentBU}</span>
+            <span className="text-xs text-slate-500 italic">Chưa có chu kỳ nào cho {currentBU}</span>
           )}
           {selectedCycle && <StatusBadge status={selectedCycle.status} />}
         </div>
@@ -139,7 +147,10 @@ export default function CycleBar({
             <span className="text-xs text-slate-500 whitespace-nowrap">Bản cập nhật:</span>
             <select
               value={selectedVersion?.id || ''}
-              onChange={(e) => { if (confirmNavigateAway('Đổi bản cập nhật')) onSelectVersion(versions.find((v) => v.id === e.target.value)); }}
+              onChange={async (e) => {
+                const id = e.target.value;
+                if (await confirmNavigateAway('Đổi bản cập nhật')) onSelectVersion(versions.find((v) => v.id === id));
+              }}
               className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-blue-500"
             >
               {versions.map((v) => (
@@ -196,7 +207,7 @@ export default function CycleBar({
               <button
                 onClick={createCycle}
                 disabled={creating !== null || !newMonth}
-                className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50"
+                className="flex items-center gap-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50"
               >
                 {creating === 'cycle'
                   ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -233,17 +244,19 @@ function ReopenDialog({ cycleLabel, busy, onCancel, onConfirm }) {
   const trimmed = reason.trim();
 
   return (
-    <div className="fixed inset-0 bg-slate-950/60 flex items-center justify-center p-4 z-50">
-      <form
-        onSubmit={(e) => { e.preventDefault(); if (trimmed) onConfirm(trimmed); }}
-        className="bg-white rounded-xl shadow-2xl w-full max-w-md p-5 space-y-4 text-slate-900"
-      >
+    <Dialog
+      as="form"
+      onSubmit={(e) => { e.preventDefault(); if (trimmed) onConfirm(trimmed); }}
+      onClose={onCancel}
+      busy={busy}
+      className="bg-white rounded-xl shadow-2xl w-full max-w-md p-5 space-y-4 text-slate-900"
+    >
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="font-bold text-sm">Mở lại chu kỳ đã duyệt</h3>
             <p className="text-xs text-slate-500 mt-0.5">{cycleLabel}</p>
           </div>
-          <button type="button" onClick={onCancel} className="p-1 hover:bg-slate-100 rounded">
+          <button type="button" onClick={onCancel} aria-label="Đóng" className="p-1 hover:bg-slate-100 rounded">
             <X className="w-4 h-4 text-slate-500" />
           </button>
         </div>
@@ -283,13 +296,12 @@ function ReopenDialog({ cycleLabel, busy, onCancel, onConfirm }) {
           <button
             type="submit"
             disabled={busy || !trimmed}
-            className="flex-1 flex items-center justify-center gap-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white py-2 rounded-lg text-xs font-bold"
+            className="flex-1 flex items-center justify-center gap-1.5 bg-amber-700 hover:bg-amber-800 disabled:opacity-50 text-white py-2 rounded-lg text-xs font-bold"
           >
             {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Unlock className="w-3.5 h-3.5" />}
             Mở lại chu kỳ
           </button>
         </div>
-      </form>
-    </div>
+    </Dialog>
   );
 }

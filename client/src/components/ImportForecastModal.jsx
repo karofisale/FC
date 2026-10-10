@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   X, Upload, Sheet, Loader2, AlertCircle, ArrowLeft, ArrowRight,
   CheckCircle2, FileSpreadsheet, Eye
@@ -10,6 +10,8 @@ import {
   aggregateRegionBlocks, detectStackedBlocks, findTotalsRow, readTotalsRow, guessRegionSheets
 } from '../utils/importAggregate';
 import MissingSkusPanel from './MissingSkusPanel';
+import Dialog from './Dialog';
+import { appConfirm } from '../services/dialogService';
 
 const NONE = '__none__';
 
@@ -119,14 +121,8 @@ export default function ImportForecastModal({
   // null = chưa đếm / không đếm được (vẫn cho ghi, chỉ là không nói được con số).
   const [dangCo, setDangCo] = useState(null);
 
-  // Esc đóng modal — mọi bước của luồng chỉ dùng input/select thường, không
-  // có dropdown gợi ý riêng nào cần chặn Esc trước, nên đóng thẳng dù đang
-  // ở bước nào của wizard.
-  useEffect(() => {
-    const onKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  // Esc / bấm nền / focus do <Dialog> lo (components/Dialog.jsx). Đã đọc file xong (đang xem trước / điền
+  // SKU thiếu) thì bấm nền không đóng — bỏ nhầm là phải chọn file và ánh xạ cột lại từ đầu.
 
   const aoa = activeSheet && sheets ? sheets[activeSheet] : null;
   const rawRows = aoa || [];
@@ -539,13 +535,14 @@ export default function ImportForecastModal({
   }, [parsedRows, monthColumns]);
 
   /** Ghi đè xong trang cha nạp lại lưới -> ô đang sửa dở mất. Hỏi lại ngay trước lúc ghi. */
-  const xacNhanBoOChuaLuu = () => unsavedCount <= 0 || window.confirm(
-    `Bảng đang có ${unsavedCount} ô chưa lưu. Ghi đè từ file sẽ BỎ các ô này (nạp lại số vừa nhập). Vẫn ghi đè?`
+  const xacNhanBoOChuaLuu = async () => unsavedCount <= 0 || appConfirm(
+    `Bảng đang có ${unsavedCount} ô chưa lưu. Ghi đè từ file sẽ BỎ các ô này (nạp lại số vừa nhập). Vẫn ghi đè?`,
+    { title: 'Bỏ ô chưa lưu?', okLabel: 'Bỏ ô chưa lưu và ghi đè', danger: true }
   );
 
   /** Bước xem trước -> xác nhận -> mới ghi. Chỉ dùng khi KHÔNG có mã chưa có trong danh mục. */
   const handleConfirmWrite = async () => {
-    if (!xacNhanBoOChuaLuu()) return;
+    if (!(await xacNhanBoOChuaLuu())) return;
     setBusy(true);
     setError(null);
     try {
@@ -573,7 +570,7 @@ export default function ImportForecastModal({
       setError(`Còn ${incomplete.length} SKU chưa nhập tên: ${incomplete.map((p) => p.skuCode).slice(0, 5).join(', ')}${incomplete.length > 5 ? '...' : ''}`);
       return;
     }
-    if (!xacNhanBoOChuaLuu()) return;
+    if (!(await xacNhanBoOChuaLuu())) return;
     setBusy(true);
     setError(null);
     try {
@@ -622,8 +619,7 @@ export default function ImportForecastModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-slate-950/60 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto text-slate-900">
+    <Dialog onClose={onClose} busy={busy} dirty={step !== 'source' && step !== 'done'} className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto text-slate-900">
 
         <div className="flex items-start justify-between p-5 border-b border-slate-100 sticky top-0 bg-white z-10">
           <div className="flex items-center gap-2">
@@ -633,7 +629,7 @@ export default function ImportForecastModal({
               <p className="text-[11px] text-slate-500">{sourceLabel || 'Tải Excel hoặc lấy từ một tab Google Sheet'}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded"><X className="w-4 h-4 text-slate-500" /></button>
+          <button onClick={onClose} aria-label="Đóng" className="p-1 hover:bg-slate-100 rounded"><X className="w-4 h-4 text-slate-500" /></button>
         </div>
 
         <div className="p-5 space-y-4">
@@ -673,11 +669,11 @@ export default function ImportForecastModal({
                   onChange={(e) => setTabNameInput(e.target.value)}
                   className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-500"
                 />
-                <p className="text-[10px] text-slate-400">Sheet phải được chia sẻ cho tài khoản Google đang chạy hệ thống.</p>
+                <p className="text-[10px] text-slate-500">Sheet phải được chia sẻ cho tài khoản Google đang chạy hệ thống.</p>
                 <button
                   onClick={handleFetchGoogleSheet}
                   disabled={busy}
-                  className="w-full flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white py-1.5 rounded-lg text-xs font-semibold"
+                  className="w-full flex items-center justify-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white py-1.5 rounded-lg text-xs font-semibold"
                 >
                   {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRight className="w-3.5 h-3.5" />}
                   Lấy dữ liệu
@@ -1144,8 +1140,7 @@ export default function ImportForecastModal({
           )}
 
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -1210,7 +1205,7 @@ function PreviewTable({ rows, hasHeaderRow, headerRowNum, dataStartRowNum }) {
             const isDataStart = rowNum === dataStartRowNum;
             return (
               <tr key={i} className={isHeader ? 'bg-blue-100 font-bold' : isDataStart ? 'bg-emerald-50' : 'odd:bg-white even:bg-slate-50'}>
-                <td className="px-2 py-1 border-r border-slate-200 text-slate-400 text-right whitespace-nowrap">
+                <td className="px-2 py-1 border-r border-slate-200 text-slate-500 text-right whitespace-nowrap">
                   {rowNum}{isHeader ? ' (tiêu đề)' : isDataStart ? ' (bắt đầu)' : ''}
                 </td>
                 {row.map((cell, j) => <td key={j} className="px-2 py-1 border-r border-slate-100 whitespace-nowrap">{String(cell)}</td>)}

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { X, Loader2, AlertTriangle, ArrowDownToLine, CheckCircle2, Info, PackagePlus } from 'lucide-react';
 import { api } from '../services/api';
 import MissingSkusPanel from './MissingSkusPanel';
+import Dialog from './Dialog';
 
 /**
  * Nhập kế hoạch tháng thẳng từ app nguồn — khác hẳn "Nhập từ file": ở đây
@@ -56,18 +57,10 @@ export default function ImportFromSourceModal({
 
   useEffect(() => { xemTruoc(baseMonth); }, [xemTruoc, baseMonth]);
 
-  // Esc đóng modal — trừ lúc đang điền bảng sản phẩm mới, vì đó có thể là
-  // mấy chục dòng vừa gõ tay; Esc lúc đó chỉ lùi về bản xem trước, không
-  // đóng hẳn và mất công vừa điền.
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key !== 'Escape') return;
-      if (addingProducts) { setAddingProducts(false); return; }
-      onClose();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose, addingProducts]);
+  // Esc / bấm nền do <Dialog> lo (components/Dialog.jsx). Lúc đang điền bảng sản phẩm mới, đó có thể là
+  // mấy chục dòng vừa gõ tay: Esc chỉ lùi về bản xem trước (không đóng hẳn rồi mất công vừa điền), và
+  // bấm nền thì không làm gì (dirty) — xem dongHop bên dưới.
+  const dongHop = () => { if (addingProducts) setAddingProducts(false); else onClose(); };
 
   /** Mở bảng điền — điền sẵn tên gợi ý cho XK (nguồn có cột tên), OEM thì để trống. */
   function moBangSanPhamMoi() {
@@ -141,14 +134,13 @@ export default function ImportFromSourceModal({
   const coSo = preview && preview.skuCount > 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl bg-white shadow-xl">
+    <Dialog onClose={dongHop} dirty={addingProducts} busy={importing} className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl bg-white shadow-xl">
         <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
           <div>
             <h3 className="text-base font-semibold text-slate-800">Nhập dữ liệu từ app nguồn</h3>
             <p className="mt-0.5 text-xs text-slate-500">{nguon}</p>
           </div>
-          <button onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600" aria-label="Đóng">
+          <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-600" aria-label="Đóng">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -313,7 +305,7 @@ export default function ImportFromSourceModal({
               <button
                 onClick={nhap}
                 disabled={!coSo || importing || loading}
-                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
               >
                 {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowDownToLine className="h-4 w-4" />}
                 {importing ? 'Đang nhập…' : 'Nhập vào bản mới'}
@@ -321,7 +313,6 @@ export default function ImportFromSourceModal({
             )}
           </div>
         )}
-      </div>
-    </div>
+    </Dialog>
   );
 }

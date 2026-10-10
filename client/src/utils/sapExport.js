@@ -13,6 +13,8 @@
  *   cột A..U = 21 cột, trong đó J..U là W1..W12
  */
 
+import { vnParts } from './period.js';
+
 /** Cột trong sheet ZPP702, đúng thứ tự A..U. */
 export const ZPP702_COLUMNS = [
   'Requirements Plan', 'Material', 'Plant', 'MRP Area', 'Requirements Type',
@@ -122,7 +124,8 @@ export function firstWednesdayOfMonth(year, month) {
  * một chu kỳ vào tuần khác sẽ ra ngày khác, đúng như cách làm tay hiện nay.
  */
 export function wednesdayOfNextWeek(from) {
-  const d = new Date(Date.UTC(from.getFullYear(), from.getMonth(), from.getDate()));
+  const vn = vnParts(from);                 // ngày theo giờ VN, không theo múi giờ của máy
+  const d = new Date(Date.UTC(vn.y, vn.m - 1, vn.d));
   const dow = d.getUTCDay();             // CN=0..T7=6
   const daysSinceMonday = (dow + 6) % 7; // T2=0..CN=6
   d.setUTCDate(d.getUTCDate() - daysSinceMonday + 7 + 2); // về thứ Hai, sang tuần sau, tới thứ Tư
@@ -293,7 +296,7 @@ export function buildSapRows({ channel, baseMonth, rows, weekly, exportedAt = ne
   if (!cfg) throw new Error(`Chưa có cấu hình SAP cho kênh ${channel}.`);
 
   const dateStr = uploadDateFor(channel, baseMonth, exportedAt);
-  const year = exportedAt.getFullYear();
+  const year = vnParts(exportedAt).y;
 
   if (cfg.weekColumns) {
     return buildPlant0200Rows(cfg, channel, baseMonth, rows, weekly, dateStr, year, buChannels);

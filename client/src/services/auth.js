@@ -122,9 +122,5 @@ export function allowedBUs(allBUs = []) {
   return allBUs.filter((b) => b.code === user.business_unit_code);
 }
 
-export const ROLE_LABELS = {
-  central_admin: 'Quản trị hệ thống',
-  bu_editor: 'Lập kế hoạch',
-  bu_approver: 'Thẩm định / Phê duyệt',
-  viewer: 'Chỉ xem'
-};
+// Nhãn vai trò nằm ở bảng thuật ngữ chung (utils/glossary.js); giữ tên xuất cũ cho nơi đã import.
+export { ROLE_LABELS } from '../utils/glossary';

@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ClipboardPaste, X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { api } from '../services/api';
 import { parseDanBang, COT_MAC_DINH } from '../utils/productPaste';
+import Dialog from './Dialog';
 
 const NHAN_COT = {
   skuCode: 'Mã SKU',
@@ -32,13 +33,7 @@ export default function BulkProductsModal({ groups, bus, existingProducts, onClo
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
-  // Esc đóng modal — vùng dán chỉ là textarea thường, không có dropdown gợi ý
-  // nào tự bắt phím Esc riêng, nên đóng thẳng.
-  useEffect(() => {
-    const onKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  // Esc / bấm nền / focus do <Dialog> lo (components/Dialog.jsx).
 
   const maDangCo = useMemo(() => {
     const m = new Map();
@@ -104,8 +99,7 @@ export default function BulkProductsModal({ groups, bus, existingProducts, onClo
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/60 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col text-slate-900">
+    <Dialog onClose={onClose} busy={saving} className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col text-slate-900">
 
         <div className="flex items-start justify-between p-5 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
@@ -117,7 +111,7 @@ export default function BulkProductsModal({ groups, bus, existingProducts, onClo
               </p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-slate-100 rounded">
+          <button type="button" onClick={onClose} aria-label="Đóng" className="p-1 hover:bg-slate-100 rounded">
             <X className="w-4 h-4 text-slate-500" />
           </button>
         </div>
@@ -194,27 +188,27 @@ export default function BulkProductsModal({ groups, bus, existingProducts, onClo
                     <tbody className="divide-y divide-slate-100">
                       {danhGia.map((r, i) => (
                         <tr key={r.skuCode + '-' + i} className={r.loi.length ? 'bg-rose-50' : ''}>
-                          <td className="py-1 px-2 text-slate-400">{r._dong}</td>
+                          <td className="py-1 px-2 text-slate-500">{r._dong}</td>
                           <td className="py-1 px-2 font-mono font-semibold">{r.skuCode}</td>
                           <td className="py-1 px-2 truncate max-w-[220px]">{r.name || '—'}</td>
                           <td className="py-1 px-2">{r.defaultChannel || '—'}</td>
                           <td className="py-1 px-2 text-right font-mono">
                             {r.avgPrice === null || r.avgPrice === undefined
-                              ? <span className="text-slate-400">không đổi</span>
+                              ? <span className="text-slate-500">không đổi</span>
                               : r.avgPrice.toLocaleString('vi-VN')}
                           </td>
                           <td className="py-1 px-2">
                             {r.loi.length ? (
                               <span className="text-rose-700">{r.loi.join('; ')}</span>
                             ) : r.daCo ? (
-                              <span className={ghiDe ? 'text-amber-700' : 'text-slate-400'}>
+                              <span className={ghiDe ? 'text-amber-700' : 'text-slate-500'}>
                                 {ghiDe ? 'sẽ cập nhật' : 'đã có — bỏ qua'}
                               </span>
                             ) : (
                               <span className="text-emerald-700">mã mới</span>
                             )}
                             {r.canhBao.length > 0 && (
-                              <span className="text-amber-600"> · {r.canhBao.join('; ')}</span>
+                              <span className="text-amber-700"> · {r.canhBao.join('; ')}</span>
                             )}
                           </td>
                         </tr>
@@ -248,7 +242,6 @@ export default function BulkProductsModal({ groups, bus, existingProducts, onClo
             {seGhi > 0 ? 'Ghi ' + seGhi + ' dòng' : 'Chưa có gì để ghi'}
           </button>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }

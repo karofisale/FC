@@ -14,6 +14,7 @@
 
 import * as XLSX from 'xlsx';
 import { NHAN_THANG, tomTatKhach, tenKhachHienThi } from './annualPlanModel.js';
+import { vnToday } from './period.js';
 
 const so = (v) => { const n = Number(v); return isFinite(n) ? n : 0; };
 const lam = (v) => Math.round(so(v));
@@ -118,8 +119,8 @@ const NHAN_TT = { draft: 'dang-soan', submitted: 'cho-duyet', approved: 'da-duye
 
 /** Tên file: KeHoachNam_<đơn vị>_<năm>_<trạng thái>_<ngày>.xlsx */
 export function tenFile(donVi, year, status, homNay) {
-  const d = homNay || new Date();
-  const ngay = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+  // Ngày theo giờ VN (không theo múi giờ của máy) — xem vnToday ở period.js.
+  const ngay = vnToday(homNay || new Date()).replace(/-/g, '');
   return 'KeHoachNam_' + String((donVi && donVi.code) || 'DV').replace(/[^\w-]+/g, '') + '_' + year + '_' + (NHAN_TT[status] || status || 'ban-nhap') + '_' + ngay + '.xlsx';
 }
 

@@ -1,9 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Save, Send, CheckCircle2, XCircle, Loader2, AlertCircle, Plus, Unlock, Lock, Wand2, Trash2, UserPlus, GitBranch, Crown, Info, Target, FileSpreadsheet, RefreshCw, Upload
+  Save, Send, CheckCircle2, XCircle, Loader2, AlertCircle, Plus, Unlock, Lock, Wand2, Trash2, UserPlus, GitBranch, Crown, Info, Target, FileSpreadsheet, RefreshCw, Upload,
+  Database, ClipboardList, Eye, Users, Boxes
 } from 'lucide-react';
 import { api } from '../services/api';
 import { setDirty, confirmNavigateAway } from '../services/dirtyState';
+import { appConfirm } from '../services/dialogService';
+import { usePersistedState } from '../utils/usePersistedState';
+import { NHAN_LOAI_KE_HOACH, statusLabel, statusTone } from '../utils/glossary';
+import { vnParts, vnYear } from '../utils/period';
+import { useTableSort } from '../utils/useTableSort';
+import { SortTh } from '../components/TableStates';
+import MoreMenu from '../components/MoreMenu';
 import AnnualGrid, { LamLaiCtx } from '../components/annual/AnnualGrid';
 import AnnualSkuGrid from '../components/annual/AnnualSkuGrid';
 import * as K from '../utils/annualPlanSkuOps';
@@ -11,12 +19,9 @@ import { ThanhLoc, ChonTien } from '../components/annual/AnnualFilter';
 import { ReasonDialog, AddCustomerDialog, AddSkuDialog, MassDeleteDialog, ShareModeBar, SuaMaSkuDialog, TaiDoanhThuKhachDialog } from '../components/annual/AnnualDialogs';
 import * as M from '../utils/annualPlanModel';
 
-const NHAN_LOAI = { base: 'Bản gốc', adjust: 'Điều chỉnh', final: 'Final' };
-const NHAN_TT = { draft: 'Đang soạn', submitted: 'Chờ duyệt', approved: 'Đã duyệt', rejected: 'Bị từ chối', superseded: 'Đã thay thế' };
-const MAU_TT = {
-  draft: 'bg-slate-100 text-slate-700', submitted: 'bg-amber-100 text-amber-800', approved: 'bg-emerald-100 text-emerald-800',
-  rejected: 'bg-rose-100 text-rose-800', superseded: 'bg-slate-200 text-slate-500'
-};
+// Nhãn loại bản / trạng thái nằm ở bảng thuật ngữ chung (utils/glossary.js): không hiện mã thô, một cách gọi cho cả app.
+const NHAN_LOAI = NHAN_LOAI_KE_HOACH;
+const laNamHopLe = (v) => Number.isInteger(v) && v >= vnYear() && v <= vnYear() + 2;
 
 /** Câu thông báo kết quả điền ngược KPI năm của OEM (server trả `kpi`); '' nếu không có gì để nói. */
 function thongBaoKpi(kpi) {
@@ -27,10 +32,10 @@ function thongBaoKpi(kpi) {
   return '';
 }
 
-/** Năm kế hoạch mặc định: từ tháng 10 lập cho năm sau; trước đó là năm hiện tại (để xem / điều chỉnh). */
+/** Năm kế hoạch mặc định: từ tháng 9 (giờ VN) lập cho năm sau; trước đó là năm hiện tại (để xem / điều chỉnh). */
 function namMacDinh() {
-  const d = new Date();
-  return d.getMonth() >= 8 ? d.getFullYear() + 1 : d.getFullYear();
+  const { y, m } = vnParts();
+  return m >= 9 ? y + 1 : y;
 }
 
 /** Đảm bảo mỗi dòng có đủ 12 phần tử cho khoa / qty / qtyBase (server có thể trả mảng rỗng). */
@@ -41,9 +46,13 @@ function chuanHoa(plan) {
 
 const nutChinh = 'inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-lg';
 const nutPhu = 'inline-flex items-center gap-1.5 border border-slate-300 hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-lg';
+// Nút phá / từ chối: viền và chữ đỏ (Đợt 2 mục 4). Apply: viền xanh — để toàn màn chỉ còn MỘT nút xanh đặc là "bước tiếp theo".
+const nutTuChoi = 'inline-flex items-center gap-1.5 border border-rose-300 bg-white hover:bg-rose-50 disabled:opacity-50 text-rose-700 text-xs font-semibold px-3 py-1.5 rounded-lg';
+const nutApply = 'inline-flex items-center gap-1.5 border border-blue-600 bg-white hover:bg-blue-50 disabled:opacity-50 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-lg';
 
 export default function AnnualPlan({ currentBU, user }) {
-  const [year, setYear] = useState(namMacDinh);
+  // Nhớ năm đã chọn lần trước (Đợt 2 mục 9); không hợp lệ (đã quá cũ) thì rơi về năm mặc định.
+  const [year, setYear] = usePersistedState('annualYear', namMacDinh, laNamHopLe);
   const [ws, setWs] = useState(null);
   const [st, setSt] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -60,9 +69,9 @@ export default function AnnualPlan({ currentBU, user }) {
   const [bao, setBao] = useState(false);       // có thay đổi chưa lưu
   const [tangText, setTangText] = useState('');
   const [doanhThuText, setDoanhThuText] = useState('');
-  const [tienTe, setTienTe] = useState('VND');                       // 'VND' = triệu VNĐ | 'USD' (chỉ Export OEM + Brand)
+  const [tienTe, setTienTe] = usePersistedState('annualTien', 'VND', (v) => v === 'VND' || v === 'USD');   // 'VND' = triệu VNĐ | 'USD' (chỉ Export OEM + Brand)
   const [loc, setLoc] = useState({ thiTruong: '', sale: '', tuKhoa: '' });
-  const [kieu, setKieu] = useState('khach');                         // bảng Kế hoạch lập theo 'khach' (Khách → SKU) hoặc 'sku' (Category → SKU → Khách)
+  const [kieu, setKieu] = usePersistedState('annualKieu', 'khach', (v) => v === 'khach' || v === 'sku');   // bảng Kế hoạch lập theo 'khach' (Khách → SKU) hoặc 'sku' (Category → SKU → Khách)
   const [tuFix, setTuFix] = useState(true);                         // bảng theo SKU: sửa xong tự Fix (ô / tổng SKU / tổng nhóm vừa sửa)
   const [buKhac, setBuKhac] = useState(true);                       // sửa doanh thu một khách: bù bằng các khách khác để giữ tổng tháng
   const [moNhom, setMoNhom] = useState(() => new Set());
@@ -179,8 +188,10 @@ export default function AnnualPlan({ currentBU, user }) {
   };
   const doiFix = (keys, thang) => capNhat((s) => K.doiFixNhieu(s, keys, thang));
   const doiFixTongH = (loai, ten, thang) => capNhat((s) => K.doiFixTong(s, loai, ten, thang));
-  const xoaSkuAll = (khoa) => {
-    if (!window.confirm('Xóa SKU này khỏi TOÀN BỘ khách có SKU đó? (doanh thu của từng khách được dồn lại cho các SKU còn lại của khách)')) return;
+  const xoaSkuAll = async (khoa) => {
+    if (!(await appConfirm('Xóa SKU này khỏi TOÀN BỘ khách có SKU đó? (doanh thu của từng khách được dồn lại cho các SKU còn lại của khách)', {
+      title: 'Xóa SKU khỏi mọi khách?', okLabel: 'Xóa SKU khỏi mọi khách', danger: true
+    }))) return;
     capNhat((s) => K.xoaSkuTatCa(s, khoa));
   };
   const luuMaSku = (khoa, du) => {
@@ -226,16 +237,22 @@ export default function AnnualPlan({ currentBU, user }) {
     setView('plan');
     setMsg(kq.loi.length ? { loai: 'loi', text: kq.loi.join(' · ') } : { loai: 'ok', text: 'Đã Apply: doanh thu từng tháng = Target × tỷ trọng; SL từng SKU co giãn theo, làm tròn chục.' });
   };
-  const moKhoa = () => {
-    if (!window.confirm('Mở khóa Target sẽ đưa kế hoạch về số cơ sở — mọi tinh chỉnh SKU/ô đã chốt sẽ mất. Tiếp tục?')) return;
+  const moKhoa = async () => {
+    if (!(await appConfirm('Mở khóa Target sẽ đưa kế hoạch về số cơ sở — mọi tinh chỉnh SKU/ô đã chốt sẽ mất. Tiếp tục?', {
+      title: 'Mở khóa Target?', okLabel: 'Mở khóa Target', danger: true
+    }))) return;
     capNhat((s) => M.moKhoaTarget(s));
   };
-  const xoaSku = (key) => {
-    if (!window.confirm('Bớt SKU ' + key.split('|')[1] + ' khỏi kế hoạch?')) return;
+  const xoaSku = async (key) => {
+    if (!(await appConfirm('Bớt SKU ' + key.split('|')[1] + ' khỏi kế hoạch?', {
+      title: 'Bớt SKU khỏi kế hoạch?', okLabel: 'Bớt SKU', danger: true
+    }))) return;
     capNhat((s) => M.xoaSku(s, key));
   };
-  const xoaKhach = (key) => {
-    if (!window.confirm('Bớt khách này (cùng toàn bộ SKU của khách) khỏi kế hoạch?')) return;
+  const xoaKhach = async (key) => {
+    if (!(await appConfirm('Bớt khách này (cùng toàn bộ SKU của khách) khỏi kế hoạch?', {
+      title: 'Bớt khách khỏi kế hoạch?', okLabel: 'Bớt khách', danger: true
+    }))) return;
     capNhat((s) => M.xoaKhach(s, key));
   };
   const themKhach = ({ name, code, market }) => {
@@ -309,7 +326,9 @@ export default function AnnualPlan({ currentBU, user }) {
   };
   /** Bỏ bản nháp đã lưu (số cơ sở có thể cũ so với dữ liệu nguồn hiện tại) và dựng lại cơ sở mới; bản mới CHƯA lưu cho tới khi bấm Lưu nháp. */
   const dungLai = async () => {
-    if (!window.confirm('Bỏ bản nháp đang lưu (kể cả các chỉnh sửa) và dựng lại bảng Cơ sở từ dữ liệu nguồn mới nhất? Bản mới chỉ được lưu khi bạn bấm "Lưu nháp".')) return;
+    if (!(await appConfirm('Bỏ bản nháp đang lưu (kể cả các chỉnh sửa) và dựng lại bảng Cơ sở từ dữ liệu nguồn mới nhất? Bản mới chỉ được lưu khi bạn bấm "Lưu nháp".', {
+      title: 'Dựng lại từ dữ liệu mới?', okLabel: 'Bỏ bản nháp và dựng lại', danger: true
+    }))) return;
     setBusy(true);
     try {
       if (st.id) await api.discardAnnualPlan({ planId: st.id });
@@ -335,7 +354,9 @@ export default function AnnualPlan({ currentBU, user }) {
   };
   const guiDuyet = async () => {
     if (kiemTra.loi.length) { setMsg({ loai: 'loi', text: 'Chưa gửi duyệt được: ' + kiemTra.loi.slice(0, 3).join(' · ') }); return; }
-    if (!window.confirm('Gửi kế hoạch năm ' + year + ' của ' + currentBU + ' để duyệt? Sau khi gửi sẽ không sửa được cho tới khi được duyệt hoặc bị từ chối.')) return;
+    if (!(await appConfirm('Gửi kế hoạch năm ' + year + ' của ' + currentBU + ' để duyệt? Sau khi gửi sẽ không sửa được cho tới khi được duyệt hoặc bị từ chối.', {
+      title: 'Gửi duyệt kế hoạch năm?', okLabel: 'Gửi duyệt'
+    }))) return;
     setBusy(true);
     try {
       const id = await bamBanLuu();
@@ -347,18 +368,20 @@ export default function AnnualPlan({ currentBU, user }) {
     } catch (e) { baoLoi(e); } finally { setBusy(false); }
   };
   /** Duyệt có hỏi lại như Gửi duyệt: duyệt xong là chốt bản (bản cùng loại cũ thành "Đã thay thế") và với OEM còn ghi KPI năm. */
-  const duyet = () => {
+  const duyet = async () => {
     const coKpi = donVi?.source === 'oem';
-    if (!window.confirm('Duyệt kế hoạch năm ' + year + ' của ' + currentBU + ' (' + (NHAN_LOAI[st.kind] || st.kind) + ' #' + st.revisionNo + ')?'
+    if (!(await appConfirm('Duyệt kế hoạch năm ' + year + ' của ' + currentBU + ' (' + (NHAN_LOAI[st.kind] || st.kind) + ' #' + st.revisionNo + ')?'
       + ' Bản cùng loại đã duyệt trước đó (nếu có) sẽ thành "Đã thay thế".'
-      + (coKpi ? ' Duyệt xong hệ thống sẽ ÁP bản này vào KPI năm ' + year + ' của OEM (KPI năm đó đã sửa tay / nhập tay từ trước thì được giữ nguyên).' : ''))) return;
+      + (coKpi ? ' Duyệt xong hệ thống sẽ ÁP bản này vào KPI năm ' + year + ' của OEM (KPI năm đó đã sửa tay / nhập tay từ trước thì được giữ nguyên).' : ''),
+    { title: 'Duyệt kế hoạch năm?', okLabel: 'Duyệt kế hoạch' }))) return;
     quyetDinh('approved');
   };
   /** Thoát chế độ Final: bản sao đang sửa bị bỏ — hỏi lại, nhất là khi đã sửa mà chưa lưu. */
-  const huyDieuChinh = () => {
-    if (!window.confirm(bao
+  const huyDieuChinh = async () => {
+    if (!(await appConfirm(bao
       ? 'Hủy điều chỉnh top-down? Các thay đổi trên bản Final CHƯA LƯU sẽ mất.'
-      : 'Thoát chế độ điều chỉnh top-down (Final)?')) return;
+      : 'Thoát chế độ điều chỉnh top-down (Final)?',
+    { title: 'Hủy điều chỉnh?', okLabel: bao ? 'Hủy và bỏ thay đổi' : 'Thoát chế độ điều chỉnh', cancelLabel: 'Ở lại', danger: bao }))) return;
     nap(st.id);
   };
   const quyetDinh = async (decision, comment) => {
@@ -386,22 +409,26 @@ export default function AnnualPlan({ currentBU, user }) {
     } catch (e) { baoLoi(e); } finally { setBusy(false); }
   };
   const apVaoKpi = async () => {
-    if (!window.confirm('Áp bản này vào KPI năm ' + year + ' của OEM? KPI hiện có (kể cả phần đã sửa tay) sẽ bị GHI ĐÈ.')) return;
+    if (!(await appConfirm('Áp bản này vào KPI năm ' + year + ' của OEM? KPI hiện có (kể cả phần đã sửa tay) sẽ bị GHI ĐÈ.', {
+      title: 'Ghi đè KPI năm?', okLabel: 'Ghi đè KPI năm', danger: true
+    }))) return;
     setBusy(true);
     try {
       const r = await api.applyAnnualPlanToKpi({ planId: st.id });
       setMsg({ loai: 'ok', text: 'Đã áp vào KPI.' + thongBaoKpi(r.kpi) });
     } catch (e) { baoLoi(e); } finally { setBusy(false); }
   };
-  const vaoCheDoFinal = () => {
-    if (!window.confirm('Điều chỉnh top-down: bạn sẽ sửa một bản sao và lưu thành bản Final mới (có lý do); bản của đơn vị không bị đổi. Tiếp tục?')) return;
+  const vaoCheDoFinal = async () => {
+    if (!(await appConfirm('Điều chỉnh top-down: bạn sẽ sửa một bản sao và lưu thành bản Final mới (có lý do); bản của đơn vị không bị đổi. Tiếp tục?', {
+      title: 'Điều chỉnh top-down (Final)?', okLabel: 'Vào chế độ điều chỉnh'
+    }))) return;
     setFinalMode(true);
     setView('plan');
   };
 
   /* ---------------- hiển thị ---------------- */
   if (!currentBU) return <div className="text-sm text-slate-500">Chọn đơn vị ở thanh trên.</div>;
-  if (loading) return <div className="flex items-center gap-2 text-sm text-slate-400 p-4"><Loader2 className="w-4 h-4 animate-spin" /> Đang tải kế hoạch năm…</div>;
+  if (loading) return <div className="flex items-center gap-2 text-sm text-slate-500 p-4"><Loader2 className="w-4 h-4 animate-spin" /> Đang tải kế hoạch năm…</div>;
   if (loiTai) {
     return (
       <div className="bg-white border border-rose-200 rounded-xl p-5 max-w-2xl">
@@ -412,7 +439,7 @@ export default function AnnualPlan({ currentBU, user }) {
     );
   }
 
-  const nam = new Date().getFullYear();
+  const nam = vnYear();
   const banList = ws?.plans || [];
   // Nguồn đơn giá theo đơn vị + tỷ giá đã chốt theo phiên bản (bản đang xem; chưa có bản thì tỷ giá hiện tại lúc dựng cơ sở)
   const taiFx = fx > 0 ? ' — tỷ giá chốt ' + fx.toLocaleString('vi-VN') : '';
@@ -437,15 +464,15 @@ export default function AnnualPlan({ currentBU, user }) {
         )}
       </div>
       <div className="ml-auto flex flex-wrap items-center gap-2">
-        <select value={year} onChange={(e) => { if (confirmNavigateAway('Đổi năm kế hoạch')) setYear(Number(e.target.value)); }} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold bg-white">
+        <select value={year} onChange={async (e) => { const v = Number(e.target.value); if (await confirmNavigateAway('Đổi năm kế hoạch')) setYear(v); }} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold bg-white">
           {[nam, nam + 1, nam + 2].map((y) => <option key={y} value={y}>Năm {y}</option>)}
         </select>
         {banList.length > 0 && (
-          <select value={st?.id || ''} onChange={(e) => { if (confirmNavigateAway('Đổi phiên bản kế hoạch')) nap(e.target.value); }} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white">
-            {banList.map((b) => <option key={b.id} value={b.id}>{NHAN_LOAI[b.kind]} #{b.revisionNo} — {NHAN_TT[b.status]}</option>)}
+          <select value={st?.id || ''} onChange={async (e) => { const id = e.target.value; if (await confirmNavigateAway('Đổi phiên bản kế hoạch')) nap(id); }} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white">
+            {banList.map((b) => <option key={b.id} value={b.id}>{NHAN_LOAI[b.kind]} #{b.revisionNo} — {statusLabel(b.status)}</option>)}
           </select>
         )}
-        {st && <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${MAU_TT[st.status]}`}>{NHAN_TT[st.status]}</span>}
+        {st && <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${statusTone(st.status)}`}>{statusLabel(st.status)}</span>}
       </div>
     </div>
   );
@@ -455,7 +482,7 @@ export default function AnnualPlan({ currentBU, user }) {
       {msg.loai === 'ok' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}<span>{msg.text}</span>
       {msg.taiLai && (
         <button className="shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold border border-rose-300 bg-white hover:bg-rose-100 rounded px-2 py-0.5"
-          onClick={() => { if (confirmNavigateAway('Tải lại bản mới nhất')) nap(st?.id || ''); }}>
+          onClick={async () => { if (await confirmNavigateAway('Tải lại bản mới nhất')) nap(st?.id || ''); }}>
           <RefreshCw className="w-3 h-3" /> Tải lại bản mới nhất
         </button>
       )}
@@ -494,6 +521,8 @@ export default function AnnualPlan({ currentBU, user }) {
   const coBanDangSoan = banList.some((b) => b.kind === 'adjust' && (b.status === 'draft' || b.status === 'submitted'));
   const duocTaoDieuChinh = laSoan && st.status === 'approved' && st.kind !== 'final' && !coBanDangSoan;
   const duocFinal = laAdmin && !finalMode && (st.status === 'approved' || st.status === 'superseded');
+  // Chưa lưu (hoặc còn thay đổi chưa lưu) thì "Lưu nháp" là bước tiếp theo; đã lưu hết thì "Gửi duyệt".
+  const luuLaChinh = editable && !finalMode && (bao || !st.id);
 
   return (
     <LamLaiCtx.Provider value={loiTick}>
@@ -524,34 +553,37 @@ export default function AnnualPlan({ currentBU, user }) {
       {/* thanh thao tác */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <div className="inline-flex rounded-lg border border-slate-300 overflow-hidden text-xs font-semibold">
-          {[['base', `1. Cơ sở năm ${year - 1}`], ['plan', `2. Kế hoạch năm ${year}`], ['preview', '3. Preview']].map(([k, t]) => (
-            <button key={k} onClick={() => setView(k)} className={`px-3 py-1.5 ${view === k ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>{t}</button>
+          {/* Mỗi tab một icon riêng, khác icon của các mục menu (Đợt 2 mục 7) */}
+          {[['base', `1. Cơ sở năm ${year - 1}`, Database], ['plan', `2. Kế hoạch năm ${year}`, ClipboardList], ['preview', '3. Xem trước (Preview)', Eye]].map(([k, t, TabIcon]) => (
+            <button key={k} onClick={() => setView(k)} aria-pressed={view === k} className={`inline-flex items-center gap-1.5 px-3 py-1.5 ${view === k ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><TabIcon className="w-3.5 h-3.5" aria-hidden="true" />{t}</button>
           ))}
         </div>
         {choUsd && <ChonTien tien={tienHienThi} setTien={setTienTe} khoa={khoaVnd} fx={fx} />}
         {view === 'plan' && (
           <div className="inline-flex items-center rounded-lg border border-slate-300 overflow-hidden text-xs font-semibold" title="Cách lập kế hoạch: theo khách hàng, hoặc theo SKU (nhóm Category → SKU → khách)">
             <span className="px-2 py-1.5 bg-slate-50 text-slate-500 font-normal">Lập KH theo</span>
-            {[['khach', 'Khách hàng'], ['sku', 'SKU / Category']].map(([k, t]) => (
-              <button key={k} onClick={() => setKieu(k)} className={`px-3 py-1.5 ${kieu === k ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>{t}</button>
+            {[['khach', 'Khách hàng', Users], ['sku', 'SKU / Category', Boxes]].map(([k, t, TabIcon]) => (
+              <button key={k} onClick={() => setKieu(k)} aria-pressed={kieu === k} className={`inline-flex items-center gap-1.5 px-3 py-1.5 ${kieu === k ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><TabIcon className="w-3.5 h-3.5" aria-hidden="true" />{t}</button>
             ))}
           </div>
         )}
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          {editable && view === 'plan' && !single && <button className={nutPhu} onClick={() => setDlg({ loai: 'taiExcel' })} title="Tải lên bảng doanh thu khách × tháng (tab Plan_Per_Client đã sửa) để sửa đồng loạt"><Upload className="w-3.5 h-3.5" /> Tải Excel doanh thu khách</button>}
-          <button className={nutPhu} onClick={xuatExcel} title="Xuất Excel 2 tab: Plan_Per_Client, Plan_SKU (toàn bộ kế hoạch đang mở)"><FileSpreadsheet className="w-3.5 h-3.5" /> Xuất Excel</button>
-          {editable && !finalMode && st.kind !== 'final' && <button className={nutPhu} onClick={dungLai} disabled={busy} title="Bỏ bản nháp và dựng lại bảng Cơ sở từ dữ liệu nguồn mới nhất"><RefreshCw className="w-3.5 h-3.5" /> Dựng lại từ dữ liệu mới</button>}
-          {editable && !finalMode && <button className={nutChinh + ' !bg-slate-700 hover:!bg-slate-800'} onClick={luu} disabled={busy || (!bao && !!st.id)}>{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Lưu nháp</button>}
-          {editable && !finalMode && <button className={nutChinh} onClick={guiDuyet} disabled={busy}><Send className="w-3.5 h-3.5" /> Gửi duyệt</button>}
+          {/* Một nút chính theo "bước tiếp theo" (Đợt 2 mục 4): còn thay đổi chưa lưu -> Lưu nháp; đã lưu -> Gửi duyệt;
+              người duyệt -> Duyệt; chế độ Final -> Lưu bản Final. Thao tác ít dùng nằm trong "Thêm"; thao tác phá dữ liệu màu đỏ. */}
+          {editable && !finalMode && <button className={luuLaChinh ? nutChinh : nutPhu} onClick={luu} disabled={busy || (!bao && !!st.id)}>{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Lưu nháp</button>}
+          {editable && !finalMode && <button className={luuLaChinh ? nutPhu : nutChinh} onClick={guiDuyet} disabled={busy}><Send className="w-3.5 h-3.5" /> Gửi duyệt</button>}
           {finalMode && <button className={nutChinh} onClick={luu} disabled={busy}><Crown className="w-3.5 h-3.5" /> Lưu bản Final</button>}
-          {finalMode && <button className={nutPhu} onClick={huyDieuChinh} disabled={busy}>Hủy điều chỉnh</button>}
+          {finalMode && <button className={nutTuChoi} onClick={huyDieuChinh} disabled={busy}>Hủy điều chỉnh</button>}
           {duocDuyet && <button className={nutChinh} onClick={duyet} disabled={busy}><CheckCircle2 className="w-3.5 h-3.5" /> Duyệt</button>}
-          {duocDuyet && <button className={nutPhu} onClick={() => setDlg({ loai: 'tuchoi' })} disabled={busy}><XCircle className="w-3.5 h-3.5" /> Từ chối</button>}
-          {duocTaoDieuChinh && <button className={nutPhu} onClick={() => taoMoi('adjust')} disabled={busy}><GitBranch className="w-3.5 h-3.5" /> Lập bản điều chỉnh</button>}
-          {duocFinal && <button className={nutPhu} onClick={vaoCheDoFinal}><Crown className="w-3.5 h-3.5" /> Điều chỉnh (Final)</button>}
-          {laAdmin && !finalMode && st.status === 'approved' && donVi?.source === 'oem' && (
-            <button className={nutPhu} onClick={apVaoKpi} disabled={busy} title="Ghi đè KPI năm của OEM bằng bản này"><Target className="w-3.5 h-3.5" /> Áp vào KPI OEM</button>
-          )}
+          {duocDuyet && <button className={nutTuChoi} onClick={() => setDlg({ loai: 'tuchoi' })} disabled={busy}><XCircle className="w-3.5 h-3.5" /> Từ chối</button>}
+          {duocTaoDieuChinh && <button className={nutChinh} onClick={() => taoMoi('adjust')} disabled={busy}><GitBranch className="w-3.5 h-3.5" /> Lập bản điều chỉnh</button>}
+          <MoreMenu disabled={busy} items={[
+            { label: 'Xuất Excel (2 tab: Plan_Per_Client, Plan_SKU)', icon: FileSpreadsheet, onClick: xuatExcel, title: 'Xuất toàn bộ kế hoạch đang mở' },
+            { label: 'Tải Excel doanh thu khách', icon: Upload, hidden: !(editable && view === 'plan' && !single), onClick: () => setDlg({ loai: 'taiExcel' }), title: 'Tải lên bảng doanh thu khách × tháng (tab Plan_Per_Client đã sửa) để sửa đồng loạt' },
+            { label: 'Điều chỉnh top-down (Final)', icon: Crown, hidden: !duocFinal, onClick: vaoCheDoFinal },
+            { label: 'Dựng lại từ dữ liệu mới', icon: RefreshCw, danger: true, hidden: !(editable && !finalMode && st.kind !== 'final'), onClick: dungLai, title: 'Bỏ bản nháp và dựng lại bảng Cơ sở từ dữ liệu nguồn mới nhất' },
+            { label: 'Áp vào KPI OEM (ghi đè)', icon: Target, danger: true, hidden: !(laAdmin && !finalMode && st.status === 'approved' && donVi?.source === 'oem'), onClick: apVaoKpi, title: 'Ghi đè KPI năm của OEM bằng bản này' }
+          ]} />
         </div>
       </div>
 
@@ -580,8 +612,8 @@ export default function AnnualPlan({ currentBU, user }) {
                 onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                 className="w-36 border border-slate-300 rounded-lg px-2 py-1.5 font-mono text-xs disabled:bg-slate-50" placeholder={tienHienThi === 'USD' ? 'vd 5000000' : 'vd 120500'} />
             </div>
-            {editable && !st.targetApplied && <button className={nutChinh} onClick={apDung} disabled={!(st.targetRevenueVnd > 0)}><Wand2 className="w-3.5 h-3.5" /> Apply</button>}
-            {editable && st.targetApplied && trangThaiMt.canApplyLai && <button className={nutChinh} onClick={apDung}><Wand2 className="w-3.5 h-3.5" /> Apply lại (cân về Target)</button>}
+            {editable && !st.targetApplied && <button className={nutApply} onClick={apDung} disabled={!(st.targetRevenueVnd > 0)}><Wand2 className="w-3.5 h-3.5" /> Apply</button>}
+            {editable && st.targetApplied && trangThaiMt.canApplyLai && <button className={nutApply} onClick={apDung}><Wand2 className="w-3.5 h-3.5" /> Apply lại (cân về Target)</button>}
             {st.targetApplied && <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 rounded-full px-2 py-1"><Lock className="w-3 h-3" /> Target đã cố định</span>}
             {editable && st.targetApplied && <button className={nutPhu} onClick={moKhoa}><Unlock className="w-3.5 h-3.5" /> Mở khóa Target</button>}
           </div>
@@ -615,7 +647,7 @@ export default function AnnualPlan({ currentBU, user }) {
               )}
               <button className={nutPhu} onClick={() => setDlg({ loai: 'sku' })} disabled={!single && kieu !== 'sku' && !themVaoKhach}><Plus className="w-3.5 h-3.5" /> Thêm SKU</button>
               <button className={nutPhu} onClick={() => setDlg({ loai: 'nho' })}><Trash2 className="w-3.5 h-3.5" /> Xóa hàng loạt</button>
-              <span className="text-[11px] text-slate-400 ml-auto">{kieu === 'sku' && !single ? 'Sửa tổng Category / tổng SKU / SL một khách: nút vừa sửa được Fix (Category / SKU chỉ Fix TỔNG, các dòng con vẫn co giãn). Các dòng chưa Fix cùng nhóm co giãn để tổng nhóm không đổi; tổng doanh thu tháng và doanh thu từng khách luôn không đổi — không giữ được thì báo lỗi. Tick ở đầu dòng = Fix cả năm.' : 'Sửa SL một SKU: các SKU chưa Fix còn lại của cùng khách tự co giãn để doanh thu khách đó không đổi. Sửa doanh thu khách ở dòng khách. Khách mới / bớt khách: các khách khác bù để tổng tháng không đổi.'}</span>
+              <span className="text-[11px] text-slate-500 ml-auto">{kieu === 'sku' && !single ? 'Sửa tổng Category / tổng SKU / SL một khách: nút vừa sửa được Fix (Category / SKU chỉ Fix TỔNG, các dòng con vẫn co giãn). Các dòng chưa Fix cùng nhóm co giãn để tổng nhóm không đổi; tổng doanh thu tháng và doanh thu từng khách luôn không đổi — không giữ được thì báo lỗi. Tick ở đầu dòng = Fix cả năm.' : 'Sửa SL một SKU: các SKU chưa Fix còn lại của cùng khách tự co giãn để doanh thu khách đó không đổi. Sửa doanh thu khách ở dòng khách. Khách mới / bớt khách: các khách khác bù để tổng tháng không đổi.'}</span>
             </div>
           )}
           {editable && view === 'base' && !st.targetApplied && (donVi?.source === 'fc' || donVi?.source === 'krf') && <CopyThang st={st} onCopy={chepThang} />}
@@ -668,7 +700,7 @@ export default function AnnualPlan({ currentBU, user }) {
         </div>
       )}
 
-      {dlg?.loai === 'tuchoi' && <ReasonDialog title="Từ chối kế hoạch" label="Lý do từ chối *" confirmLabel="Từ chối" onClose={() => setDlg(null)} onConfirm={(t) => quyetDinh('rejected', t)} />}
+      {dlg?.loai === 'tuchoi' && <ReasonDialog title="Từ chối kế hoạch" label="Lý do từ chối *" confirmLabel="Từ chối" danger onClose={() => setDlg(null)} onConfirm={(t) => quyetDinh('rejected', t)} />}
       {dlg?.loai === 'final' && <ReasonDialog title="Lưu bản Final" label="Lý do điều chỉnh (top-down) *" confirmLabel="Lưu Final" onClose={() => { setDlg(null); setBusy(false); }} onConfirm={luuFinal} />}
       {dlg?.loai === 'khach' && <AddCustomerDialog market={donVi?.source === 'export' || donVi?.source === 'krf'} thiTruongDs={laExport ? giaTriLoc.thiTruong : null} tenDaCo={st.customers.map((c) => M.tenKhachHienThi(c.key, c.name, donVi?.source))} onClose={() => setDlg(null)} onAdd={themKhach} />}
       {dlg?.loai === 'sku' && <AddSkuDialog tien={tien} tim={timSku} khach={kieu === 'sku' && !single ? st.customers.map((c) => ({ key: c.key, name: M.tenKhachHienThi(c.key, c.name, donVi?.source) })) : undefined} customerName={single ? donVi?.name : (st.customers.find((c) => c.key === themVaoKhach)?.name || themVaoKhach)} existing={M.skuTrongBang(st)} onClose={() => setDlg(null)} onAdd={themSku} />}
@@ -693,14 +725,23 @@ function PreviewTable({ state, single, fmt, nhan, dangLoc, nhomTT, info }) {
       ? M.nhomTheoThiTruong(state, info).flatMap((g) => [{ key: 'tt:' + g.key, name: g.ten + ' (' + g.khach.length + ' khách)', plan: g.plan, base: g.base, planTotal: g.planTotal, growthYear: g.growthYear, growth: g.growth, nhom: true }]
         .concat(g.khach.map((c) => ((cc) => ({ key: cc.key, name: '   ' + (cc.name || cc.key), plan: cc.plan, base: cc.base, planTotal: cc.planTotal, growthYear: cc.growthYear, growth: cc.growth }))(c))))
       : M.tomTatKhach(state).map((c) => ({ key: c.key, name: c.name || c.key, plan: c.plan, base: c.base, planTotal: c.planTotal, growthYear: c.growthYear, growth: c.growth })));
+  // Sắp xếp theo cột (chữ / số) — chỉ khi bảng không gom theo thị trường (gom nhóm mà sắp xếp phẳng là làm vỡ nhóm).
+  const sapXepDuoc = !nhomTT;
+  const cot = { ten: { type: 'text', get: (h) => String(h.name).trim() }, tong: { type: 'number', get: (h) => h.planTotal } };
+  M.NHAN_THANG.forEach((_, m) => { cot['m:' + m] = { type: 'number', get: (h) => h.plan[m] }; });
+  const { rows: hangXep, spec: sortSpec, toggle: doiSapXep } = useTableSort(hang, cot, (h) => h.key);
+  const dsHang = sapXepDuoc ? hangXep : hang;
+  const tieuDe = (nhanCot, khoa, lop) => (sapXepDuoc
+    ? <SortTh label={nhanCot} sortKey={khoa} spec={sortSpec} onSort={doiSapXep} className={lop} />
+    : <th className={lop}>{nhanCot}</th>);
   return (
     <div className="overflow-auto border border-slate-200 rounded-xl bg-white max-h-[68vh]">
       <table className="border-separate border-spacing-0 text-xs">
         <thead>
           <tr className="bg-slate-800 text-slate-200">
-            <th className="sticky top-0 left-0 z-30 bg-slate-800 w-72 min-w-72 text-left px-3 py-2">{single ? 'SKU' : 'Khách hàng'} ({nhan})</th>
-            <th className="sticky top-0 left-72 z-30 bg-slate-800 w-28 min-w-28 text-right px-2 py-2">Tổng năm</th>
-            {M.NHAN_THANG.map((t) => <th key={t} className="sticky top-0 z-20 bg-slate-800 w-20 min-w-20 text-right px-2 py-2">{t}</th>)}
+            {tieuDe((single ? 'SKU' : 'Khách hàng') + ' (' + nhan + ')', 'ten', 'sticky top-0 left-0 z-30 bg-slate-800 w-72 min-w-72 text-left px-3 py-2')}
+            {tieuDe('Tổng năm', 'tong', 'sticky top-0 left-72 z-30 bg-slate-800 w-28 min-w-28 text-right px-2 py-2')}
+            {M.NHAN_THANG.map((t, m) => <React.Fragment key={t}>{tieuDe(t, 'm:' + m, 'sticky top-0 z-20 bg-slate-800 w-20 min-w-20 text-right px-2 py-2')}</React.Fragment>)}
           </tr>
         </thead>
         <tbody>
@@ -709,7 +750,7 @@ function PreviewTable({ state, single, fmt, nhan, dangLoc, nhomTT, info }) {
             <td className="sticky left-72 z-10 bg-blue-50 text-right px-2 py-1.5 font-mono">{fmt(dv.planTotal)}<div className="text-[10px] font-normal">{M.dinhDangPct(dv.growthYear)}</div></td>
             {dv.plan.map((v, m) => <td key={m} className="text-right px-2 py-1.5 font-mono">{fmt(v)}<div className={`text-[10px] font-normal ${dv.growth[m] !== null && dv.growth[m] < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{M.dinhDangPct(dv.growth[m])}</div></td>)}
           </tr>
-          {hang.map((h) => (
+          {dsHang.map((h) => (
             <tr key={h.key} className={`border-b border-slate-100 ${h.nhom ? 'bg-indigo-50 font-bold' : ''}`}>
               <td className={`sticky left-0 z-10 ${h.nhom ? 'bg-indigo-50' : 'bg-white'} px-3 py-1 truncate max-w-72 whitespace-pre`}>{h.name}</td>
               <td className={`sticky left-72 z-10 ${h.nhom ? 'bg-indigo-50' : 'bg-white'} text-right px-2 py-1 font-mono font-semibold`}>{fmt(h.planTotal)}<div className="text-[10px] font-normal text-slate-500">{M.dinhDangPct(h.growthYear)}</div></td>

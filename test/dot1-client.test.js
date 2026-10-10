@@ -15,7 +15,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
+const { pathToFileURL } = require('url');
 
 const SRC = path.join(__dirname, '../client/src');
 let pass = 0, fail = 0;
@@ -45,28 +45,32 @@ const thua = [...khongThuLai].filter((a) => !actions.has(a) && a !== 'importProd
 check('NON_IDEMPOTENT_ACTIONS không chứa tên action client không hề gọi (gõ sai tên)', thua.length === 0, thua);
 
 // ---- 2. confirmNavigateAway ----
-const dsSrc = fs.readFileSync(path.join(SRC, 'services/dirtyState.js'), 'utf8').replace(/^export /gm, '');
-const hoi = [];
-let traLoi = true;
-const sb = { window: { confirm: (m) => { hoi.push(m); return traLoi; } } };
-vm.createContext(sb);
-vm.runInContext(dsSrc + '\n;this.setDirty = setDirty; this.confirmNavigateAway = confirmNavigateAway;', sb);
-check('không có ô chưa lưu -> không hỏi, cho đi tiếp', sb.confirmNavigateAway('Đổi chu kỳ') === true && hoi.length === 0);
-sb.setDirty(true, 'Bảng Forecast tháng còn 3 ô chưa lưu.');
-traLoi = false;
-check('có ô chưa lưu + bấm Huỷ -> false', sb.confirmNavigateAway('Đổi chu kỳ') === false && hoi.length === 1);
-check('câu hỏi nêu đúng việc vừa bấm và lý do', /Đổi chu kỳ/.test(hoi[0]) && /3 ô chưa lưu/.test(hoi[0]), hoi[0]);
-traLoi = true;
-check('bấm OK -> true; gọi không tham số vẫn là câu "rời khỏi trang" cũ', sb.confirmNavigateAway() === true && /rời khỏi trang/.test(hoi[1]), hoi[1]);
+// ĐỢT 2 (10/10/2026): confirmNavigateAway hỏi bằng hộp thoại chung của app (services/dialogService.js) thay cho window.confirm,
+// nên trả Promise<boolean> — các ca dưới đây `await` và đọc yêu cầu hộp thoại qua host giả. Cùng chữ ký, cùng câu chữ.
+async function ca2() {
+  const url = (f) => pathToFileURL(path.join(SRC, f)).href;
+  const ds = await import(url('services/dirtyState.js'));
+  const dlg = await import(url('services/dialogService.js'));
+  const hoi = [];
+  let traLoi = true;
+  dlg.registerDialogHost((req) => { hoi.push(req); req.resolve(traLoi); });
+  check('không có ô chưa lưu -> không hỏi, cho đi tiếp', (await ds.confirmNavigateAway('Đổi chu kỳ')) === true && hoi.length === 0);
+  ds.setDirty(true, 'Bảng Forecast tháng còn 3 ô chưa lưu.');
+  traLoi = false;
+  check('có ô chưa lưu + bấm Huỷ -> false', (await ds.confirmNavigateAway('Đổi chu kỳ')) === false && hoi.length === 1);
+  check('câu hỏi nêu đúng việc vừa bấm và lý do', /Đổi chu kỳ/.test(hoi[0].message) && /3 ô chưa lưu/.test(hoi[0].message), hoi[0].message);
+  traLoi = true;
+  check('bấm đồng ý -> true; gọi không tham số vẫn là câu "rời khỏi trang" cũ', (await ds.confirmNavigateAway()) === true && /rời khỏi trang/.test(hoi[1].message), hoi[1].message);
+}
 
 // ---- 3. các chỗ đổi chu kỳ / tháng / năm đều đi qua confirmNavigateAway ----
 const doc = (f) => fs.readFileSync(path.join(SRC, f), 'utf8');
 const cb = doc('components/CycleBar.jsx');
-check('CycleBar: đổi chu kỳ + đổi bản cập nhật hỏi trước', /confirmNavigateAway\('Đổi chu kỳ'\)\) onSelectCycle/.test(cb) && /confirmNavigateAway\('Đổi bản cập nhật'\)\) onSelectVersion/.test(cb));
-check('Actuals: đổi tháng hỏi trước', /confirmNavigateAway\('Đổi tháng'\)\) setMonth/.test(doc('pages/Actuals.jsx')));
+check('CycleBar: đổi chu kỳ + đổi bản cập nhật hỏi trước', /await confirmNavigateAway\('Đổi chu kỳ'\)\) onSelectCycle/.test(cb) && /await confirmNavigateAway\('Đổi bản cập nhật'\)\) onSelectVersion/.test(cb));
+check('Actuals: đổi tháng hỏi trước', /await confirmNavigateAway\('Đổi tháng'\)\) setMonth/.test(doc('pages/Actuals.jsx')));
 const ap = doc('pages/AnnualPlan.jsx');
 check('AnnualPlan: đổi năm + đổi phiên bản hỏi trước; Duyệt và Hủy điều chỉnh có xác nhận',
-  /confirmNavigateAway\('Đổi năm kế hoạch'\)\) setYear/.test(ap) && /confirmNavigateAway\('Đổi phiên bản kế hoạch'\)\) nap/.test(ap)
+  /await confirmNavigateAway\('Đổi năm kế hoạch'\)\) setYear/.test(ap) && /await confirmNavigateAway\('Đổi phiên bản kế hoạch'\)\) nap/.test(ap)
   && /onClick=\{duyet\}/.test(ap) && /onClick=\{huyDieuChinh\}/.test(ap) && /KPI năm/.test(ap.slice(ap.indexOf('const duyet'), ap.indexOf('const huyDieuChinh'))));
 check('AnnualPlan: lưu gửi kèm expectedUpdatedAt (cả Lưu nháp lẫn Gửi duyệt)', (ap.match(/expectedUpdatedAt: mocDaTai\(id\)/g) || []).length === 2);
 
@@ -80,5 +84,7 @@ check('finishParse KHÔNG ghi (không gọi applyImport), chỉ sang bước pre
 check('nút xác nhận ghi "Ghi đè N dòng" gọi handleConfirmWrite; cảnh báo ô chưa lưu + bản chờ duyệt',
   /onClick=\{handleConfirmWrite\}/.test(im) && /Ghi đè \{xemTruoc\.soDong/.test(im) && /ô chưa lưu/.test(im) && /rút yêu cầu duyệt/.test(im));
 
-console.log(`\n${pass} đạt, ${fail} lỗi`);
-if (fail) process.exit(1);
+ca2().then(() => {
+  console.log(`\n${pass} đạt, ${fail} lỗi`);
+  if (fail) process.exit(1);
+}).catch((e) => { console.error(e); process.exit(1); });

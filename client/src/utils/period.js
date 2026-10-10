@@ -107,9 +107,55 @@ export function weekIsoLabel(month, weekNumber) {
   return `W${Math.ceil(((t - yearStart) / 86400000 + 1) / 7)}`;
 }
 
-/** Tuần ISO của một ngày, dùng đặt nhãn cho bản cập nhật tuần. */
+/**
+ * NGÀY / THÁNG THEO GIỜ VIỆT NAM (UTC+7), không theo múi giờ của máy.
+ *
+ * Mọi chỗ cần "hôm nay / tháng này" (tháng mặc định, năm kế hoạch, nhãn tuần ISO)
+ * đi qua đây. Bản cũ dùng new Date().getMonth() hoặc toISOString().slice(0, 7):
+ *  - toISOString() là UTC, nên từ 0h đến 7h sáng ngày mùng 1 (giờ VN) vẫn ra THÁNG TRƯỚC;
+ *  - getMonth() là giờ của máy: máy đặt sai múi giờ (hoặc người đi công tác) thì lệch cả ngày.
+ * Cố định +7 (Việt Nam không có giờ mùa hè) rồi đọc bằng getUTC* — không phụ thuộc máy.
+ *
+ * `now` nhận một Date (hoặc số ms) để kiểm thử mô phỏng "00:30 mùng 1 giờ VN".
+ */
+const VN_OFFSET_MS = 7 * 3600 * 1000;
+
+export function vnParts(now = new Date()) {
+  const t = now instanceof Date ? now.getTime() : Number(now);
+  const d = new Date(t + VN_OFFSET_MS);
+  return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
+}
+
+const p2 = (n) => String(n).padStart(2, '0');
+
+/** Hôm nay (giờ VN) dạng YYYY-MM-DD. */
+export function vnToday(now = new Date()) {
+  const { y, m, d } = vnParts(now);
+  return `${y}-${p2(m)}-${p2(d)}`;
+}
+
+/** Tháng này (giờ VN) dạng YYYY-MM-01. */
+export function vnMonth(now = new Date()) {
+  const { y, m } = vnParts(now);
+  return `${y}-${p2(m)}-01`;
+}
+
+/** Năm hiện tại theo giờ VN. */
+export function vnYear(now = new Date()) {
+  return vnParts(now).y;
+}
+
+/** Tháng TRƯỚC (giờ VN) dạng YYYY-MM-01 — mặc định của màn Sản lượng thực hiện. */
+export function vnPrevMonth(now = new Date()) {
+  const { y, m } = vnParts(now);
+  const d = new Date(Date.UTC(y, m - 2, 1));
+  return `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-01`;
+}
+
+/** Tuần ISO của một ngày (giờ VN), dùng đặt nhãn cho bản cập nhật tuần. */
 export function isoWeekLabel(date = new Date()) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const { y, m, d: day } = vnParts(date);
+  const d = new Date(Date.UTC(y, m - 1, day));
   const dayNum = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
@@ -117,13 +163,12 @@ export function isoWeekLabel(date = new Date()) {
   return `W${weekNo}`;
 }
 
-export function todayISO() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** Hôm nay dạng YYYY-MM-DD theo giờ VN (tên cũ, giữ cho nơi đã gọi). */
+export function todayISO(now = new Date()) {
+  return vnToday(now);
 }
 
-/** Tháng hiện tại dạng YYYY-MM-01, dùng làm mặc định khi mở chu kỳ mới. */
-export function currentMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+/** Tháng hiện tại dạng YYYY-MM-01, dùng làm mặc định khi mở chu kỳ mới (giờ VN). */
+export function currentMonth(now = new Date()) {
+  return vnMonth(now);
 }

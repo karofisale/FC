@@ -42,7 +42,7 @@ export default function WorkflowGuide() {
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="bg-amber-600 text-white font-bold text-xs px-2.5 py-0.5 rounded-full">BƯỚC 2</span>
+                <span className="bg-amber-700 text-white font-bold text-xs px-2.5 py-0.5 rounded-full">BƯỚC 2</span>
                 <span className="text-xs font-bold text-amber-900 font-mono">NGÀY 23 / N</span>
               </div>
               <h4 className="font-bold text-slate-900 text-sm mb-1">Thẩm định thông tin FC</h4>
@@ -56,7 +56,7 @@ export default function WorkflowGuide() {
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="bg-emerald-600 text-white font-bold text-xs px-2.5 py-0.5 rounded-full">BƯỚC 3</span>
+                <span className="bg-emerald-700 text-white font-bold text-xs px-2.5 py-0.5 rounded-full">BƯỚC 3</span>
                 <span className="text-xs font-bold text-emerald-900 font-mono">NGÀY 24 / N</span>
               </div>
               <h4 className="font-bold text-slate-900 text-sm mb-1">Gửi thông tin FC cho Nhà máy</h4>
@@ -110,7 +110,7 @@ export default function WorkflowGuide() {
           <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="bg-teal-600 text-white font-bold text-xs px-2.5 py-0.5 rounded-full">BƯỚC 3</span>
+                <span className="bg-teal-700 text-white font-bold text-xs px-2.5 py-0.5 rounded-full">BƯỚC 3</span>
                 <span className="text-xs font-bold text-teal-900 font-mono">THỨ 4 (CHIỀU)</span>
               </div>
               <h4 className="font-bold text-slate-900 text-sm mb-1">Chuyển FC cho Nhà máy</h4>

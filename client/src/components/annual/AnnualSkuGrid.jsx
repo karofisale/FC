@@ -11,7 +11,7 @@ const TONG_LEFT = 'left-72';
 function NutFix({ trangThai, onClick, title }) {
   const bat = trangThai === 'het';
   return (
-    <button onClick={onClick} title={title} className={`absolute -top-1 -right-0.5 ${bat ? 'text-amber-500' : (trangThai === 'mot-phan' ? 'text-slate-500' : 'text-transparent hover:text-slate-400')}`}>
+    <button onClick={onClick} title={title} className={`absolute -top-1 -right-0.5 ${bat ? 'text-amber-700' : (trangThai === 'mot-phan' ? 'text-slate-500' : 'text-transparent hover:text-slate-400')}`}>
       {bat || trangThai === 'mot-phan' ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
     </button>
   );
@@ -68,7 +68,7 @@ export default function AnnualSkuGrid({
                 <button onClick={() => onToggleSku(s.khoa)} className="flex items-center gap-1 min-w-0 text-left grow">
                   {mo ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
                   <span className="min-w-0">
-                    <span className="block font-mono text-[11px] font-bold text-slate-800 truncate">{s.ma}<span className="ml-1 text-[10px] font-normal text-slate-400">({s.dong.length} khách)</span></span>
+                    <span className="block font-mono text-[11px] font-bold text-slate-800 truncate">{s.ma}<span className="ml-1 text-[10px] font-normal text-slate-500">({s.dong.length} khách)</span></span>
                     <span className="block text-[10px] text-slate-500 truncate" title={s.ten}>{s.ten} · {dinhDangGia(s.gia, tien.loai, tien.fx)}</span>
                   </span>
                 </button>
@@ -119,7 +119,7 @@ export default function AnnualSkuGrid({
               <td className={`sticky ${TONG_LEFT} z-10 bg-blue-50 text-right px-2 py-1 font-mono text-[11px]`}>{fmt(lechMt.reduce((a, b) => a + b, 0))}</td>
               {lechMt.map((v, m) => {
                 const lech = Math.abs(v) > saiSoChoPhep(state, m);
-                return <td key={m} className={`text-right px-2 py-1 font-mono text-[11px] ${lech ? 'text-rose-600 font-bold' : 'text-slate-400'}`}>{lech ? (v > 0 ? '+' : '') + fmt(v) : '✓'}</td>;
+                return <td key={m} className={`text-right px-2 py-1 font-mono text-[11px] ${lech ? 'text-rose-600 font-bold' : 'text-slate-500'}`}>{lech ? (v > 0 ? '+' : '') + fmt(v) : '✓'}</td>;
               })}
             </tr>
           )}
@@ -134,7 +134,7 @@ export default function AnnualSkuGrid({
                       <button onClick={() => onToggleNhom(n.nhom)} className="flex items-center gap-1 min-w-0 text-left grow">
                         {mo ? <ChevronDown className="w-3.5 h-3.5 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 shrink-0" />}
                         <span className="min-w-0">
-                          <span className="block truncate" title={n.nhom}>{n.nhom} <span className="text-[10px] font-normal text-slate-400">({n.skus.length} SKU)</span></span>
+                          <span className="block truncate" title={n.nhom}>{n.nhom} <span className="text-[10px] font-normal text-slate-500">({n.skus.length} SKU)</span></span>
                           <span className="block text-[10px] font-normal text-slate-500">DT năm {fmt(n.dtNam)} {nhan}{dv.planTotal > 0 ? ' · ' + (n.dtNam / dv.planTotal * 100).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) + '%' : ''}</span>
                         </span>
                       </button>
@@ -150,7 +150,7 @@ export default function AnnualSkuGrid({
               </React.Fragment>
             );
           })}
-          {!nhom.length && <tr><td colSpan={14} className="text-center text-slate-400 py-8">Chưa có dòng nào.</td></tr>}
+          {!nhom.length && <tr><td colSpan={14} className="text-center text-slate-500 py-8">Chưa có dòng nào.</td></tr>}
         </tbody>
       </table>
     </div>

@@ -7,9 +7,16 @@ import AddProductModal from '../components/AddProductModal';
 // người dùng không bấm "Nhập từ file" mỗi lần vào trang này.
 const ImportForecastModal = React.lazy(() => import('../components/ImportForecastModal'));
 const ImportFromSourceModal = React.lazy(() => import('../components/ImportFromSourceModal'));
-import { Save, Send, Search, Filter, AlertCircle, CheckCircle2, Loader2, ArrowDownToLine, PackagePlus, FileSpreadsheet, CopyPlus, Target } from 'lucide-react';
+import { Save, Send, Search, Filter, AlertCircle, Loader2, ArrowDownToLine, PackagePlus, FileSpreadsheet, CopyPlus, Target } from 'lucide-react';
 import { monthsOfCycle, monthLabel, weeksOfMonth } from '../utils/period';
 import { setDirty, confirmNavigateAway } from '../services/dirtyState';
+import { appConfirm } from '../services/dialogService';
+import { thongBao } from '../services/toastService';
+import { loadPref, savePref } from '../services/prefs';
+import { usePersistedState } from '../utils/usePersistedState';
+import { useTableSort } from '../utils/useTableSort';
+import { SortTh, SortIcon, StateRow } from '../components/TableStates';
+import MoreMenu from '../components/MoreMenu';
 
 // Hai đơn vị có app nguồn để nhập thẳng. Các đơn vị khác vẫn nhập từ file như cũ.
 const SOURCE_BUS = ['OEM', 'XK'];
@@ -31,6 +38,14 @@ import { useGridEditing, parsePastedNumber } from '../utils/useGridEditing';
 // render đủ cả 756 dòng × N ô input cùng lúc từng làm giật khi gõ/cuộn.
 const ROW_HEIGHT_PX = 37;
 
+// Thông báo kết quả đi qua toast xếp hàng (Đợt 2 mục 2): thành công tự tắt ~4 giây, lỗi nằm lại tới khi bấm ×.
+const setMessage = thongBao;
+const laChuoi = (v) => typeof v === 'string';
+const maSku = (p) => p.sku_code;
+// Nút chính (xanh) và nút phụ (trắng viền): mỗi màn chỉ MỘT nút chính (Đợt 2 mục 4).
+const NUT_CHINH = 'flex items-center space-x-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow transition disabled:opacity-50';
+const NUT_PHU = 'flex items-center space-x-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3.5 py-2 rounded-lg text-xs font-semibold shadow-sm transition disabled:opacity-50';
+
 export default function MonthlyForecast({ currentBU, user }) {
   const [cycles, setCycles] = useState([]);
   const [selectedCycle, setSelectedCycle] = useState(null);
@@ -49,12 +64,13 @@ export default function MonthlyForecast({ currentBU, user }) {
     return () => setDirty(false);
   }, [dirtyKeys]);
   const [search, setSearch] = useState('');
-  const [selectedGroup, setSelectedGroup] = useState('ALL');
-  const [onlyNonZero, setOnlyNonZero] = useState(true);
+  // Nhớ bộ lọc nhóm hàng và ô "chỉ hiện SKU có số lượng" giữa các lần mở (Đợt 2 mục 9).
+  const [selectedGroup, setSelectedGroup] = usePersistedState('monthlyGroup', 'ALL', laChuoi);
+  const [onlyNonZero, setOnlyNonZero] = usePersistedState('monthlyOnlyNonZero', true, (v) => typeof v === 'boolean');
   const [nonZeroSkus, setNonZeroSkus] = useState(() => new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState(null);
+  const [loiTai, setLoiTai] = useState(null);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showImportSource, setShowImportSource] = useState(false);
@@ -123,7 +139,7 @@ export default function MonthlyForecast({ currentBU, user }) {
    */
   const loadAll = useCallback(async (preferCycleId, preferVersionId) => {
     setLoading(true);
-    setMessage(null);
+    setLoiTai(null);
     try {
       const [ws, buList, regionList, groupList] = await Promise.all([
         api.getMonthlyWorkspace({ bu: currentBU, cycleId: preferCycleId, versionId: preferVersionId }),
@@ -142,19 +158,24 @@ export default function MonthlyForecast({ currentBU, user }) {
       setVersions(ws.versions || []);
       setSelectedVersion(ws.version || null);
       applyLines(ws.lines || []);
+      // Nhớ chu kỳ đang xem (theo đơn vị; dùng chung với Bảng 1) — Đợt 2 mục 9.
+      if (ws.cycle?.id) savePref('cycle:' + currentBU, ws.cycle.id);
     } catch (err) {
-      setMessage({ type: 'error', text: err.message });
+      // Lỗi tải: bảng hiện lỗi + "Thử lại" (không im lặng thành bảng rỗng).
+      setLoiTai(err.message);
     } finally {
       setLoading(false);
     }
   }, [currentBU, applyLines]);
 
+  // Lần mở đầu: vào lại đúng chu kỳ lần trước (server rơi về chu kỳ mới nhất nếu mã đó không còn).
   useEffect(() => {
-    if (currentBU) loadAll();
+    if (currentBU) loadAll(loadPref('cycle:' + currentBU, undefined, laChuoi));
   }, [currentBU, loadAll]);
 
   const handleSelectCycle = async (cycle) => {
     if (!cycle) return;
+    savePref('cycle:' + currentBU, cycle.id);
     setSelectedCycle(cycle);
     setLoading(true);
     try {
@@ -239,7 +260,9 @@ export default function MonthlyForecast({ currentBU, user }) {
       const r = await api.getAnnualPlanForMonth({ bu: currentBU, month: targetMonth });
       if (!r.found) { setMessage({ type: 'error', text: r.ly || 'Chưa có kế hoạch năm đã duyệt.' }); return; }
       const coSan = products.some((p) => (forecastMap[`${p.sku_code}_${targetMonth}`] || 0) > 0);
-      if (coSan && !window.confirm(`${monthLabel(targetMonth)} đang có số liệu. Ghi đè TOÀN BỘ cột này bằng kế hoạch năm (${r.plan.label})?`)) return;
+      if (coSan && !(await appConfirm(`${monthLabel(targetMonth)} đang có số liệu. Ghi đè TOÀN BỘ cột này bằng kế hoạch năm (${r.plan.label})?`, {
+        title: 'Ghi đè cột ' + monthLabel(targetMonth), okLabel: 'Ghi đè cột này', danger: true
+      }))) return;
       const theoMa = new Map(r.rows.map((x) => [x.skuCode, x.quantity]));
       const trongDs = new Set(products.map((p) => p.sku_code));
       const ngoaiDs = r.rows.filter((x) => !trongDs.has(x.skuCode));
@@ -280,7 +303,9 @@ export default function MonthlyForecast({ currentBU, user }) {
 
   const handleSave = async () => {
     if (choDuyet && dirtyKeys.size > 0
-      && !window.confirm('Bản đang chờ duyệt — lưu sẽ rút yêu cầu duyệt, cần gửi lại. Vẫn lưu?')) return;
+      && !(await appConfirm('Bản đang chờ duyệt — lưu sẽ rút yêu cầu duyệt, cần gửi lại. Vẫn lưu?', {
+        title: 'Lưu sẽ rút yêu cầu duyệt', okLabel: 'Lưu và rút yêu cầu duyệt'
+      }))) return;
     setSaving(true);
     setMessage(null);
     try {
@@ -323,13 +348,16 @@ export default function MonthlyForecast({ currentBU, user }) {
    * và các dòng bên dưới nhảy vị trí. Bộ lọc chỉ được áp lại khi người dùng
    * chủ động bật lại ô tick hoặc khi tải lại dữ liệu.
    */
+  // Nhóm hàng đã nhớ nhưng không còn trong danh sách (đổi tên / bị gỡ) thì coi như "Tất cả", kẻo bảng trống mà không rõ vì sao.
+  const nhomHieuLuc = groups.some((g) => g.code === selectedGroup) ? selectedGroup : 'ALL';
+
   const filteredProducts = useMemo(() => {
     const s = search.trim().toLowerCase();
     return products.filter((p) => {
       const matchSearch = !s
         || String(p.sku_code).toLowerCase().includes(s)
         || String(p.name).toLowerCase().includes(s);
-      const matchGroup = selectedGroup === 'ALL' || p.product_group_code === selectedGroup;
+      const matchGroup = nhomHieuLuc === 'ALL' || p.product_group_code === nhomHieuLuc;
       // String() hai ben: nonZeroSkus dung tu khoa cua forecastMap nen luon la
       // CHUOI, con p.sku_code co the la SO — Sheets bien "2013050022" thanh so
       // ngay khi mot lenh setValues ghi lai o do. Set.has so theo kieu, nen
@@ -337,7 +365,7 @@ export default function MonthlyForecast({ currentBU, user }) {
       const matchNonZero = !onlyNonZero || nonZeroSkus.has(String(p.sku_code));
       return matchSearch && matchGroup && matchNonZero;
     });
-  }, [products, search, selectedGroup, onlyNonZero, nonZeroSkus]);
+  }, [products, search, nhomHieuLuc, onlyNonZero, nonZeroSkus]);
 
   /**
    * Bật lại bộ lọc thì chốt lại danh sách theo số hiện tại (kể cả số vừa gõ
@@ -469,12 +497,23 @@ export default function MonthlyForecast({ currentBU, user }) {
   // Hàng tổng luôn là tổng CẢ THÁNG. Khi có bộ lọc bật thì số dòng đang hiện ít
   // hơn số dòng được cộng, nên phải nói ra — nếu không người đọc sẽ tự cộng
   // nhẩm mấy dòng trên màn hình rồi tưởng hàng tổng sai.
-  const dangLoc = search.trim() !== '' || selectedGroup !== 'ALL' || onlyNonZero;
+  const dangLoc = search.trim() !== '' || nhomHieuLuc !== 'ALL' || onlyNonZero;
   const tyVnd = (v) => (v / 1e9).toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // Sắp xếp theo cột (số / chữ). Thứ tự được CHỐT lúc bấm tiêu đề, nên gõ số trong ô không làm dòng nhảy
+  // chỗ dưới con trỏ, và sắp xếp không đụng tới dữ liệu đang sửa — chỉ đảo thứ tự hiển thị (useTableSort).
+  const cotLuoi = {
+    sku: { type: 'text', get: (p) => p.sku_code },
+    ten: { type: 'text', get: (p) => p.name },
+    nhom: { type: 'text', get: (p) => p.product_group_name || p.product_group_code },
+    tong: { type: 'number', get: (p) => getSkuTotal(p.sku_code) }
+  };
+  months.forEach((m) => { cotLuoi['t:' + m] = { type: 'number', get: (p) => forecastMap[`${p.sku_code}_${m}`] || 0 }; });
+  const { rows: sapXep, spec: sortLuoi, toggle: doiSapXep } = useTableSort(filteredProducts, cotLuoi, maSku);
 
   const scrollParentRef = useRef(null);
   const rowVirtualizer = useVirtualizer({
-    count: filteredProducts.length,
+    count: sapXep.length,
     getScrollElement: () => scrollParentRef.current,
     estimateSize: () => ROW_HEIGHT_PX,
     overscan: 12
@@ -485,7 +524,7 @@ export default function MonthlyForecast({ currentBU, user }) {
 
   const grid = useGridEditing({
     columns: months,
-    rows: filteredProducts,
+    rows: sapXep,
     getRowKey: (p) => p.sku_code,
     buildCellId: (sku, month) => `${sku}_${month}`,
     getCellValue: (sku, month) => forecastMap[`${sku}_${month}`] || 0,
@@ -510,10 +549,11 @@ export default function MonthlyForecast({ currentBU, user }) {
         </div>
 
         <div className="flex items-center space-x-2">
+          {/* Một nút chính theo "bước tiếp theo": còn ô chưa lưu thì Lưu là nút chính, hết thì Gửi phê duyệt. */}
           <button
             onClick={handleSave}
             disabled={saving || !canWrite || dirtyKeys.size === 0}
-            className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow transition disabled:opacity-50"
+            className={dirtyKeys.size > 0 ? NUT_CHINH : NUT_PHU}
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             <span>{saving ? 'Đang lưu...' : 'Lưu bản thảo'}</span>
@@ -522,7 +562,7 @@ export default function MonthlyForecast({ currentBU, user }) {
           <button
             onClick={handleSubmit}
             disabled={saving || !canWrite}
-            className="flex items-center space-x-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-lg text-xs font-semibold shadow transition disabled:opacity-50"
+            className={dirtyKeys.size > 0 ? NUT_PHU : NUT_CHINH}
           >
             <Send className="w-4 h-4" />
             <span>Gửi phê duyệt</span>
@@ -542,19 +582,6 @@ export default function MonthlyForecast({ currentBU, user }) {
         canReopen={canReopen}
         onChanged={(cycleId, versionId) => loadAll(cycleId, versionId)}
       />
-
-      {message && (
-        <div className={`p-3 rounded-lg text-xs flex items-start space-x-2 ${
-          message.type === 'success'
-            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-            : 'bg-rose-50 text-rose-800 border border-rose-200'
-        }`}>
-          {message.type === 'success'
-            ? <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-            : <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />}
-          <span>{message.text}</span>
-        </div>
-      )}
 
       {dongLechDanhMuc.maSo.length > 0 && (
         <div className="bg-amber-50 border border-amber-300 text-amber-900 text-xs rounded-lg p-3 flex items-start gap-2">
@@ -618,7 +645,7 @@ export default function MonthlyForecast({ currentBU, user }) {
         <div className="flex items-center space-x-2 w-full sm:w-auto">
           <Filter className="w-4 h-4 text-slate-400" />
           <select
-            value={selectedGroup}
+            value={nhomHieuLuc}
             onChange={(e) => setSelectedGroup(e.target.value)}
             className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-700 outline-none"
           >
@@ -634,29 +661,23 @@ export default function MonthlyForecast({ currentBU, user }) {
           {isEditor && (
             <>
               <button
-                onClick={() => setShowAddProduct(true)}
-                className="flex items-center gap-1.5 border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
-              >
-                <PackagePlus className="w-3.5 h-3.5" />
-                Thêm SKU
-              </button>
-              <button
                 onClick={() => setShowImport(true)}
                 disabled={!canWrite}
-                className="flex items-center gap-1.5 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 text-emerald-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
+                className="flex items-center gap-1.5 border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5" />
                 Nhập từ file
               </button>
-              {SOURCE_BUS.includes(currentBU) && (
-                <button
-                  onClick={() => { if (confirmNavigateAway('Nhập từ app nguồn (mở sang bản cập nhật mới)')) setShowImportSource(true); }}
-                  className="flex items-center gap-1.5 border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
-                >
-                  <ArrowDownToLine className="w-3.5 h-3.5" />
-                  Nhập từ app {currentBU === 'OEM' ? 'OEM' : 'Xuất khẩu'}
-                </button>
-              )}
+              {/* Thao tác ít dùng gom vào "⋯ Thêm" để màn chỉ còn một nút chính. */}
+              <MoreMenu items={[
+                { label: 'Thêm SKU vào danh mục', icon: PackagePlus, onClick: () => setShowAddProduct(true) },
+                {
+                  label: 'Nhập từ app ' + (currentBU === 'OEM' ? 'OEM' : 'Xuất khẩu'),
+                  icon: ArrowDownToLine,
+                  hidden: !SOURCE_BUS.includes(currentBU),
+                  onClick: async () => { if (await confirmNavigateAway('Nhập từ app nguồn (mở sang bản cập nhật mới)')) setShowImportSource(true); }
+                }
+              ]} />
             </>
           )}
         </div>
@@ -757,15 +778,23 @@ export default function MonthlyForecast({ currentBU, user }) {
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-800 text-white font-semibold sticky top-0 z-20">
               <tr>
-                <th className="py-2.5 px-3 border-r border-slate-700 w-28">Mã SKU</th>
-                <th className="py-2.5 px-3 border-r border-slate-700 min-w-[200px]">Tên sản phẩm</th>
-                <th className="py-2.5 px-3 border-r border-slate-700 w-28">Nhóm SP</th>
+                <SortTh label="Mã SKU" sortKey="sku" spec={sortLuoi} onSort={doiSapXep} className="py-2.5 px-3 border-r border-slate-700 w-28" />
+                <SortTh label="Tên sản phẩm" sortKey="ten" spec={sortLuoi} onSort={doiSapXep} className="py-2.5 px-3 border-r border-slate-700 min-w-[200px]" />
+                <SortTh label="Nhóm SP" sortKey="nhom" spec={sortLuoi} onSort={doiSapXep} className="py-2.5 px-3 border-r border-slate-700 w-28" />
                 {months.map((m, colIdx) => {
                   const isLastMonth = colIdx === months.length - 1;
                   return (
-                    <th key={m} className="py-2.5 px-3 border-r border-slate-700 text-right w-28 bg-blue-900/60">
+                    <th key={m} aria-sort={sortLuoi && sortLuoi.key === 't:' + m ? (sortLuoi.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className="py-2.5 px-3 border-r border-slate-700 text-right w-28 bg-blue-900/60">
                       <div className="flex items-center justify-end gap-1.5">
-                        {monthLabel(m)}
+                        <button
+                          type="button"
+                          onClick={() => doiSapXep('t:' + m)}
+                          title={'Bấm để sắp xếp theo ' + monthLabel(m).toLowerCase()}
+                          className="inline-flex items-center gap-1 hover:underline"
+                        >
+                          {monthLabel(m)}
+                          <SortIcon spec={sortLuoi} sortKey={'t:' + m} />
+                        </button>
                         {canWrite && (
                           <button
                             type="button"
@@ -810,34 +839,24 @@ export default function MonthlyForecast({ currentBU, user }) {
                     </th>
                   );
                 })}
-                <th className="py-2.5 px-3 text-right w-32 bg-cyan-900/60">TỔNG CHU KỲ</th>
+                <SortTh label="TỔNG CHU KỲ" sortKey="tong" spec={sortLuoi} onSort={doiSapXep} className="py-2.5 px-3 text-right w-32 bg-cyan-900/60" />
               </tr>
             </thead>
 
             <tbody className="divide-y divide-slate-200 font-mono">
               {loading ? (
-                <tr>
-                  <td colSpan={4 + months.length} className="py-8 text-center text-slate-400 font-sans">
-                    Đang tải dữ liệu...
-                  </td>
-                </tr>
+                <StateRow colSpan={4 + months.length} kind="loading" />
+              ) : loiTai ? (
+                <StateRow colSpan={4 + months.length} kind="error" text={loiTai} onRetry={() => loadAll(selectedCycle?.id, selectedVersion?.id)} />
               ) : !selectedVersion ? (
-                <tr>
-                  <td colSpan={4 + months.length} className="py-8 text-center text-slate-400 font-sans">
-                    Chưa có chu kỳ nào cho đơn vị này. Dùng nút “Mở chu kỳ” ở trên để bắt đầu.
-                  </td>
-                </tr>
+                <StateRow colSpan={4 + months.length} kind="empty" text="Chưa có chu kỳ nào cho đơn vị này. Dùng nút “Mở chu kỳ” ở trên để bắt đầu." />
               ) : filteredProducts.length === 0 ? (
-                <tr>
-                  <td colSpan={4 + months.length} className="py-8 text-center text-slate-400 font-sans">
-                    Không tìm thấy SKU phù hợp
-                  </td>
-                </tr>
+                <StateRow colSpan={4 + months.length} kind="empty" text="Không tìm thấy SKU phù hợp" />
               ) : (
                 <>
                   {topPad > 0 && <tr style={{ height: topPad }} aria-hidden="true" />}
                   {virtualRows.map((vRow) => {
-                    const p = filteredProducts[vRow.index];
+                    const p = sapXep[vRow.index];
                     return (
                       <tr key={p.sku_code} className="hover:bg-blue-50/50 transition">
                         <td className="py-2 px-3 border-r border-slate-200 font-bold text-slate-800">{p.sku_code}</td>

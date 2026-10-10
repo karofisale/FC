@@ -2,18 +2,22 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { X, Search, Loader2 } from 'lucide-react';
 import { dinhDangSo, dinhDangGia, NHAN_THANG } from '../../utils/annualPlanModel';
 import { apDungBangDoanhThu } from '../../utils/annualPlanSkuOps';
+import Dialog from '../Dialog';
 
 function Khung({ title, onClose, children, rong }) {
+  // Khung dùng chung của app (components/Dialog.jsx): role=dialog, Esc, focus, bấm nền không đóng khi đang có chữ đã gõ.
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className={`bg-white rounded-xl shadow-2xl w-full ${rong ? 'max-w-2xl' : 'max-w-md'} max-h-[90vh] flex flex-col`}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-          <h3 className="font-bold text-sm text-slate-900">{title}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X className="w-4 h-4" /></button>
-        </div>
-        <div className="p-4 overflow-y-auto text-sm">{children}</div>
+    <Dialog
+      onClose={onClose}
+      className={`bg-white rounded-xl shadow-2xl w-full ${rong ? 'max-w-2xl' : 'max-w-md'} max-h-[90vh] flex flex-col`}
+      overlayClassName="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4"
+    >
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+        <h3 className="font-bold text-sm text-slate-900">{title}</h3>
+        <button onClick={onClose} aria-label="Đóng" className="text-slate-500 hover:text-slate-800"><X className="w-4 h-4" /></button>
       </div>
-    </div>
+      <div className="p-4 overflow-y-auto text-sm">{children}</div>
+    </Dialog>
   );
 }
 
@@ -21,9 +25,11 @@ const nhan = 'block text-[11px] font-semibold text-slate-600 mb-1';
 const o = 'w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500';
 const nutChinh = 'bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-lg';
 const nutPhu = 'border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-lg';
+// Nút xác nhận một thao tác phá dữ liệu / từ chối: đỏ, không xanh.
+const nutNguyHiem = 'bg-rose-700 hover:bg-rose-800 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-lg';
 
 /** Hỏi một dòng lý do (từ chối kế hoạch / lưu bản Final). */
-export function ReasonDialog({ title, label, confirmLabel, onConfirm, onClose }) {
+export function ReasonDialog({ title, label, confirmLabel, onConfirm, onClose, danger = false }) {
   const [text, setText] = useState('');
   return (
     <Khung title={title} onClose={onClose}>
@@ -31,7 +37,7 @@ export function ReasonDialog({ title, label, confirmLabel, onConfirm, onClose })
       <textarea className={o} rows={3} value={text} onChange={(e) => setText(e.target.value)} autoFocus />
       <div className="flex justify-end gap-2 mt-3">
         <button className={nutPhu} onClick={onClose}>Hủy</button>
-        <button className={nutChinh} disabled={!text.trim()} onClick={() => onConfirm(text.trim())}>{confirmLabel}</button>
+        <button className={danger ? nutNguyHiem : nutChinh} disabled={!text.trim()} onClick={() => onConfirm(text.trim())}>{confirmLabel}</button>
       </div>
     </Khung>
   );
@@ -162,7 +168,7 @@ export function AddSkuDialog({ customerName, existing, onAdd: onAddGoc, onClose,
                 <span className="font-mono text-slate-500 shrink-0">{s.priceVnd > 0 ? dinhDangGia(s.priceVnd, tien ? tien.loai : 'VND', tien ? tien.fx : 0) : 'chưa có giá'}</span>
               </button>
             ))}
-            {!kqDm.items.length && <div className="text-xs text-slate-400 p-3">{qDm.trim().length < 2 ? 'Gõ ít nhất 2 ký tự để tìm.' : (dangTim ? 'Đang tìm…' : 'Không có SKU phù hợp.')}</div>}
+            {!kqDm.items.length && <div className="text-xs text-slate-500 p-3">{qDm.trim().length < 2 ? 'Gõ ít nhất 2 ký tự để tìm.' : (dangTim ? 'Đang tìm…' : 'Không có SKU phù hợp.')}</div>}
           </div>
           {chonDm && (
             <div className="mt-3 flex items-end gap-3">
@@ -192,7 +198,7 @@ export function AddSkuDialog({ customerName, existing, onAdd: onAddGoc, onClose,
                 </button>
               );
             })}
-            {!ds.length && <div className="text-xs text-slate-400 p-3">Không có SKU phù hợp.</div>}
+            {!ds.length && <div className="text-xs text-slate-500 p-3">Không có SKU phù hợp.</div>}
           </div>
           <div className="flex justify-end gap-2 mt-3">
             <button className={nutPhu} onClick={onClose}>Hủy</button>
@@ -259,7 +265,7 @@ export function MassDeleteDialog({ preview, onConfirm, onClose, coThanhLy = fals
       </div>
       <div className="flex justify-end gap-2 mt-3">
         <button className={nutPhu} onClick={onClose}>Hủy</button>
-        <button className={nutChinh} disabled={!ds.length} onClick={() => onConfirm(opts)}>Xóa {ds.length} dòng</button>
+        <button className={nutNguyHiem} disabled={!ds.length} onClick={() => onConfirm(opts)}>Xóa {ds.length} dòng</button>
       </div>
     </Khung>
   );
@@ -381,7 +387,7 @@ export function TaiDoanhThuKhachDialog({ state, info, nguon, fmt, nhan: nhanTien
                 <table className="text-[10px] font-mono">
                   <thead><tr><th className="text-left pr-2 font-sans font-semibold text-slate-500">Lệch tháng ({nhanTien})</th>{NHAN_THANG.map((t) => <th key={t} className="px-1 text-right text-slate-500">{t}</th>)}</tr></thead>
                   <tbody>
-                    <tr><td className="pr-2 font-sans text-slate-500">Sau khi tải lên</td>{kq.lechTruoc.map((v, m) => <td key={m} className={`px-1 text-right ${Math.abs(v) > 1 ? 'text-rose-600 font-bold' : 'text-slate-400'}`}>{Math.abs(v) > 1 ? fmt(v) : '·'}</td>)}</tr>
+                    <tr><td className="pr-2 font-sans text-slate-500">Sau khi tải lên</td>{kq.lechTruoc.map((v, m) => <td key={m} className={`px-1 text-right ${Math.abs(v) > 1 ? 'text-rose-600 font-bold' : 'text-slate-500'}`}>{Math.abs(v) > 1 ? fmt(v) : '·'}</td>)}</tr>
                     <tr><td className="pr-2 font-sans text-slate-500">Sau khi áp dụng</td>{kq.lechSau.map((v, m) => <td key={m} className={`px-1 text-right ${Math.abs(v) > 1e4 ? 'text-rose-600 font-bold' : 'text-emerald-700'}`}>{Math.abs(v) > 1e4 ? fmt(v) : '✓'}</td>)}</tr>
                   </tbody>
                 </table>

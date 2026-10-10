@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { PackagePlus, PencilLine, X, Loader2, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 import { parseGiaNhap } from '../utils/productPaste';
+import Dialog from './Dialog';
 
 /**
  * Thêm HOẶC sửa một SKU của danh mục dùng chung.
@@ -49,13 +50,7 @@ export default function AddProductModal({ groups, bus, defaultChannel, product, 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
-  // Esc đóng modal — không có ô nào trong form này tự bắt phím Esc riêng
-  // (chỉ input/select thường) nên đóng thẳng, không cần kiểm tra gì thêm.
-  useEffect(() => {
-    const onKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  // Esc / bấm nền / focus do <Dialog> lo (components/Dialog.jsx).
 
   const set = (field) => (e) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
@@ -93,8 +88,7 @@ export default function AddProductModal({ groups, bus, defaultChannel, product, 
   const Icon = suaDoi ? PencilLine : PackagePlus;
 
   return (
-    <div className="fixed inset-0 bg-slate-950/60 flex items-center justify-center p-4 z-50">
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-2xl w-full max-w-md p-5 space-y-4 text-slate-900">
+    <Dialog as="form" onSubmit={handleSubmit} onClose={onClose} busy={saving} className="bg-white rounded-xl shadow-2xl w-full max-w-md p-5 space-y-4 text-slate-900">
         <div className="flex items-start justify-between pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <Icon className="w-5 h-5 text-blue-600" />
@@ -107,7 +101,7 @@ export default function AddProductModal({ groups, bus, defaultChannel, product, 
               </p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-slate-100 rounded">
+          <button type="button" onClick={onClose} aria-label="Đóng" className="p-1 hover:bg-slate-100 rounded">
             <X className="w-4 h-4 text-slate-500" />
           </button>
         </div>
@@ -126,7 +120,7 @@ export default function AddProductModal({ groups, bus, defaultChannel, product, 
             </label>
             <input required readOnly={suaDoi} value={form.skuCode} onChange={set('skuCode')}
               className={'w-full px-3 py-2 border rounded-lg text-sm outline-none focus:border-blue-500 '
-                + (suaDoi ? 'bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed'
+                + (suaDoi ? 'bg-slate-100 border-slate-200 text-slate-600 cursor-not-allowed'
                           : 'bg-slate-50 border-slate-300')} />
             {suaDoi && (
               <p className="text-[10px] text-slate-500">
@@ -208,7 +202,6 @@ export default function AddProductModal({ groups, bus, defaultChannel, product, 
             {suaDoi ? 'Lưu thay đổi' : 'Thêm SKU'}
           </button>
         </div>
-      </form>
-    </div>
+    </Dialog>
   );
 }

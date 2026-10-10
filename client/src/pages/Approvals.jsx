@@ -2,10 +2,26 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import { monthLabel } from '../utils/period';
+import { appConfirm } from '../services/dialogService';
+import { thongBao } from '../services/toastService';
+import { useTableSort } from '../utils/useTableSort';
+import { roleLabel, ngayGioVN } from '../utils/glossary';
+import { SortIcon, StateBlock, SortTh } from '../components/TableStates';
 import {
-  CheckCircle2, XCircle, MessageSquare, Clock, ShieldCheck, AlertCircle, Loader2,
+  CheckCircle2, XCircle, MessageSquare, Clock,
   TrendingUp, TrendingDown, Minus, Layers
 } from 'lucide-react';
+
+const CHUA_CO = [];
+const maYeuCau = (a) => a.id;
+const maNhom = (g) => g.product_group_code;
+// Cột sắp xếp của danh sách yêu cầu duyệt: chữ / ngày / ngày.
+const COT_DANH_SACH = {
+  donVi: { type: 'text', get: (a) => a.business_unit_code },
+  chuKy: { type: 'date', get: (a) => a.base_month },
+  ngayGui: { type: 'date', get: (a) => a.requested_at },
+  trangThai: { type: 'text', get: (a) => a.status }
+};
 
 export default function Approvals({ currentBU, user, onCountChange }) {
   const [approvals, setApprovals] = useState([]);
@@ -13,10 +29,11 @@ export default function Approvals({ currentBU, user, onCountChange }) {
   const [comment, setComment] = useState('');
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
-  const [error, setError] = useState(null);
+  const [loiTai, setLoiTai] = useState(null);
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState(null);
+  const [summaryTick, setSummaryTick] = useState(0);        // tăng để bấm "Thử lại" tải lại số liệu
   // Số liệu tổng hợp backend đã gửi kèm cho mục đầu tiên, để không gọi lại
   const [preloadedSummary, setPreloadedSummary] = useState(null);
 
@@ -25,7 +42,7 @@ export default function Approvals({ currentBU, user, onCountChange }) {
 
   const loadApprovals = useCallback(async () => {
     setLoading(true);
-    setError(null);
+    setLoiTai(null);
     try {
       // Một lượt gọi lấy cả danh sách lẫn số liệu tổng hợp của mục đầu tiên,
       // thay vì getApprovals rồi mới getVersionSummary ở effect kế tiếp.
@@ -38,7 +55,8 @@ export default function Approvals({ currentBU, user, onCountChange }) {
       // Chỉ dùng được khi mục đang chọn đúng là mục backend đã tính sẵn
       if (ws.summary && chosen) setPreloadedSummary({ versionId: chosen.version_id, data: ws.summary });
     } catch (err) {
-      setError(err.message);
+      // Lỗi tải: cột danh sách hiện lỗi + "Thử lại", không im lặng thành "Chưa có yêu cầu nào".
+      setLoiTai(err.message);
       setApprovals([]);
     } finally {
       setLoading(false);
@@ -72,26 +90,38 @@ export default function Approvals({ currentBU, user, onCountChange }) {
       .catch((err) => { if (!cancelled) setSummaryError(err.message); })
       .finally(() => { if (!cancelled) setSummaryLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedApproval?.version_id, preloadedSummary]);
+  }, [selectedApproval?.version_id, preloadedSummary, summaryTick]);
 
   const handleDecision = async (decision) => {
     if (!selectedApproval) return;
-    const loiXacNhan = decision === 'approved'
-      ? 'Duyệt kế hoạch này? Không thể hoàn tác sau khi duyệt.'
-      : 'Từ chối kế hoạch này? Đơn vị sẽ phải sửa và gửi lại.';
-    if (!window.confirm(loiXacNhan)) return;
+    const duyet = decision === 'approved';
+    if (!(await appConfirm(
+      duyet ? 'Duyệt kế hoạch này? Không thể hoàn tác sau khi duyệt.' : 'Từ chối kế hoạch này? Đơn vị sẽ phải sửa và gửi lại.',
+      duyet
+        ? { title: 'Duyệt kế hoạch?', okLabel: 'Duyệt kế hoạch' }
+        : { title: 'Từ chối kế hoạch?', okLabel: 'Từ chối kế hoạch', danger: true }
+    ))) return;
     setProcessing(true);
-    setError(null);
     try {
       await api.decideApproval(selectedApproval.id, decision, comment);
       setComment('');
       await loadApprovals();
+      thongBao({ type: 'success', text: duyet ? 'Đã duyệt kế hoạch.' : 'Đã từ chối kế hoạch.' });
     } catch (err) {
-      setError(err.message);
+      thongBao({ type: 'error', text: err.message });
     } finally {
       setProcessing(false);
     }
   };
+
+  // Sắp xếp danh sách yêu cầu (theo đơn vị / chu kỳ / ngày gửi / trạng thái) và bảng số liệu theo nhóm hàng.
+  const { rows: dsXep, spec: sortDs, toggle: doiSapXepDs } = useTableSort(approvals, COT_DANH_SACH, maYeuCau);
+  const cotNhom = {
+    nhom: { type: 'text', get: (g) => g.product_group_name },
+    tong: { type: 'number', get: (g) => g.total }
+  };
+  (summary?.months || CHUA_CO).forEach((m) => { cotNhom['t:' + m] = { type: 'number', get: (g) => g.months[m] || 0 }; });
+  const { rows: nhomXep, spec: sortNhom, toggle: doiSapXepNhom } = useTableSort(summary?.byGroup || CHUA_CO, cotNhom, maNhom);
 
   return (
     <div className="space-y-6">
@@ -100,7 +130,7 @@ export default function Approvals({ currentBU, user, onCountChange }) {
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5 text-emerald-600" />
+            <CheckCircle2 className="w-5 h-5 text-emerald-700" />
             QUY TRÌNH THẨM ĐỊNH & PHÊ DUYỆT FORECAST
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
@@ -108,19 +138,6 @@ export default function Approvals({ currentBU, user, onCountChange }) {
           </p>
         </div>
       </div>
-
-      {error && (
-        <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg p-3 flex items-start gap-2">
-          <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {loading && (
-        <div className="text-xs text-slate-400 flex items-center gap-2">
-          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Đang tải danh sách yêu cầu...
-        </div>
-      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
@@ -130,11 +147,33 @@ export default function Approvals({ currentBU, user, onCountChange }) {
             DANH SÁCH YÊU CẦU DUYỆT ({approvals.length})
           </div>
 
+          {/* Sắp xếp danh sách: bấm lần 1 tăng, lần 2 giảm, lần 3 về thứ tự gốc */}
+          {approvals.length > 1 && (
+            <div className="flex flex-wrap items-center gap-1 px-3 py-2 border-b border-slate-200 text-[11px] text-slate-600">
+              <span className="mr-1">Sắp xếp:</span>
+              {[['donVi', 'Đơn vị'], ['chuKy', 'Chu kỳ'], ['ngayGui', 'Ngày gửi'], ['trangThai', 'Trạng thái']].map(([k, t]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => doiSapXepDs(k)}
+                  aria-sort={sortDs && sortDs.key === k ? (sortDs.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border ${sortDs && sortDs.key === k ? 'bg-blue-50 border-blue-300 text-blue-800 font-semibold' : 'bg-white border-slate-300 hover:bg-slate-50'}`}
+                >
+                  {t}<SortIcon spec={sortDs} sortKey={k} />
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="divide-y divide-slate-200 max-h-[500px] overflow-y-auto">
-            {approvals.length === 0 ? (
-              <div className="p-6 text-center text-slate-400 text-xs">Chưa có yêu cầu phê duyệt nào</div>
+            {loading ? (
+              <StateBlock kind="loading" text="Đang tải danh sách yêu cầu..." />
+            ) : loiTai ? (
+              <StateBlock kind="error" text={loiTai} onRetry={loadApprovals} />
+            ) : approvals.length === 0 ? (
+              <StateBlock kind="empty" text="Chưa có yêu cầu phê duyệt nào" />
             ) : (
-              approvals.map(app => {
+              dsXep.map(app => {
                 const isSelected = selectedApproval && selectedApproval.id === app.id;
                 return (
                   <div
@@ -146,9 +185,9 @@ export default function Approvals({ currentBU, user, onCountChange }) {
                       <span className="font-bold text-slate-900 text-sm">{app.business_unit_code} - {app.business_unit_name}</span>
                       <StatusBadge status={app.status} />
                     </div>
-                    <p className="text-xs text-slate-600 font-mono">Chu kỳ: {app.base_month} | Tuần {app.update_week}</p>
-                    <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
-                      <Clock className="w-3.0 h-3.0" /> {new Date(app.requested_at).toLocaleString('vi-VN')}
+                    <p className="text-xs text-slate-600">Chu kỳ: {monthLabel(app.base_month)} | Tuần {app.update_week}</p>
+                    <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
+                      <Clock className="w-3 h-3" /> {ngayGioVN(app.requested_at)}
                     </p>
                   </div>
                 );
@@ -168,7 +207,7 @@ export default function Approvals({ currentBU, user, onCountChange }) {
                     Kế hoạch Forecast: {selectedApproval.business_unit_name} ({selectedApproval.business_unit_code})
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Chu kỳ: <strong>{selectedApproval.base_month}</strong> | Cập nhật Tuần <strong>{selectedApproval.update_week}</strong>
+                    Chu kỳ: <strong>{monthLabel(selectedApproval.base_month)}</strong> | Cập nhật Tuần <strong>{selectedApproval.update_week}</strong>
                   </p>
                 </div>
                 <StatusBadge status={selectedApproval.status} />
@@ -178,12 +217,12 @@ export default function Approvals({ currentBU, user, onCountChange }) {
               <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-xs space-y-2">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Thời gian gửi duyệt:</span>
-                  <span className="font-mono text-slate-800">{new Date(selectedApproval.requested_at).toLocaleString('vi-VN')}</span>
+                  <span className="font-mono text-slate-800">{ngayGioVN(selectedApproval.requested_at)}</span>
                 </div>
                 {selectedApproval.decided_at && (
                   <div className="flex justify-between">
                     <span className="text-slate-500">Thời gian quyết định:</span>
-                    <span className="font-mono text-slate-800">{new Date(selectedApproval.decided_at).toLocaleString('vi-VN')}</span>
+                    <span className="font-mono text-slate-800">{ngayGioVN(selectedApproval.decided_at)}</span>
                   </div>
                 )}
                 {selectedApproval.requested_by_name && (
@@ -226,27 +265,25 @@ export default function Approvals({ currentBU, user, onCountChange }) {
                 </div>
 
                 {summaryLoading ? (
-                  <div className="p-4 text-xs text-slate-400 flex items-center gap-2">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Đang tải số liệu...
-                  </div>
+                  <StateBlock kind="loading" text="Đang tải số liệu..." />
                 ) : summaryError ? (
-                  <div className="p-4 text-xs text-rose-700 bg-rose-50">{summaryError}</div>
+                  <StateBlock kind="error" text={summaryError} onRetry={() => { setPreloadedSummary(null); setSummaryTick((t) => t + 1); }} />
                 ) : !summary || summary.byGroup.length === 0 ? (
-                  <div className="p-4 text-xs text-slate-400">Chưa có dữ liệu Forecast tháng nào được nhập cho bản này.</div>
+                  <StateBlock kind="empty" text="Chưa có dữ liệu Forecast tháng nào được nhập cho bản này." />
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-white border-b border-slate-200 text-slate-500">
                         <tr>
-                          <th className="text-left font-semibold py-2 px-3">Nhóm hàng</th>
+                          <SortTh label="Nhóm hàng" sortKey="nhom" spec={sortNhom} onSort={doiSapXepNhom} className="text-left font-semibold py-2 px-3" />
                           {summary.months.map((m) => (
-                            <th key={m} className="text-right font-semibold py-2 px-3 whitespace-nowrap">{monthLabel(m)}</th>
+                            <SortTh key={m} label={monthLabel(m)} sortKey={'t:' + m} spec={sortNhom} onSort={doiSapXepNhom} className="text-right font-semibold py-2 px-3 whitespace-nowrap" />
                           ))}
-                          <th className="text-right font-semibold py-2 px-3">Tổng</th>
+                          <SortTh label="Tổng" sortKey="tong" spec={sortNhom} onSort={doiSapXepNhom} className="text-right font-semibold py-2 px-3" />
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 font-mono">
-                        {summary.byGroup.map((g) => (
+                        {nhomXep.map((g) => (
                           <tr key={g.product_group_code}>
                             <td className="py-1.5 px-3 font-sans text-slate-700">{g.product_group_name}</td>
                             {summary.months.map((m) => (
@@ -277,7 +314,7 @@ export default function Approvals({ currentBU, user, onCountChange }) {
               {selectedApproval.status === 'pending' && !canApprove && (
                 <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-xs text-slate-600">
                   Yêu cầu đang chờ cấp thẩm định của đơn vị xử lý. Vai trò
-                  <strong> {user?.role}</strong> của bạn chỉ được xem trạng thái.
+                  <strong> {roleLabel(user?.role)}</strong> của bạn chỉ được xem trạng thái.
                 </div>
               )}
 
@@ -300,19 +337,19 @@ export default function Approvals({ currentBU, user, onCountChange }) {
                     <button
                       onClick={() => handleDecision('approved')}
                       disabled={processing}
-                      className="flex-1 flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-lg text-xs font-bold shadow transition disabled:opacity-50"
+                      className="flex-1 flex items-center justify-center space-x-2 bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-lg text-xs font-bold shadow transition disabled:opacity-50"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>DUYỆT KẾ HOẠCH (APPROVE)</span>
+                      <span>Duyệt kế hoạch</span>
                     </button>
 
                     <button
                       onClick={() => handleDecision('rejected')}
                       disabled={processing}
-                      className="flex-1 flex items-center justify-center space-x-2 bg-rose-600 hover:bg-rose-700 text-white py-2.5 rounded-lg text-xs font-bold shadow transition disabled:opacity-50"
+                      className="flex-1 flex items-center justify-center space-x-2 bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 py-2.5 rounded-lg text-xs font-bold transition disabled:opacity-50"
                     >
                       <XCircle className="w-4 h-4" />
-                      <span>TỪ CHỐI / YÊU CẦU SỬA (REJECT)</span>
+                      <span>Từ chối / yêu cầu sửa</span>
                     </button>
                   </div>
                 </div>
@@ -320,7 +357,7 @@ export default function Approvals({ currentBU, user, onCountChange }) {
 
             </div>
           ) : (
-            <div className="bg-white p-12 rounded-xl border border-slate-200 text-center text-slate-400 text-xs">
+            <div className="bg-white p-12 rounded-xl border border-slate-200 text-center text-slate-500 text-xs">
               Chọn một yêu cầu phê duyệt ở cột bên trái để xem chi tiết
             </div>
           )}
@@ -338,7 +375,7 @@ function VarianceBadge({ current, previous, label }) {
 
   if (diff === 0) {
     return (
-      <span className="inline-flex items-center gap-1 text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+      <span className="inline-flex items-center gap-1 text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">
         <Minus className="w-3 h-3" /> Không đổi so với {label}
       </span>
     );

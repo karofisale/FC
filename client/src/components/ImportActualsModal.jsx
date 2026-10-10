@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { X, Loader2, AlertTriangle, ArrowDownToLine, CheckCircle2, Info, Upload } from 'lucide-react';
 import { api } from '../services/api';
 import { parseExcelFile } from '../utils/importParsing';
 import { parseZsd450, MOI_KHACH } from '../utils/zsd450';
 import { monthLabel } from '../utils/period';
+import Dialog from './Dialog';
 
 /**
  * Nhập sản lượng thực hiện từ báo cáo ZSD450 của SAP.
@@ -38,13 +39,7 @@ export default function ImportActualsModal({
   const [ket, setKet] = useState(null);
   const [done, setDone] = useState(null);
 
-  // Esc đóng modal — không có ô nào ở đây tự xử lý Esc riêng (input file,
-  // không phải dropdown gợi ý), nên đóng thẳng.
-  useEffect(() => {
-    const onKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  // Esc / bấm nền / focus do <Dialog> lo (components/Dialog.jsx).
 
   const chonFile = async (e) => {
     const file = e.target.files?.[0];
@@ -104,8 +99,7 @@ export default function ImportActualsModal({
   const thangCoTrongFile = ket ? ket.monthsSeen.includes(month) : false;
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <Dialog onClose={onClose} busy={saving} className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
 
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 sticky top-0 bg-white">
           <div>
@@ -114,7 +108,7 @@ export default function ImportActualsModal({
               {businessUnitCode} · {monthLabel(month)} · ghi vào miền <strong>{regionCode}</strong>
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} aria-label="Đóng" className="text-slate-500 hover:text-slate-800"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="p-5 space-y-4">
@@ -171,12 +165,12 @@ export default function ImportActualsModal({
                 <div className="bg-slate-50 rounded-lg p-3">
                   <div className="text-[10px] uppercase text-slate-500 font-semibold">Dòng khớp</div>
                   <div className="text-lg font-black font-mono text-slate-900">{ket.rowsMatched.toLocaleString('vi-VN')}</div>
-                  <div className="text-[10px] text-slate-400">trên {ket.rowsRead.toLocaleString('vi-VN')} dòng cả file</div>
+                  <div className="text-[10px] text-slate-500">trên {ket.rowsRead.toLocaleString('vi-VN')} dòng cả file</div>
                 </div>
                 <div className="bg-slate-50 rounded-lg p-3">
                   <div className="text-[10px] uppercase text-slate-500 font-semibold">Mã hàng</div>
                   <div className="text-lg font-black font-mono text-slate-900">{Object.keys(ket.bySku).length}</div>
-                  <div className="text-[10px] text-slate-400">{ghiDuoc} mã ghi được</div>
+                  <div className="text-[10px] text-slate-500">{ghiDuoc} mã ghi được</div>
                 </div>
                 <div className="bg-blue-50 rounded-lg p-3">
                   <div className="text-[10px] uppercase text-slate-500 font-semibold">Tổng sản lượng</div>
@@ -284,7 +278,6 @@ export default function ImportActualsModal({
           )}
         </div>
 
-      </div>
-    </div>
+    </Dialog>
   );
 }

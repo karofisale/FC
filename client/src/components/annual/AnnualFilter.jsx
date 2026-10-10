@@ -62,7 +62,7 @@ export function ChonTien({ tien, setTien, khoa, fx }) {
       <div className="inline-flex rounded-lg border border-slate-300 overflow-hidden font-semibold" title={khoa ? 'Bảng gửi duyệt / chờ duyệt luôn hiển thị Triệu VNĐ' : 'USD quy đổi theo tỷ giá ' + Number(fx).toLocaleString('vi-VN')}>
         {nut('VND', 'Triệu VNĐ')}{nut('USD', 'USD')}
       </div>
-      {khoa && <span className="text-[10px] text-slate-400">bảng chờ duyệt: luôn Triệu VNĐ</span>}
+      {khoa && <span className="text-[10px] text-slate-500">bảng chờ duyệt: luôn Triệu VNĐ</span>}
     </div>
   );
 }

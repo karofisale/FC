@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import ErrorBoundary from './components/ErrorBoundary';
+import DialogHost from './components/DialogHost';
+import ToastHost from './components/ToastHost';
 import Login from './pages/Login';
 // Tải lười — kéo theo recharts và các thư viện d3 đi kèm (~377KB build,
 // 108KB gzip), chiếm hơn nửa gói JS ban đầu chỉ để vẽ 2 biểu đồ của đúng
@@ -23,25 +25,33 @@ import WorkflowGuide from './pages/WorkflowGuide';
 import { api, clearBootstrapCache } from './services/api';
 import { getSession, clearSession, logout, allowedBUs } from './services/auth';
 import { onUnauthorized, onRetry } from './services/gasClient';
-import { confirmNavigateAway, isDirty } from './services/dirtyState';
+import { confirmNavigateAway, confirmLeaveApp, isDirty } from './services/dirtyState';
+import { loadPref, savePref } from './services/prefs';
+import { VALID_TABS } from './utils/menu';
 import { AlertCircle, LogIn } from 'lucide-react';
 
 // Đồng bộ tab đang xem với #hash trên URL — không kéo theo thư viện
 // router nào (8 tài khoản nội bộ không cần route lồng nhau/URL param),
 // chỉ để nút Back của trình duyệt hoạt động và có thể chia sẻ/bookmark
 // thẳng vào một tab thay vì luôn rơi về Dashboard.
-const VALID_TABS = ['dashboard', 'monthly', 'weekly', 'approvals', 'actuals', 'annual', 'products', 'exports', 'guide'];
+//
+// Mở app KHÔNG kèm #hash (gõ thẳng địa chỉ, link từ cổng) thì quay lại tab lần trước
+// (Đợt 2 mục 9) thay vì luôn về Tổng quan; có #hash thì #hash thắng (link chia sẻ).
+// Danh sách tab hợp lệ lấy từ utils/menu.js — cùng nguồn với Sidebar.
+const laTabHopLe = (v) => VALID_TABS.includes(v);
 
 function tabFromHash() {
   const tab = window.location.hash.replace('#', '');
-  return VALID_TABS.includes(tab) ? tab : 'dashboard';
+  if (laTabHopLe(tab)) return tab;
+  return loadPref('tab', 'dashboard', laTabHopLe);
 }
 
 export default function App() {
   const [session, setSession] = useState(getSession());
   const [activeTab, setActiveTab] = useState(tabFromHash);
   const [bus, setBus] = useState([]);
-  const [currentBU, setCurrentBU] = useState('');
+  // Đơn vị lần trước (Đợt 2 mục 9); loadInitialData bỏ qua nếu người này không còn quyền đơn vị đó.
+  const [currentBU, setCurrentBU] = useState(() => loadPref('bu', '', (v) => typeof v === 'string'));
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -97,21 +107,26 @@ export default function App() {
     return () => clearTimeout(id);
   }, []);
 
-  // Đẩy tab đang xem lên #hash để bookmark/chia sẻ được và nút Back hoạt động.
+  // Đẩy tab đang xem lên #hash để bookmark/chia sẻ được và nút Back hoạt động; nhớ tab cho lần mở sau.
   useEffect(() => {
     if (window.location.hash.replace('#', '') !== activeTab) {
       window.location.hash = activeTab;
     }
+    savePref('tab', activeTab);
   }, [activeTab]);
+
+  useEffect(() => {
+    if (currentBU) savePref('bu', currentBU);
+  }, [currentBU]);
 
   // Bấm Back/Forward đổi #hash — đồng bộ ngược lại activeTab. Nếu đang
   // có ô chưa lưu và người dùng huỷ xác nhận, đẩy hash trở lại tab hiện
   // tại để URL không lệch khỏi những gì đang thực sự hiển thị.
   useEffect(() => {
-    const handler = () => {
+    const handler = async () => {
       const nextTab = tabFromHash();
       if (nextTab === activeTab) return;
-      if (confirmNavigateAway()) {
+      if (await confirmNavigateAway()) {
         setActiveTab(nextTab);
       } else {
         window.location.hash = activeTab;
@@ -159,7 +174,8 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    if (!confirmNavigateAway()) return;
+    // confirmLeaveApp: đồng ý rồi thì gỡ cờ dirty, kẻo beforeunload của trình duyệt hỏi LẦN THỨ HAI khi logout() chuyển về cổng.
+    if (!(await confirmLeaveApp('Đăng xuất'))) return;
     const dangVeCong = await logout();
     clearBootstrapCache();
     // Đang rời trang thì đừng setState: React sẽ vẽ lại màn đăng nhập của FC
@@ -179,6 +195,8 @@ export default function App() {
           </div>
         )}
         <Login onSuccess={handleLoginSuccess} />
+        <DialogHost />
+        <ToastHost />
       </>
     );
   }
@@ -189,7 +207,7 @@ export default function App() {
       <Header
         user={user}
         currentBU={currentBU}
-        setCurrentBU={(bu) => { if (confirmNavigateAway()) setCurrentBU(bu); }}
+        setCurrentBU={async (bu) => { if (await confirmNavigateAway('Đổi đơn vị')) setCurrentBU(bu); }}
         bus={bus}
         onLogout={handleLogout}
       />
@@ -197,17 +215,17 @@ export default function App() {
       <div className="flex-1 flex max-w-[1600px] w-full mx-auto">
         <Sidebar
           activeTab={activeTab}
-          setActiveTab={(tab) => { if (confirmNavigateAway()) setActiveTab(tab); }}
+          setActiveTab={async (tab) => { if (await confirmNavigateAway()) setActiveTab(tab); }}
           pendingCount={pendingApprovalsCount}
           role={user?.role}
         />
 
         <main className="flex-1 p-6 overflow-y-auto">
           {loading ? (
-            <div className="flex flex-col items-center justify-center h-64 text-slate-400 text-sm gap-2">
+            <div className="flex flex-col items-center justify-center h-64 text-slate-500 text-sm gap-2">
               <span>Đang tải dữ liệu hệ thống...</span>
               {retryNotice && (
-                <span className="text-amber-600 text-xs bg-amber-50 border border-amber-200 rounded-full px-3 py-1">
+                <span className="text-amber-700 text-xs bg-amber-50 border border-amber-200 rounded-full px-3 py-1">
                   {retryNotice}
                 </span>
               )}
@@ -231,7 +249,7 @@ export default function App() {
           ) : (
             <ErrorBoundary key={activeTab}>
               {activeTab === 'dashboard' && (
-                <React.Suspense fallback={<div className="text-xs text-slate-400 p-4">Đang tải...</div>}>
+                <React.Suspense fallback={<div className="text-xs text-slate-500 p-4">Đang tải...</div>}>
                   <Dashboard currentBU={currentBU} user={user} />
                 </React.Suspense>
               )}
@@ -242,12 +260,12 @@ export default function App() {
               )}
               {activeTab === 'actuals' && <Actuals currentBU={currentBU} user={user} />}
               {activeTab === 'annual' && (
-                <React.Suspense fallback={<div className="text-xs text-slate-400 p-4">Đang tải...</div>}>
+                <React.Suspense fallback={<div className="text-xs text-slate-500 p-4">Đang tải...</div>}>
                   <AnnualPlan currentBU={currentBU} user={user} />
                 </React.Suspense>
               )}
               {activeTab === 'exports' && (
-                <React.Suspense fallback={<div className="text-xs text-slate-400 p-4">Đang tải...</div>}>
+                <React.Suspense fallback={<div className="text-xs text-slate-500 p-4">Đang tải...</div>}>
                   <Exports user={user} />
                 </React.Suspense>
               )}
@@ -258,6 +276,8 @@ export default function App() {
         </main>
       </div>
 
+      <DialogHost />
+      <ToastHost />
     </div>
   );
 }

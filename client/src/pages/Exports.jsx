@@ -1,15 +1,23 @@
 import React, { useState } from 'react';
-import { FileSpreadsheet, Download, Loader2, AlertCircle, AlertTriangle } from 'lucide-react';
+import { FileSpreadsheet, Loader2, AlertTriangle } from 'lucide-react';
 import { api } from '../services/api';
 import { monthLabel, currentMonth } from '../utils/period';
+import { MENU_ICON } from '../utils/menu';
+import { thongBao } from '../services/toastService';
+import { usePersistedState } from '../utils/usePersistedState';
 import { buildFcReport, downloadWorkbook, CHANNEL_TABS, busOfChannel } from '../utils/fcReportWorkbook';
 import { buildSapRows, SAP_CHANNELS, sapChannelOfBU } from '../utils/sapExport';
 import { downloadZpp702 } from '../utils/zpp702Workbook';
 
+// Kết quả xuất đi qua toast xếp hàng (Đợt 2 mục 2): thành công tự tắt ~4 giây; có cảnh báo (type 'error') nằm lại tới khi bấm ×.
+const setMessage = thongBao;
+const TitleIcon = MENU_ICON.exports;     // tiêu đề trang dùng đúng icon của mục menu
+const laThangHopLe = (v) => typeof v === 'string' && /^\d{4}-\d{2}$/.test(v);
+
 export default function Exports({ user }) {
-  const [baseMonth, setBaseMonth] = useState(currentMonth().slice(0, 7));
+  // Mặc định = tháng này theo giờ VN; nhớ tháng đã chọn lần trước (Đợt 2 mục 9, 10).
+  const [baseMonth, setBaseMonth] = usePersistedState('exportsMonth', () => currentMonth().slice(0, 7), laThangHopLe);
   const [busy, setBusy] = useState(null); // 'fc' | 'sap' | null
-  const [message, setMessage] = useState(null);
 
   const canExport = user?.role === 'central_admin' || user?.role === 'viewer';
 
@@ -25,7 +33,6 @@ export default function Exports({ user }) {
    */
   const handleExportFcReport = async () => {
     setBusy('fc');
-    setMessage(null);
     try {
       const data = await api.getFcReportExport(monthValue);
       if (!data.rows.length) {
@@ -65,7 +72,6 @@ export default function Exports({ user }) {
    */
   const handleExportSap = async () => {
     setBusy('sap');
-    setMessage(null);
     try {
       const data = await api.getSapExport(monthValue);
 
@@ -142,7 +148,7 @@ export default function Exports({ user }) {
 
   if (!canExport) {
     return (
-      <div className="bg-white p-6 rounded-xl border border-slate-200 text-center text-slate-400 text-sm">
+      <div className="bg-white p-6 rounded-xl border border-slate-200 text-center text-slate-500 text-sm">
         Chỉ Quản trị hệ thống hoặc người xem báo cáo mới xuất được các file tổng hợp toàn công ty.
       </div>
     );
@@ -154,7 +160,7 @@ export default function Exports({ user }) {
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+            <TitleIcon className="w-5 h-5 text-emerald-700" />
             XUẤT BÁO CÁO
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">Tổng hợp toàn công ty (mọi đơn vị kinh doanh), theo chu kỳ tháng đã chọn.</p>
@@ -164,22 +170,11 @@ export default function Exports({ user }) {
           <input
             type="month"
             value={baseMonth}
-            onChange={(e) => setBaseMonth(e.target.value)}
+            onChange={(e) => { if (e.target.value) setBaseMonth(e.target.value); }}
             className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-blue-500"
           />
         </div>
       </div>
-
-      {message && (
-        <div className={`p-3 rounded-lg text-xs flex items-start gap-2 ${
-          message.type === 'success'
-            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-            : 'bg-rose-50 text-rose-800 border border-rose-200'
-        }`}>
-          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-          <span>{message.text}</span>
-        </div>
-      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
@@ -232,7 +227,7 @@ function ExportCard({ title, description, busy, onClick, warning }) {
         disabled={busy}
         className="mt-3 flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white py-2 rounded-lg text-xs font-semibold"
       >
-        {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+        {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileSpreadsheet className="w-3.5 h-3.5" />}
         {busy ? 'Đang xuất...' : 'Xuất Excel'}
       </button>
     </div>

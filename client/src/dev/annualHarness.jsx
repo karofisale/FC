@@ -6,6 +6,9 @@ import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../index.css';
 import AnnualPlan from '../pages/AnnualPlan';
+import DialogHost from '../components/DialogHost';
+import ToastHost from '../components/ToastHost';
+import { vnYear } from '../utils/period';
 import { api } from '../services/api';
 import * as E from '../utils/annualPlanEngine';
 
@@ -15,7 +18,7 @@ const SOURCE = q.get('source') === 'export' ? 'export' : (q.get('source') === 'f
 const SINGLE = q.get('single') === '1' || SOURCE === 'fc';
 const PREFIX = SOURCE === 'export' ? 'XK:' : 'OEM:';
 const FX = SOURCE === 'oem' ? 0 : 25000;
-const YEAR = new Date().getFullYear() + 1;
+const YEAR = vnYear() + 1;
 
 // ---- dữ liệu lịch sử giả (năm YEAR-1 có T1–T9, YEAR-2 đủ 12 tháng) ----
 const KHACH = ['ALPHA', 'BETA', 'GAMMA', 'DELTA', 'EPSILON', 'ZETA'];
@@ -106,6 +109,9 @@ function Khung() {
         </select>
       </div>
       <AnnualPlan key={role} currentBU="OEM" user={{ role, business_unit_code: 'OEM' }} />
+      {/* Hộp thoại + toast dùng chung của app (App.jsx gắn hai thứ này; harness không qua App nên tự gắn) */}
+      <DialogHost />
+      <ToastHost />
     </div>
   );
 }

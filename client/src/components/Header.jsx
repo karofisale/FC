@@ -3,7 +3,22 @@ import { Building2, ShieldCheck, LogOut, KeyRound, X, Loader2, CheckCircle2, Ale
 import { api } from '../services/api';
 import { ROLE_LABELS } from '../services/auth';
 import KarofiMark from './KarofiMark';
+import Dialog from './Dialog';
 import { appKhacDungDuoc } from '../services/karofiSession';
+import { isDirty, confirmLeaveApp } from '../services/dirtyState';
+
+/**
+ * Link RỜI HẲN sang Portal / app khác. Đây là link thật (trình duyệt tải trang mới) nên chỉ
+ * beforeunload bắt được — mà beforeunload không nói được là ô nào, và hộp của trình duyệt thì lạc
+ * điệu với phần còn lại. Có ô chưa lưu thì hỏi bằng hộp của app trước; chấp nhận rồi mới đi.
+ * Không dirty, hoặc bấm kiểu mở tab mới (Ctrl/Shift/giữa), thì để trình duyệt tự xử lý như link thường.
+ */
+const roiSangApp = (hanhDong, href) => (e) => {
+  if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+  if (!isDirty()) return;
+  e.preventDefault();
+  confirmLeaveApp(hanhDong).then((ok) => { if (ok) window.location.href = href; });
+};
 
 export default function Header({ user, currentBU, setCurrentBU, bus, onLogout }) {
   const [showPinDialog, setShowPinDialog] = useState(false);
@@ -20,6 +35,7 @@ export default function Header({ user, currentBU, setCurrentBU, bus, onLogout })
               không có nút back của trình duyệt. */}
           <a
             href="/VHKD/"
+            onClick={roiSangApp('Về Karofi Portal', '/VHKD/')}
             title="Về Karofi Portal"
             className="flex items-center gap-1 text-xs text-blue-200 hover:text-white whitespace-nowrap border border-blue-600/40 rounded-lg px-2 py-1.5"
           >
@@ -33,6 +49,7 @@ export default function Header({ user, currentBU, setCurrentBU, bus, onLogout })
             <a
               key={a.key}
               href={a.href}
+              onClick={roiSangApp('Sang ' + a.ten, a.href)}
               title={'Sang ' + a.ten}
               className="text-xs text-blue-200 hover:text-white whitespace-nowrap border border-blue-600/40 rounded-lg px-2 py-1.5 hidden md:inline-block"
             >
@@ -43,7 +60,7 @@ export default function Header({ user, currentBU, setCurrentBU, bus, onLogout })
             <KarofiMark className="w-5 h-5 text-blue-300" />
           </div>
           <h1 className="text-base font-bold tracking-tight text-white whitespace-nowrap truncate">
-            Karofi FC <span className="font-normal text-blue-300">- SOP Plan</span>
+            Karofi FC <span className="font-normal text-blue-200">- SOP Plan</span>
           </h1>
         </div>
 
@@ -181,14 +198,13 @@ function ChangePinDialog({ onClose }) {
   );
 
   return (
-    <div className="fixed inset-0 bg-slate-950/60 flex items-center justify-center p-4 z-50">
-      <form onSubmit={submit} className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-5 space-y-4 text-slate-900">
+    <Dialog as="form" onSubmit={submit} onClose={onClose} busy={busy} className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-5 space-y-4 text-slate-900">
         <div className="flex items-start justify-between">
           <div>
             <h3 className="font-bold text-sm">Đổi mã PIN</h3>
             <p className="text-xs text-slate-500 mt-0.5">Tối thiểu 6 chữ số, không dùng dãy trùng hoặc liên tiếp.</p>
           </div>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-slate-100 rounded">
+          <button type="button" onClick={onClose} aria-label="Đóng" className="p-1 hover:bg-slate-100 rounded">
             <X className="w-4 h-4 text-slate-500" />
           </button>
         </div>
@@ -227,7 +243,6 @@ function ChangePinDialog({ onClose }) {
             Đổi PIN
           </button>
         </div>
-      </form>
-    </div>
+    </Dialog>
   );
 }
