@@ -187,7 +187,7 @@ export default function ImportFromSourceModal({
                 onChange={(e) => { setBaseMonth(e.target.value); setAddedCount(0); }}
                 className="mt-1 w-44 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-400 focus:outline-none"
               />
-              <span className="ml-2 text-xs text-slate-500">lấy 4 tháng liên tiếp từ tháng này</span>
+              <span className="ml-2 text-xs text-slate-500">lấy {preview?.months?.length || 'các'} tháng liên tiếp từ tháng này</span>
             </label>
           )}
 

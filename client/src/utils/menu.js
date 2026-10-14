@@ -26,9 +26,26 @@ export const MENU_ITEMS = [
  * Màn KHÔNG nằm trong menu trái nhưng vẫn là một màn hợp lệ (có #hash, nhớ được, mở từ nơi khác).
  * 'settings' = Cài đặt cá nhân (14/10/2026): mở từ menu tài khoản ở Header, mọi vai trò đều vào được (không có `roles`).
  */
-export const EXTRA_TABS = ['settings'];
+export const EXTRA_TABS = ['settings', 'system'];
+
+/**
+ * 'system' = Cài đặt hệ thống (14/10/2026): giá trị dùng chung cả hệ thống, CHỈ master (central_admin) xem và sửa. Mở từ menu tài khoản
+ * ở Header (chỉ hiện với master). Vì không nằm trong MENU_ITEMS nên `roles` của menu không che được nó — đây là chốt chặn riêng:
+ * #hash, tab nhớ lần cuối và render ở App đều đi qua tabChoPhep(). Máy chủ vẫn là nơi chặn thật (getSystemSettings trả lỗi cho người khác).
+ */
+export const MASTER_ROLE = 'central_admin';
+export const EXTRA_TAB_ROLES = { system: [MASTER_ROLE] };
 
 export const VALID_TABS = [...MENU_ITEMS.map((m) => m.id), ...EXTRA_TABS];
+
+/** Màn này có bị khoá theo vai trò không, và vai trò này có được vào không (màn không khai báo vai trò = ai cũng vào). */
+export const tabChoPhep = (tab, role) => {
+  const ds = EXTRA_TAB_ROLES[tab];
+  return !ds || ds.includes(role);
+};
+
+/** Người này có phải master (xem / sửa Cài đặt hệ thống)? */
+export const laMaster = (role) => role === MASTER_ROLE;
 
 /** Các màn người dùng có thể chọn làm TRANG ĐẦU: những mục menu vai trò này thấy (không gồm Cài đặt). */
 export const landingIdsFor = (role) => MENU_ITEMS.filter((m) => !m.roles || m.roles.includes(role)).map((m) => m.id);

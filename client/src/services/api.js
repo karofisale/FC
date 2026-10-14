@@ -164,6 +164,18 @@ export const api = {
     return callGAS('setMyPrefs', auth({ changes }), { quiet: true });
   },
 
+  // ----- cài đặt hệ thống (14/10/2026) — giá trị dùng chung do master chỉnh; xem services/systemValues.js + services/systemSettings.js -----
+  // getSystemValues: MỌI vai trò, là đọc, lượt gọi NỀN (quiet; không có token thì không gọi). Lỗi thì nơi gọi im lặng dùng mặc định.
+  getSystemValues: () => {
+    if (!getToken()) return Promise.reject(new Error('Chưa đăng nhập.'));
+    return callGAS('getSystemValues', auth({}), { quiet: true });
+  },
+  // getSystemSettings: CHỈ master (người khác nhận lỗi 'Chỉ master mới xem được cài đặt hệ thống.'). Người dùng chủ động mở màn nên không quiet.
+  getSystemSettings: () => callGAS('getSystemSettings', auth({})),
+  // setSystemSetting: { khoa, giaTri (số | null = về mặc định), hieuLucTu?, ghiChu? }. Ghi theo khoá + ngày nên gửi lại an toàn:
+  // KHÔNG nằm trong NON_IDEMPOTENT_ACTIONS (cố ý), được tự thử lại khi mạng chập chờn.
+  setSystemSetting: (payload) => callGAS('setSystemSetting', auth(payload)),
+
   // ----- tài khoản -----
   changeMyPin: (currentPin, newPin) => callGAS('changeMyPin', auth({ currentPin, newPin })),
   setUserPin: (userId, newPin) => callGAS('setUserPin', auth({ userId, newPin }))

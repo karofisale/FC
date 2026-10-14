@@ -6,7 +6,7 @@
  * Phiên giả chỉ là một chuỗi token vô nghĩa trong localStorage của trang dev (không có thông tin đăng nhập thật nào ở đây).
  * Hết phiên: __harness.expire() trong Console; hộp đăng nhập lại chấp nhận mọi PIN ở trang này.
  */
-import { vnMonth } from '../utils/period';
+import { vnMonth, vnToday } from '../utils/period';
 
 const q = new URLSearchParams(window.location.search);
 const ROLE = q.get('role') || 'central_admin';
@@ -20,6 +20,9 @@ const GROUPS = [{ code: 'NHOM_1', name: 'Máy TCM sx' }, { code: 'NHOM_2', name:
 // ?uid=<mã>: đổi người dùng giả (thử cài đặt theo từng người trên cùng một trình duyệt).
 // ?prefs=off: giả lập máy chủ CHƯA có bảng cài đặt (getMyPrefs / setMyPrefs trả lỗi) — thử đường thất bại nhẹ nhàng.
 // ?prefs=slow: getMyPrefs trả lời sau 6 giây (quá hạn chờ của App).
+// ?sys=off: giả lập máy chủ CHƯA chạy SQL đợt 8 (getSystemSettings trả tableMissing, getSystemValues báo lỗi, setSystemSetting từ chối).
+// ?sys=err: getSystemValues + getSystemSettings đều trả lỗi. ?sys=ok (mặc định): cài đặt hệ thống chạy đủ (có đồ thị ngày hiệu lực + lịch sử).
+const SYS_MODE = q.get('sys') || 'ok';
 const UID = q.get('uid') || 'harness';
 const PREFS_MODE = q.get('prefs') || 'on';
 const USER = { id: UID, full_name: 'Người thử (giả)', email: '', role: ROLE, business_unit_code: BU };
@@ -68,7 +71,39 @@ const keHoachNam = [
   { id: 'ap2', year: 2026, kind: 'base', revisionNo: 1, status: 'approved', createdBy: 'ketoan', updatedAt: '2025-10-08T02:00:00Z' }
 ];
 
-const trangThai = { hetPhien: false, soLanGoi: 0, nhatKy: [], quyetDinh: [], prefsGoi: [] };
+const trangThai = { hetPhien: false, soLanGoi: 0, nhatKy: [], quyetDinh: [], prefsGoi: [], taoChuKy: [], sysGoi: [] };
+
+// ----- Cài đặt hệ thống giả: hai cài đặt (một số nguyên, một phần trăm) để thử hiển thị tổng quát, ngày hiệu lực, lịch sử -----
+const HOM_NAY = vnToday();
+const SYS_DEF = [
+  { khoa: 'fc.horizonMonths', nhom: 'Chu kỳ forecast', nhan: 'Số tháng của chu kỳ mới', ghiChu: 'Chu kỳ tạo SAU khi cài đặt có hiệu lực sẽ gồm chừng này tháng. Chu kỳ đã tạo giữ nguyên.', kieu: 'integer', min: 1, max: 12, buoc: 1, donVi: 'tháng', fmt: '', macDinh: 4 },
+  { khoa: 'fc.canhBaoLech', nhom: 'Ngưỡng cảnh báo', nhan: 'Ngưỡng cảnh báo lệch forecast', ghiChu: 'Cảnh báo khi số thực hiện lệch forecast quá ngưỡng này (cài đặt thử của trang thử, hiển thị dạng phần trăm).', kieu: 'number', min: 0, max: 0.5, buoc: 0.01, donVi: '%', fmt: 'percent', macDinh: 0.15 }
+];
+const sysLichSu = { 'fc.horizonMonths': [], 'fc.canhBaoLech': [
+  { giaTri: 0.2, hieuLucTu: '2026-09-01', nguoiSua: 'Nguyễn Văn Quản', ghiChu: 'Nới ngưỡng tháng 9', lucSua: '2026-08-30T03:00:00Z' },
+  { giaTri: 0.125, hieuLucTu: '2026-10-01', nguoiSua: 'Nguyễn Văn Quản', ghiChu: '', lucSua: '2026-09-30T03:00:00Z' }
+] };
+const sysHieuLuc = (s) => {
+  const ds = sysLichSu[s.khoa].filter((x) => x.hieuLucTu <= HOM_NAY).sort((a, b) => (a.hieuLucTu + a.lucSua).localeCompare(b.hieuLucTu + b.lucSua));
+  const x = ds[ds.length - 1];
+  return x ? { giaTri: x.giaTri === null ? s.macDinh : x.giaTri, daDat: x.giaTri !== null, hieuLucTu: x.hieuLucTu } : { giaTri: s.macDinh, daDat: false, hieuLucTu: null };
+};
+const sysTraCuu = () => ({
+  app: 'fc', canEdit: SYS_MODE !== 'off', today: HOM_NAY, tableMissing: SYS_MODE === 'off',
+  settings: SYS_DEF.map((s) => { const h = sysHieuLuc(s); return { ...s, giaTri: h.giaTri, daDat: h.daDat, hieuLucTu: h.hieuLucTu, choHieuLuc: sysLichSu[s.khoa].filter((x) => x.hieuLucTu > HOM_NAY), lichSu: sysLichSu[s.khoa] }; })
+});
+const sysGhi = (p) => {
+  const s = SYS_DEF.find((x) => x.khoa === p.khoa);
+  if (!s) return { error: 'Không có cài đặt "' + p.khoa + '".' };
+  const ngay = p.hieuLucTu || HOM_NAY;
+  if (ngay < HOM_NAY) return { error: 'Ngày hiệu lực không được trước hôm nay.' };
+  if (p.giaTri !== null) {
+    if (typeof p.giaTri !== 'number' || p.giaTri < s.min || p.giaTri > s.max) return { error: 'Giá trị "' + s.nhan + '" phải nằm trong khoảng cho phép (máy chủ từ chối).' };
+    if (s.kieu === 'integer' && !Number.isInteger(p.giaTri)) return { error: 'Giá trị phải là số nguyên.' };
+  }
+  sysLichSu[s.khoa].push({ giaTri: p.giaTri, hieuLucTu: ngay, nguoiSua: USER.full_name, ghiChu: p.ghiChu || '', lucSua: new Date().toISOString() });
+  return { ok: true, khoa: p.khoa, hieuLucTu: ngay };
+};
 // "Máy chủ" giữ cài đặt cá nhân trong localStorage của trang thử, theo uid — tải lại trang / mở uid khác để thử đa thiết bị.
 const KHO_PREFS = '__harness_srv_prefs:' + UID;
 const docKhoPrefs = () => { try { return JSON.parse(localStorage.getItem(KHO_PREFS) || '{}'); } catch { return {}; } };
@@ -85,6 +120,25 @@ const ketQua = (action, p) => {
       ghiKhoPrefs(kho);
       trangThai.prefsGoi.push(p.changes);
       return { ok: true };
+    }
+    case 'getSystemValues': {
+      if (SYS_MODE !== 'ok') return { error: 'relation "fc_system_settings" does not exist' };
+      return { values: Object.fromEntries(SYS_DEF.map((s) => [s.khoa, sysHieuLuc(s).giaTri]).filter(([k]) => k === 'fc.horizonMonths')) };
+    }
+    case 'getSystemSettings':
+      if (ROLE !== 'central_admin') return { error: 'Chỉ master mới xem được cài đặt hệ thống.' };
+      if (SYS_MODE === 'err') return { error: 'Không đọc được cài đặt hệ thống (giả lập lỗi).' };
+      return sysTraCuu();
+    case 'setSystemSetting':
+      trangThai.sysGoi.push(p);
+      if (ROLE !== 'central_admin') return { error: 'Chỉ master mới sửa được cài đặt hệ thống.' };
+      if (SYS_MODE === 'off') return { error: 'Chưa chạy SQL đợt 8 — chưa lưu được cài đặt hệ thống.' };
+      return sysGhi(p);
+    case 'createCycle': {
+      trangThai.taoChuKy.push(p);
+      const hz = p.horizonMonths !== undefined ? p.horizonMonths : (SYS_MODE === 'ok' ? sysHieuLuc(SYS_DEF[0]).giaTri : 4);
+      const c = { id: 'c' + (cycles.length + 10), business_unit_code: p.businessUnitCode, base_month: p.baseMonth, horizon_months: hz, status: 'draft' };
+      return { cycle: c, initialVersionId: 'v1' };
     }
     case 'getBootstrap': return { businessUnits: BUS, regions: REGIONS, productGroups: GROUPS, user: USER };
     case 'getApprovals': return approvals.filter((a) => !p.status || a.status === p.status);

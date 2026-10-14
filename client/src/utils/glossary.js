@@ -69,6 +69,12 @@ export const MAN_HINH = {
     ten: 'Cài đặt',
     tieuDe: 'CÀI ĐẶT CÁ NHÂN',
     mota: 'Tuỳ chọn riêng của tài khoản này: giao diện, trang mở đầu, mặc định theo màn hình, thông báo. Đi theo tài khoản sang máy khác.'
+  },
+  // Không nằm trong menu trái — chỉ master (central_admin) mở được, từ menu tài khoản ở Header.
+  system: {
+    ten: 'Cài đặt hệ thống',
+    tieuDe: 'CÀI ĐẶT HỆ THỐNG',
+    mota: 'Giá trị dùng chung cho cả hệ thống FC (vd số tháng của chu kỳ mới). Chỉ master xem và sửa; thay đổi có hiệu lực từ ngày chọn.'
   }
 };
 

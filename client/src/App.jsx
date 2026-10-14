@@ -22,6 +22,8 @@ const AnnualPlan = React.lazy(() => import('./pages/AnnualPlan'));
 import Products from './pages/Products';
 import WorkflowGuide from './pages/WorkflowGuide';
 import Settings from './pages/Settings';
+// Cài đặt hệ thống: chỉ master mở được — tải lười để 3 vai trò còn lại không phải kéo mã của nó.
+const SystemSettings = React.lazy(() => import('./pages/SystemSettings'));
 import { api, clearBootstrapCache } from './services/api';
 import { getSession, clearSession, logout, allowedBUs } from './services/auth';
 import { onUnauthorized, onRetry } from './services/gasClient';
@@ -29,11 +31,12 @@ import { confirmNavigateAway, confirmLeaveApp, isDirty } from './services/dirtyS
 import { loadPref, savePref, bumpPrefsVersion } from './services/prefs';
 import { thongBao, configureToast } from './services/toastService';
 import { setPrefsTransport, startPrefsSync, flush as flushPrefs, stopPrefsSync } from './services/prefsSync';
+import { setSystemValuesTransport, loadSystemValues, resetSystemValues } from './services/systemValues';
 import { laKhoaCaiDat, readSettings, seedRemembered, quyetDinhKhoiDong, lanMoDauCuaPhien, choToiDa } from './services/settings';
 import { useSettings } from './utils/useSettings';
 import { applyDensity } from './utils/density';
 import { vnYear } from './utils/period';
-import { VALID_TABS, landingIdsFor } from './utils/menu';
+import { VALID_TABS, landingIdsFor, tabChoPhep, laMaster } from './utils/menu';
 import { AlertCircle } from 'lucide-react';
 
 // Đồng bộ tab đang xem với #hash trên URL — không kéo theo thư viện
@@ -44,10 +47,13 @@ import { AlertCircle } from 'lucide-react';
 // Mở app KHÔNG kèm #hash (gõ thẳng địa chỉ, link từ cổng) thì quay lại tab lần trước
 // (Đợt 2 mục 9) thay vì luôn về Tổng quan; có #hash thì #hash thắng (link chia sẻ).
 // Danh sách tab hợp lệ lấy từ utils/menu.js — cùng nguồn với Sidebar.
-const laTabHopLe = (v) => VALID_TABS.includes(v);
+// Màn khoá theo vai trò (Cài đặt hệ thống — chỉ master) không hợp lệ với người khác: #hash, tab nhớ lần cuối đều đi qua đây.
+const laTabHopLe = (v) => VALID_TABS.includes(v) && tabChoPhep(v, getSession()?.user?.role);
 
 // Bản sao cài đặt / lựa chọn nhớ trên máy chủ (14/10/2026): chỉ cắm transport ở đây, logic nằm ở services/prefsSync.js.
 setPrefsTransport({ get: () => api.getMyPrefs(), set: (changes) => api.setMyPrefs(changes) });
+// Giá trị hệ thống dùng chung (số tháng chu kỳ mới...): nạp MỘT lần sau đăng nhập, lỗi thì im lặng dùng mặc định (services/systemValues.js).
+setSystemValuesTransport(() => api.getSystemValues());
 // Chờ đồng bộ lần đầu tối đa chừng này khi mở app — chậm hơn thì cứ vào app bằng giá trị ở máy, bản của máy chủ tới sau.
 const CHO_DONG_BO_TOI_DA_MS = 3000;
 
@@ -59,7 +65,7 @@ function tabFromHash() {
 
 export default function App() {
   const [session, setSession] = useState(getSession());
-  const [activeTab, setActiveTab] = useState(tabFromHash);
+  const [tabDat, setActiveTab] = useState(tabFromHash);
   const [bus, setBus] = useState([]);
   // Đơn vị lần trước (Đợt 2 mục 9); loadInitialData bỏ qua nếu người này không còn quyền đơn vị đó.
   const [currentBU, setCurrentBU] = useState(() => loadPref('bu', '', (v) => typeof v === 'string'));
@@ -73,6 +79,9 @@ export default function App() {
   const [hetPhien, setHetPhien] = useState(null);       // { thongBao } khi phiên hết hạn LÚC ĐANG DÙNG: hộp đăng nhập lại đè lên trang
 
   const user = session?.user || null;
+  // Chốt chặn vai trò: màn khoá theo vai trò (Cài đặt hệ thống — chỉ master) mà người dùng không được vào (đăng nhập lại bằng tài khoản khác
+  // giữa chừng, #hash cũ...) thì coi như đang ở Tổng quan — dẫn xuất lúc vẽ nên không có khung hình nào lộ màn đó. Mọi nơi dùng activeTab đều qua đây.
+  const activeTab = tabChoPhep(tabDat, user?.role) ? tabDat : 'dashboard';
   const buCodes = useMemo(() => bus.map((b) => b.code), [bus]);
   const caiDat = useSettings(buCodes);
   // Cài đặt có hiệu lực toàn app: mật độ bảng (lớp trên <html>) và thời gian hiện toast.
@@ -147,7 +156,11 @@ export default function App() {
   useEffect(() => {
     const handler = async () => {
       const nextTab = tabFromHash();
-      if (nextTab === activeTab) return;
+      // #hash không dùng được (màn không có / khoá theo vai trò, vd #system với người không phải master): giữ màn hiện tại và trả địa chỉ về đúng màn.
+      if (nextTab === activeTab) {
+        if (window.location.hash.replace('#', '') !== activeTab) window.location.hash = activeTab;
+        return;
+      }
       if (await confirmNavigateAway()) {
         setActiveTab(nextTab);
       } else {
@@ -169,6 +182,7 @@ export default function App() {
       // không ném lỗi (máy chủ chưa có bảng / mất mạng -> giữ giá trị ở máy, không báo lỗi chặn).
       const nguoiDung = getSession()?.user;
       const dongBo = startPrefsSync(nguoiDung?.id);
+      loadSystemValues();   // không chờ, không bao giờ ném lỗi: chưa tới / lỗi thì dùng mặc định
       const [boot, soChoDuyet, dongBoXong] = await Promise.all([
         api.getBootstrap(),
         api.countPendingApprovals().catch(() => 0),
@@ -240,6 +254,7 @@ export default function App() {
     // Gửi nốt cài đặt đang chờ TRƯỚC khi mất token (tối đa ~1,5 giây, không bao giờ chặn đăng xuất; phần chưa gửi được còn trong danh sách chờ bền).
     await choToiDa(flushPrefs(), 1500);
     stopPrefsSync();
+    resetSystemValues();
     const dangVeCong = await logout();
     clearBootstrapCache();
     // Đang rời trang thì đừng setState: React sẽ vẽ lại màn đăng nhập của FC
@@ -280,6 +295,7 @@ export default function App() {
         onLogout={handleLogout}
         onOpenMenu={() => setMenuMo(true)}
         onOpenSettings={async () => { if (await confirmNavigateAway()) setActiveTab('settings'); }}
+        onOpenSystemSettings={laMaster(user?.role) ? async () => { if (await confirmNavigateAway()) setActiveTab('system'); } : undefined}
         menuOpen={menuMo}
       />
 
@@ -358,6 +374,11 @@ export default function App() {
               {activeTab === 'products' && <Products currentBU={currentBU} user={user} />}
               {activeTab === 'guide' && <WorkflowGuide />}
               {activeTab === 'settings' && <Settings user={user} bus={bus} currentBU={currentBU} />}
+              {activeTab === 'system' && (
+                <React.Suspense fallback={<div className="text-xs text-slate-500 p-4">Đang tải...</div>}>
+                  <SystemSettings user={user} />
+                </React.Suspense>
+              )}
             </ErrorBoundary>
           )}
         </main>

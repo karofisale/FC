@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Building2, ShieldCheck, LogOut, KeyRound, X, Loader2, CheckCircle2, AlertCircle, ArrowLeft, ChevronDown, Menu, Settings } from 'lucide-react';
+import { Building2, ShieldCheck, LogOut, KeyRound, X, Loader2, CheckCircle2, AlertCircle, ArrowLeft, ChevronDown, Menu, Settings, SlidersHorizontal } from 'lucide-react';
 import { api } from '../services/api';
 import { ROLE_LABELS } from '../services/auth';
 import KarofiMark from './KarofiMark';
@@ -20,7 +20,7 @@ const roiSangApp = (hanhDong, href) => (e) => {
   confirmLeaveApp(hanhDong).then((ok) => { if (ok) window.location.href = href; });
 };
 
-export default function Header({ user, currentBU, setCurrentBU, bus, onLogout, onOpenMenu, onOpenSettings, menuOpen = false }) {
+export default function Header({ user, currentBU, setCurrentBU, bus, onLogout, onOpenMenu, onOpenSettings, onOpenSystemSettings, menuOpen = false }) {
   const [showPinDialog, setShowPinDialog] = useState(false);
   // Đọc một lần khi dựng: khối quyền nằm trong token, không đổi giữa các lần vẽ.
   const [appKhac] = useState(() => appKhacDungDuoc('FC'));
@@ -103,7 +103,7 @@ export default function Header({ user, currentBU, setCurrentBU, bus, onLogout, o
           )}
 
           {/* Người đang đăng nhập + Đổi PIN + Đăng xuất — gộp 1 nhóm menu */}
-          <UserMenu user={user} onOpenPin={() => setShowPinDialog(true)} onOpenSettings={onOpenSettings} onLogout={onLogout} />
+          <UserMenu user={user} onOpenPin={() => setShowPinDialog(true)} onOpenSettings={onOpenSettings} onOpenSystemSettings={onOpenSystemSettings} onLogout={onLogout} />
 
         </div>
       </div>
@@ -113,7 +113,7 @@ export default function Header({ user, currentBU, setCurrentBU, bus, onLogout, o
   );
 }
 
-function UserMenu({ user, onOpenPin, onOpenSettings, onLogout }) {
+function UserMenu({ user, onOpenPin, onOpenSettings, onOpenSystemSettings, onLogout }) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef(null);
 
@@ -142,13 +142,22 @@ function UserMenu({ user, onOpenPin, onOpenSettings, onLogout }) {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-1.5 w-48 bg-white rounded-lg shadow-2xl border border-slate-200 py-1 z-40 text-slate-800 overflow-hidden">
+        <div className="absolute right-0 mt-1.5 w-52 bg-white rounded-lg shadow-2xl border border-slate-200 py-1 z-40 text-slate-800 overflow-hidden">
           {onOpenSettings && (
             <button
               onClick={() => { setOpen(false); onOpenSettings(); }}
               className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-50"
             >
               <Settings className="w-3.5 h-3.5 text-blue-600" /> Cài đặt
+            </button>
+          )}
+          {/* Chỉ master (App chỉ truyền hàm này cho central_admin; máy chủ vẫn kiểm lại). */}
+          {onOpenSystemSettings && (
+            <button
+              onClick={() => { setOpen(false); onOpenSystemSettings(); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-50"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" /> Cài đặt hệ thống
             </button>
           )}
           <button

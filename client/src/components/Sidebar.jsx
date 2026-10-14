@@ -3,6 +3,7 @@ import { FileSpreadsheet, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react'
 import { MENU_ITEMS } from '../utils/menu';
 import { loadPref, savePref } from '../services/prefs';
 import { usePrefsVersion } from '../utils/usePrefsVersion';
+import { useSystemValues } from '../utils/useSystemValues';
 
 // Thu gọn menu: khoá nhớ 'sidebarCollapsed' (theo người dùng, đồng bộ máy chủ). Trước 14/10/2026 là khoá thô
 // 'karofi_fc_sidebar_collapsed' ngoài hệ nhớ — prefs.js chuyển nó sang khoá mới ở lần đầu mỗi người dùng.
@@ -22,6 +23,7 @@ export default function Sidebar({ activeTab, setActiveTab, badges = {}, role, op
   // Giá trị đọc từ khoá nhớ; người dùng tự bấm thì giữ trong bộ nhớ NGAY (kể cả khi localStorage bị chặn, savePref không ghi được),
   // cho tới khi giá trị đổi từ NGOÀI — đồng bộ máy chủ về, mặc định tường minh ở màn Cài đặt (phiên bản tăng) — thì đọc lại.
   const phienBan = usePrefsVersion();
+  const { horizonMonths } = useSystemValues();   // số tháng chu kỳ MỚI theo Cài đặt hệ thống (chỉ dùng cho dòng chú thích cuối menu)
   const [tay, setTay] = useState({ v: null, ver: -1 });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const daLuu = useMemo(docThuGon, [phienBan]);
@@ -149,7 +151,7 @@ export default function Sidebar({ activeTab, setActiveTab, badges = {}, role, op
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
             <span>Excel Model: XK_OEM_GT2_2026</span>
           </div>
-          <p className="text-[11px] leading-tight">Dữ liệu tự động đồng bộ theo chu kỳ 4 tháng &amp; cập nhật tuần.</p>
+          <p className="text-[11px] leading-tight">Dữ liệu tự động đồng bộ theo chu kỳ {horizonMonths} tháng &amp; cập nhật tuần.</p>
         </div>
       </aside>
     </>

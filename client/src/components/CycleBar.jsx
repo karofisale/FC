@@ -3,7 +3,8 @@ import { CalendarPlus, GitBranch, Loader2, AlertCircle, Unlock, X } from 'lucide
 import StatusBadge from './StatusBadge';
 import Dialog from './Dialog';
 import { api } from '../services/api';
-import { currentMonth, isoWeekLabel, monthLabel, todayISO } from '../utils/period';
+import { currentMonth, isoWeekLabel, monthLabel, monthsOfCycle, todayISO } from '../utils/period';
+import { useSystemValues } from '../utils/useSystemValues';
 import { confirmNavigateAway } from '../services/dirtyState';
 import { appConfirm } from '../services/dialogService';
 
@@ -38,6 +39,9 @@ export default function CycleBar({
   const [newMonth, setNewMonth] = useState(currentMonth().slice(0, 7));
   const [error, setError] = useState(null);
   const [showReopen, setShowReopen] = useState(false);
+  // Số tháng của chu kỳ MỚI do master đặt ở Cài đặt hệ thống (mặc định 4). Chỉ để XEM TRƯỚC: máy chủ tự lấy giá trị này khi tạo chu kỳ.
+  const { horizonMonths } = useSystemValues();
+  const thangMoi = newMonth ? monthsOfCycle({ base_month: `${newMonth}-01`, horizon_months: horizonMonths }) : [];
 
   const cycleApproved = selectedCycle?.status === 'approved' || selectedCycle?.status === 'locked';
 
@@ -57,8 +61,8 @@ export default function CycleBar({
     try {
       const res = await api.createCycle({
         businessUnitCode: currentBU,
-        baseMonth: `${newMonth}-01`,
-        horizonMonths: 4
+        baseMonth: `${newMonth}-01`
+        // KHÔNG gửi horizonMonths: máy chủ lấy số tháng từ Cài đặt hệ thống (fc.horizonMonths). Gửi một con số ở đây là ĐÈ lên cài đặt đó.
       });
       await onChanged(res.cycle?.id, res.initialVersionId);
     } catch (err) {
@@ -218,6 +222,13 @@ export default function CycleBar({
           </div>
         )}
       </div>
+
+      {canEdit && thangMoi.length > 0 && (
+        <p className="text-[11px] text-slate-500" data-testid="xem-truoc-chu-ky-moi">
+          Chu kỳ mới gồm <strong className="text-slate-700">{horizonMonths} tháng</strong>
+          {' '}({monthLabel(thangMoi[0])}{thangMoi.length > 1 ? ` → ${monthLabel(thangMoi[thangMoi.length - 1])}` : ''}). Chu kỳ đã tạo giữ nguyên số tháng của nó.
+        </p>
+      )}
 
       {error && (
         <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg p-2.5 flex items-start gap-2">
