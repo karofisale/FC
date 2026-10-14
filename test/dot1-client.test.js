@@ -37,7 +37,9 @@ const actions = new Set((apiSrc.match(/callGAS\('([A-Za-z]+)'/g) || []).map((s) 
 // Action ĐỌC: bắt đầu bằng get/list/search/read/validate (và ping/logout không đổi dữ liệu nghiệp vụ).
 const laDoc = (a) => /^(get|list|search|read|validate)/.test(a) || a === 'logout';
 // Action ghi ĐÃ XÉT là gửi lại cho ra đúng cùng kết quả (upsert theo khoá / trả lại bản đang có):
-const GUI_LAI_VO_HAI = new Set(['saveMonthlyLines', 'saveWeeklySplits', 'saveActuals', 'updateProduct', 'upsertProducts', 'createAnnualPlan', 'login']);
+const GUI_LAI_VO_HAI = new Set(['saveMonthlyLines', 'saveWeeklySplits', 'saveActuals', 'updateProduct', 'upsertProducts', 'createAnnualPlan', 'login',
+  // setMyPrefs (14/10/2026): upsert theo khoá cài đặt cá nhân — gửi lại cùng payload ra đúng cùng kết quả; lượt gọi nền, thử lại là có lợi.
+  'setMyPrefs']);
 const chuaXet = [...actions].filter((a) => !laDoc(a) && !khongThuLai.has(a) && !GUI_LAI_VO_HAI.has(a));
 check('mọi action GHI client gọi đều đã được xét (không-thử-lại hoặc gửi-lại-vô-hại)', chuaXet.length === 0, chuaXet);
 // importProducts: action server có nhưng màn hình hiện không gọi — để sẵn trong danh sách là cố ý.

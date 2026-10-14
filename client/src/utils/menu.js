@@ -22,6 +22,15 @@ export const MENU_ITEMS = [
   { id: 'guide', label: MAN_HINH.guide.ten, mota: MAN_HINH.guide.mota, icon: HelpCircle }
 ];
 
-export const VALID_TABS = MENU_ITEMS.map((m) => m.id);
+/**
+ * Màn KHÔNG nằm trong menu trái nhưng vẫn là một màn hợp lệ (có #hash, nhớ được, mở từ nơi khác).
+ * 'settings' = Cài đặt cá nhân (14/10/2026): mở từ menu tài khoản ở Header, mọi vai trò đều vào được (không có `roles`).
+ */
+export const EXTRA_TABS = ['settings'];
+
+export const VALID_TABS = [...MENU_ITEMS.map((m) => m.id), ...EXTRA_TABS];
+
+/** Các màn người dùng có thể chọn làm TRANG ĐẦU: những mục menu vai trò này thấy (không gồm Cài đặt). */
+export const landingIdsFor = (role) => MENU_ITEMS.filter((m) => !m.roles || m.roles.includes(role)).map((m) => m.id);
 
 export const MENU_ICON = Object.fromEntries(MENU_ITEMS.map((m) => [m.id, m.icon]));

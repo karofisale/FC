@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -21,13 +21,19 @@ const Exports = React.lazy(() => import('./pages/Exports'));
 const AnnualPlan = React.lazy(() => import('./pages/AnnualPlan'));
 import Products from './pages/Products';
 import WorkflowGuide from './pages/WorkflowGuide';
+import Settings from './pages/Settings';
 import { api, clearBootstrapCache } from './services/api';
 import { getSession, clearSession, logout, allowedBUs } from './services/auth';
 import { onUnauthorized, onRetry } from './services/gasClient';
 import { confirmNavigateAway, confirmLeaveApp, isDirty } from './services/dirtyState';
-import { loadPref, savePref } from './services/prefs';
-import { thongBao } from './services/toastService';
-import { VALID_TABS } from './utils/menu';
+import { loadPref, savePref, bumpPrefsVersion } from './services/prefs';
+import { thongBao, configureToast } from './services/toastService';
+import { setPrefsTransport, startPrefsSync, flush as flushPrefs, stopPrefsSync } from './services/prefsSync';
+import { laKhoaCaiDat, readSettings, seedRemembered, quyetDinhKhoiDong, lanMoDauCuaPhien, choToiDa } from './services/settings';
+import { useSettings } from './utils/useSettings';
+import { applyDensity } from './utils/density';
+import { vnYear } from './utils/period';
+import { VALID_TABS, landingIdsFor } from './utils/menu';
 import { AlertCircle } from 'lucide-react';
 
 // Đồng bộ tab đang xem với #hash trên URL — không kéo theo thư viện
@@ -39,6 +45,11 @@ import { AlertCircle } from 'lucide-react';
 // (Đợt 2 mục 9) thay vì luôn về Tổng quan; có #hash thì #hash thắng (link chia sẻ).
 // Danh sách tab hợp lệ lấy từ utils/menu.js — cùng nguồn với Sidebar.
 const laTabHopLe = (v) => VALID_TABS.includes(v);
+
+// Bản sao cài đặt / lựa chọn nhớ trên máy chủ (14/10/2026): chỉ cắm transport ở đây, logic nằm ở services/prefsSync.js.
+setPrefsTransport({ get: () => api.getMyPrefs(), set: (changes) => api.setMyPrefs(changes) });
+// Chờ đồng bộ lần đầu tối đa chừng này khi mở app — chậm hơn thì cứ vào app bằng giá trị ở máy, bản của máy chủ tới sau.
+const CHO_DONG_BO_TOI_DA_MS = 3000;
 
 function tabFromHash() {
   const tab = window.location.hash.replace('#', '');
@@ -52,6 +63,8 @@ export default function App() {
   const [bus, setBus] = useState([]);
   // Đơn vị lần trước (Đợt 2 mục 9); loadInitialData bỏ qua nếu người này không còn quyền đơn vị đó.
   const [currentBU, setCurrentBU] = useState(() => loadPref('bu', '', (v) => typeof v === 'string'));
+  // Địa chỉ lúc mở đã có #màn hợp lệ? (#hash luôn thắng "trang đầu" ở Cài đặt; effect bên dưới sẽ ghi hash đè lên nên phải chụp ngay lúc dựng.)
+  const [coHashLucMo] = useState(() => laTabHopLe(window.location.hash.replace('#', '')));
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -60,6 +73,11 @@ export default function App() {
   const [hetPhien, setHetPhien] = useState(null);       // { thongBao } khi phiên hết hạn LÚC ĐANG DÙNG: hộp đăng nhập lại đè lên trang
 
   const user = session?.user || null;
+  const buCodes = useMemo(() => bus.map((b) => b.code), [bus]);
+  const caiDat = useSettings(buCodes);
+  // Cài đặt có hiệu lực toàn app: mật độ bảng (lớp trên <html>) và thời gian hiện toast.
+  useEffect(() => { applyDensity(caiDat.density); }, [caiDat.density]);
+  useEffect(() => { configureToast({ autoMs: caiDat.toastSec * 1000 }); }, [caiDat.toastSec]);
   const laNguoiDuyet = user?.role === 'bu_approver' || user?.role === 'central_admin';
   // Kế hoạch năm chờ duyệt (mọi đơn vị × năm người này duyệt được) — cho badge menu, hộp "Chờ duyệt" và màn Phê duyệt.
   // Gom ở đây một lần rồi chuyền xuống; chỉ người duyệt mới gọi.
@@ -115,12 +133,13 @@ export default function App() {
     if (window.location.hash.replace('#', '') !== activeTab) {
       window.location.hash = activeTab;
     }
-    savePref('tab', activeTab);
-  }, [activeTab]);
+    // Chưa đăng nhập (màn Login) thì chưa biết ghi cho ai — đừng ghi vào khoá chung của trình duyệt.
+    if (session) savePref('tab', activeTab);
+  }, [activeTab, session]);
 
   useEffect(() => {
-    if (currentBU) savePref('bu', currentBU);
-  }, [currentBU]);
+    if (currentBU && session) savePref('bu', currentBU);
+  }, [currentBU, session]);
 
   // Bấm Back/Forward đổi #hash — đồng bộ ngược lại activeTab. Nếu đang
   // có ô chưa lưu và người dùng huỷ xác nhận, đẩy hash trở lại tab hiện
@@ -146,23 +165,50 @@ export default function App() {
       // Số yêu cầu chờ duyệt (chấm số ở menu) lọc theo session phía server (bu/role trong token), không dùng gì từ getBootstrap, nên gọi
       // song song thay vì đợi bootstrap xong. Đợt 4: chỉ ĐẾM (countPendingApprovals) thay vì tải cả danh sách kèm tên người chỉ để lấy
       // độ dài; server cũ chưa có action đó thì api tự rơi về getApprovals. Lỗi thì coi như 0, không chặn cả trang.
-      const [boot, soChoDuyet] = await Promise.all([
+      // Đồng bộ cài đặt cá nhân với máy chủ chạy SONG SONG, chờ tối đa vài giây và không bao giờ làm hỏng việc tải: startPrefsSync
+      // không ném lỗi (máy chủ chưa có bảng / mất mạng -> giữ giá trị ở máy, không báo lỗi chặn).
+      const nguoiDung = getSession()?.user;
+      const dongBo = startPrefsSync(nguoiDung?.id);
+      const [boot, soChoDuyet, dongBoXong] = await Promise.all([
         api.getBootstrap(),
-        api.countPendingApprovals().catch(() => 0)
+        api.countPendingApprovals().catch(() => 0),
+        choToiDa(dongBo, CHO_DONG_BO_TOI_DA_MS)
       ]);
       const list = allowedBUs(boot.businessUnits || []);
+      const maDonVi = list.map((b) => b.code);
+      const ctx = { namHienTai: vnYear(), landingIds: landingIdsFor(nguoiDung?.role), buCodes: maDonVi };
+      // Mặc định tường minh (Cài đặt) chỉ áp ở lần mở đầu tiên của phiên trình duyệt này — xem services/settings.js.
+      const moDau = lanMoDauCuaPhien(nguoiDung?.id);
+      const caiDatLuc = readSettings(ctx);
+      if (moDau) seedRemembered(caiDatLuc);
+      // Máy chủ trả lời quá chậm (đã vào app bằng giá trị ở máy): khi bản của máy chủ tới, áp nốt các cài đặt khoá nhớ vừa đổi.
+      if (dongBoXong === null) {
+        dongBo.then((r) => {
+          const ds = (r?.doi || []).filter(laKhoaCaiDat);
+          if (ds.length) { seedRemembered(readSettings(ctx), ds); }
+          bumpPrefsVersion();
+        });
+      }
       setBus(list);
-      setCurrentBU((prev) => {
-        if (prev && list.some((b) => b.code === prev)) return prev;
-        return boot.user.business_unit_code || list[0]?.code || '';
+      // Lần mở đầu của phiên: đọc LẠI tab / đơn vị đã nhớ — bản của máy chủ (nếu tới kịp) vừa được gộp vào, và state đầu tiên
+      // của App được dựng trước đó. Từ lần sau thì giữ nguyên state đang có (không giật người dùng đang làm việc).
+      const khoiDong = (prev) => quyetDinhKhoiDong({
+        moDau, coHash: coHashLucMo,
+        tabDaNho: moDau && !coHashLucMo ? loadPref('tab', prev.tab, laTabHopLe) : prev.tab,
+        landing: caiDatLuc.landing, bu: caiDatLuc.bu,
+        buHienTai: moDau ? loadPref('bu', prev.bu, (v) => typeof v === 'string') : prev.bu,
+        buCodes: maDonVi, buCuaToi: boot.user.business_unit_code
       });
+      // Đơn vị và trang đầu cùng một quyết định; tính trên giá trị hiện tại của từng state.
+      setCurrentBU((prev) => khoiDong({ tab: '', bu: prev }).bu);
+      setActiveTab((prev) => khoiDong({ tab: prev, bu: '' }).tab);
       setPendingApprovalsCount(soChoDuyet);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [coHashLucMo]);
 
   useEffect(() => {
     if (session) loadInitialData();
@@ -172,6 +218,8 @@ export default function App() {
   const handleLoginSuccess = () => {
     clearBootstrapCache();
     setHetPhien(null);      // một lượt đăng nhập sai ở màn Login cũng có thể báo UNAUTHORIZED: đừng để nó hiện thành hộp "hết phiên" ngay sau khi vào
+    // Đơn vị đã nhớ của NGƯỜI VỪA ĐĂNG NHẬP (auth.js đã gắn người dùng cho prefs.js): state đầu tiên được dựng lúc chưa biết là ai.
+    setCurrentBU(loadPref('bu', '', (v) => typeof v === 'string'));
     setSession(getSession());
   };
 
@@ -181,13 +229,17 @@ export default function App() {
     clearBootstrapCache();
     setHetPhien(null);
     if (!u || u.id !== session?.user?.id) setSession(getSession());
-    else thongBao({ type: 'success', text: 'Đã đăng nhập lại. Số đang nhập vẫn còn — thao tác vừa rồi (nếu có) hãy bấm lại và kiểm tra kết quả.' });
+    else startPrefsSync(u.id);    // cùng người: gửi nốt cài đặt đang chờ (không bao giờ ném lỗi)
+    if (u && u.id === session?.user?.id) thongBao({ type: 'success', text: 'Đã đăng nhập lại. Số đang nhập vẫn còn — thao tác vừa rồi (nếu có) hãy bấm lại và kiểm tra kết quả.' });
     choDuyetNam.nap();
   };
 
   const handleLogout = async () => {
     // confirmLeaveApp: đồng ý rồi thì gỡ cờ dirty, kẻo beforeunload của trình duyệt hỏi LẦN THỨ HAI khi logout() chuyển về cổng.
     if (!(await confirmLeaveApp('Đăng xuất'))) return;
+    // Gửi nốt cài đặt đang chờ TRƯỚC khi mất token (tối đa ~1,5 giây, không bao giờ chặn đăng xuất; phần chưa gửi được còn trong danh sách chờ bền).
+    await choToiDa(flushPrefs(), 1500);
+    stopPrefsSync();
     const dangVeCong = await logout();
     clearBootstrapCache();
     // Đang rời trang thì đừng setState: React sẽ vẽ lại màn đăng nhập của FC
@@ -227,6 +279,7 @@ export default function App() {
         bus={bus}
         onLogout={handleLogout}
         onOpenMenu={() => setMenuMo(true)}
+        onOpenSettings={async () => { if (await confirmNavigateAway()) setActiveTab('settings'); }}
         menuOpen={menuMo}
       />
 
@@ -304,6 +357,7 @@ export default function App() {
               )}
               {activeTab === 'products' && <Products currentBU={currentBU} user={user} />}
               {activeTab === 'guide' && <WorkflowGuide />}
+              {activeTab === 'settings' && <Settings user={user} bus={bus} currentBU={currentBU} />}
             </ErrorBoundary>
           )}
         </main>

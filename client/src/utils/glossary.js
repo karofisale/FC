@@ -63,6 +63,12 @@ export const MAN_HINH = {
     ten: 'Lịch & quy trình lập FC',
     tieuDe: 'LỊCH & QUY TRÌNH LẬP SALES FORECAST',
     mota: 'Các bước, ngày chốt và bộ phận phụ trách trong quy trình lập — thẩm định — chốt Sales Forecast (Bảng 5 / B5 trong file Excel).'
+  },
+  // Không nằm trong menu trái — mở từ menu tài khoản ở Header (mọi vai trò).
+  settings: {
+    ten: 'Cài đặt',
+    tieuDe: 'CÀI ĐẶT CÁ NHÂN',
+    mota: 'Tuỳ chọn riêng của tài khoản này: giao diện, trang mở đầu, mặc định theo màn hình, thông báo. Đi theo tài khoản sang máy khác.'
   }
 };
 

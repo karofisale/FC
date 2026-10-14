@@ -65,3 +65,13 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* MẬT ĐỘ BẢNG "Gọn" (Cài đặt → Giao diện, 14/10/2026): lớp `dens-gon` trên <html> (utils/density.js) thu hẹp đệm dọc của ô bảng.
+ * Viết NGOÀI @layer nên thắng các tiện ích py-* của Tailwind. Mỗi dòng bảng thấp đi đúng GON_BOT_PX (8px) — các bảng cuộn ảo
+ * ước lượng chiều cao dòng bằng useRowHeight(), nên con số này PHẢI khớp với utils/density.js (test chốt cả hai). */
+html.dens-gon :is(td, th).py-3 { padding-block: 0.5rem; }
+html.dens-gon :is(td, th).py-2\.5 { padding-block: 0.375rem; }
+html.dens-gon :is(td, th).py-2 { padding-block: 0.25rem; }
+html.dens-gon :is(td, th).py-1\.5 { padding-block: 0.25rem; }
+html.dens-gon td.p-1 { padding-block: 0.125rem; }
+html.dens-gon td input.py-1 { padding-block: 0.125rem; }

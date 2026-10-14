@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { useRowHeight } from '../utils/useRowHeight';
 import { api } from '../services/api';
 import CycleBar from '../components/CycleBar';
 import AddProductModal from '../components/AddProductModal';
@@ -532,12 +533,15 @@ export default function MonthlyForecast({ currentBU, user }) {
   const { rows: sapXep, spec: sortLuoi, toggle: doiSapXep } = useTableSort(filteredProducts, cotLuoi, maSku);
 
   const scrollParentRef = useRef(null);
+  // Chiều cao dòng ước lượng theo mật độ bảng (Cài đặt → Giao diện): Gọn thấp hơn 8px (utils/density.js).
+  const chieuCaoDong = useRowHeight(ROW_HEIGHT_PX);
   const rowVirtualizer = useVirtualizer({
     count: sapXep.length,
     getScrollElement: () => scrollParentRef.current,
-    estimateSize: () => ROW_HEIGHT_PX,
+    estimateSize: () => chieuCaoDong,
     overscan: 12
   });
+  useEffect(() => { rowVirtualizer.measure(); }, [chieuCaoDong, rowVirtualizer]);
   const virtualRows = rowVirtualizer.getVirtualItems();
   const topPad = virtualRows.length ? virtualRows[0].start : 0;
   const bottomPad = virtualRows.length ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;

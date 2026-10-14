@@ -6,6 +6,7 @@
  */
 import { callGAS, ApiError } from './gasClient';
 import { sharedSessionForFC, clearSharedSession, veCongSauDangXuat } from './karofiSession';
+import { setPrefsUser } from './prefs';
 
 const STORAGE_KEY = 'karofi_fc_session';
 
@@ -19,6 +20,8 @@ const STORAGE_KEY = 'karofi_fc_session';
  * chấp nhận được vì mỗi người dùng máy riêng, và đăng xuất xoá cả hai.
  */
 let session = sharedSessionForFC() || readStoredSession();
+// Lựa chọn đã nhớ (services/prefs.js) nằm theo TỪNG NGƯỜI DÙNG: gắn người dùng ngay khi có phiên, trước khi App dựng state đầu tiên.
+if (session?.user?.id) setPrefsUser(session.user.id);
 
 function readStoredSession() {
   try {
@@ -38,6 +41,7 @@ function readStoredSession() {
 
 function persist(next) {
   session = next;
+  if (next?.user?.id) setPrefsUser(next.user.id);   // next = null (hết phiên / đăng xuất): giữ người cũ, đừng rơi về khoá chung của trình duyệt
   try {
     if (next) localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     else localStorage.removeItem(STORAGE_KEY);

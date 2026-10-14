@@ -157,8 +157,10 @@ async function callOnce(action, payload, timeoutMs) {
  * Gọi một action trên backend.
  * @param {string} action
  * @param {object} payload - tham số của action (đã gồm token nếu cần)
+ * @param {{quiet?: boolean}} opts - quiet: lượt gọi nền (đồng bộ cài đặt cá nhân) — vẫn thử lại như thường nhưng KHÔNG
+ *   bắn onRetry, để màn chính không hiện "đang thử lại..." vì một việc người dùng không chờ.
  */
-export async function callGAS(action, payload = {}) {
+export async function callGAS(action, payload = {}, opts = {}) {
   if (!GAS_WEB_APP_URL) {
     throw new ApiError('Chưa cấu hình URL Google Apps Script Web App.');
   }
@@ -169,7 +171,7 @@ export async function callGAS(action, payload = {}) {
 
   for (let attempt = 0; attempt <= maxAttempt; attempt++) {
     if (attempt > 0) {
-      retryHandlers.forEach((h) => h({ action, attempt }));
+      if (!opts.quiet) retryHandlers.forEach((h) => h({ action, attempt }));
       await sleep(RETRY_DELAYS_MS[attempt - 1]);
     }
 

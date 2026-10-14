@@ -17,7 +17,12 @@ const MAY_CHU_CU = q.get('cu') === '1';
 const BUS = [{ code: 'OEM', name: 'Domestic OEM' }, { code: 'XK', name: 'Xuất khẩu' }, { code: 'GT2', name: 'Kênh GT2' }];
 const REGIONS = [{ code: 'MB', name: 'Miền Bắc' }, { code: 'MN', name: 'Miền Nam' }];
 const GROUPS = [{ code: 'NHOM_1', name: 'Máy TCM sx' }, { code: 'NHOM_2', name: 'Máy nhập khẩu' }, { code: 'NHOM_3', name: 'Mockup' }, { code: 'NHOM_4', name: 'Lõi' }];
-const USER = { id: 'harness', full_name: 'Người thử (giả)', email: '', role: ROLE, business_unit_code: BU };
+// ?uid=<mã>: đổi người dùng giả (thử cài đặt theo từng người trên cùng một trình duyệt).
+// ?prefs=off: giả lập máy chủ CHƯA có bảng cài đặt (getMyPrefs / setMyPrefs trả lỗi) — thử đường thất bại nhẹ nhàng.
+// ?prefs=slow: getMyPrefs trả lời sau 6 giây (quá hạn chờ của App).
+const UID = q.get('uid') || 'harness';
+const PREFS_MODE = q.get('prefs') || 'on';
+const USER = { id: UID, full_name: 'Người thử (giả)', email: '', role: ROLE, business_unit_code: BU };
 
 const CO_SO = '2026-10-01';
 const THANG = ['2026-10-01', '2026-11-01', '2026-12-01', '2027-01-01'];
@@ -63,11 +68,24 @@ const keHoachNam = [
   { id: 'ap2', year: 2026, kind: 'base', revisionNo: 1, status: 'approved', createdBy: 'ketoan', updatedAt: '2025-10-08T02:00:00Z' }
 ];
 
-const trangThai = { hetPhien: false, soLanGoi: 0, nhatKy: [], quyetDinh: [] };
+const trangThai = { hetPhien: false, soLanGoi: 0, nhatKy: [], quyetDinh: [], prefsGoi: [] };
+// "Máy chủ" giữ cài đặt cá nhân trong localStorage của trang thử, theo uid — tải lại trang / mở uid khác để thử đa thiết bị.
+const KHO_PREFS = '__harness_srv_prefs:' + UID;
+const docKhoPrefs = () => { try { return JSON.parse(localStorage.getItem(KHO_PREFS) || '{}'); } catch { return {}; } };
+const ghiKhoPrefs = (o) => { try { localStorage.setItem(KHO_PREFS, JSON.stringify(o)); } catch { /* kệ */ } };
 const ketQua = (action, p) => {
   switch (action) {
     case 'login': trangThai.hetPhien = false; return { token: 'token-thu-' + Date.now(), user: USER, expiresAt: new Date(Date.now() + 12 * 3600e3).toISOString() };
     case 'logout': return { ok: true };
+    case 'getMyPrefs': return PREFS_MODE === 'off' ? { error: 'relation "fc_user_prefs" does not exist' } : { prefs: docKhoPrefs() };
+    case 'setMyPrefs': {
+      if (PREFS_MODE === 'off') return { error: 'relation "fc_user_prefs" does not exist' };
+      const kho = docKhoPrefs();
+      Object.entries(p.changes || {}).forEach(([k, v]) => { if (v === null) delete kho[k]; else kho[k] = v; });
+      ghiKhoPrefs(kho);
+      trangThai.prefsGoi.push(p.changes);
+      return { ok: true };
+    }
     case 'getBootstrap': return { businessUnits: BUS, regions: REGIONS, productGroups: GROUPS, user: USER };
     case 'getApprovals': return approvals.filter((a) => !p.status || a.status === p.status);
     case 'countPendingApprovals': return MAY_CHU_CU ? { error: 'Action chưa được cài đặt: ' + action }
@@ -122,7 +140,7 @@ window.fetch = async (url, init) => {
   const body = JSON.parse(init.body);
   trangThai.soLanGoi += 1;
   trangThai.nhatKy.push(body.action);
-  await new Promise((r) => setTimeout(r, 60));
+  await new Promise((r) => setTimeout(r, body.action === 'getMyPrefs' && PREFS_MODE === 'slow' ? 6000 : 60));
   const { action, ...p } = body;
   const out = action !== 'login' && trangThai.hetPhien
     ? { error: 'UNAUTHORIZED: Phiên đăng nhập đã hết hạn (giả lập).' }
@@ -130,7 +148,9 @@ window.fetch = async (url, init) => {
   return new Response(JSON.stringify(out), { status: 200, headers: { 'Content-Type': 'application/json' } });
 };
 
-window.__harness = { trangThai, expire: () => { trangThai.hetPhien = true; }, thang: vnMonth() };
+import * as prefsSync from '../services/prefsSync';
+import * as prefs from '../services/prefs';
+window.__harness = { trangThai, expire: () => { trangThai.hetPhien = true; }, thang: vnMonth(), prefsSync, prefs };
 
 // Phiên giả — phải có TRƯỚC khi nạp App (auth.js đọc localStorage lúc nạp module).
 try {

@@ -1,8 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FileSpreadsheet, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react';
 import { MENU_ITEMS } from '../utils/menu';
+import { loadPref, savePref } from '../services/prefs';
+import { usePrefsVersion } from '../utils/usePrefsVersion';
 
-const COLLAPSE_KEY = 'karofi_fc_sidebar_collapsed';
+// Thu gọn menu: khoá nhớ 'sidebarCollapsed' (theo người dùng, đồng bộ máy chủ). Trước 14/10/2026 là khoá thô
+// 'karofi_fc_sidebar_collapsed' ngoài hệ nhớ — prefs.js chuyển nó sang khoá mới ở lần đầu mỗi người dùng.
+const COLLAPSE_KEY = 'sidebarCollapsed';
+const docThuGon = () => loadPref(COLLAPSE_KEY, false, (v) => typeof v === 'boolean');
 
 /**
  * Menu bên trái.
@@ -14,25 +19,19 @@ const COLLAPSE_KEY = 'karofi_fc_sidebar_collapsed';
  * `badges`: { [mã mục]: { n, title } } — số chờ xử lý hiện ở mục menu (Phê duyệt, Kế hoạch năm).
  */
 export default function Sidebar({ activeTab, setActiveTab, badges = {}, role, open = false, onClose }) {
-  const [collapsed, setCollapsed] = useState(() => {
-    try {
-      return localStorage.getItem(COLLAPSE_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
+  // Giá trị đọc từ khoá nhớ; người dùng tự bấm thì giữ trong bộ nhớ NGAY (kể cả khi localStorage bị chặn, savePref không ghi được),
+  // cho tới khi giá trị đổi từ NGOÀI — đồng bộ máy chủ về, mặc định tường minh ở màn Cài đặt (phiên bản tăng) — thì đọc lại.
+  const phienBan = usePrefsVersion();
+  const [tay, setTay] = useState({ v: null, ver: -1 });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const daLuu = useMemo(docThuGon, [phienBan]);
+  const collapsed = tay.v !== null && tay.ver === phienBan ? tay.v : daLuu;
   const nutDong = useRef(null);
 
   const toggleCollapsed = () => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0');
-      } catch {
-        // Trình duyệt chặn localStorage: chỉ mất ghi nhớ trạng thái, không ảnh hưởng chức năng
-      }
-      return next;
-    });
+    const next = !collapsed;
+    savePref(COLLAPSE_KEY, next);
+    setTay({ v: next, ver: phienBan });
   };
 
   // Ngăn kéo đang mở: Esc đóng, khoá cuộn trang nền, focus vào nút đóng rồi TRẢ focus về nút ☰ khi đóng;

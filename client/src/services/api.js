@@ -152,6 +152,18 @@ export const api = {
   // Ghi đè KPI năm của OEM bằng bản kế hoạch đã duyệt (chỉ central_admin)
   applyAnnualPlanToKpi: (params) => callGAS('applyAnnualPlanToKpi', auth(params)),
 
+  // ----- cài đặt cá nhân (14/10/2026) — bản sao theo tài khoản của services/prefs.js; xem services/prefsSync.js -----
+  // Lượt gọi NỀN: quiet = không hiện "đang thử lại..."; không có token thì không gọi (tránh bật hộp "hết phiên" vì một việc nền).
+  // getMyPrefs là đọc; setMyPrefs là upsert theo khoá (gửi lại cùng payload ra cùng kết quả) nên KHÔNG nằm trong NON_IDEMPOTENT_ACTIONS.
+  getMyPrefs: () => {
+    if (!getToken()) return Promise.reject(new Error('Chưa đăng nhập.'));
+    return callGAS('getMyPrefs', auth({}), { quiet: true });
+  },
+  setMyPrefs: (changes) => {
+    if (!getToken()) return Promise.reject(new Error('Chưa đăng nhập.'));
+    return callGAS('setMyPrefs', auth({ changes }), { quiet: true });
+  },
+
   // ----- tài khoản -----
   changeMyPin: (currentPin, newPin) => callGAS('changeMyPin', auth({ currentPin, newPin })),
   setUserPin: (userId, newPin) => callGAS('setUserPin', auth({ userId, newPin }))
