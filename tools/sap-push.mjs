@@ -151,6 +151,24 @@ try {
   const rows = Object.keys(ket.bySku).map((sku) => ({ skuCode: sku, quantity: ket.bySku[sku] }));
   const kq = await goi('sapImportActuals', { secret: cfg.secret, bu: BU, month: THANG_DAY, rows });
 
+  // DOANH THU THUẦN theo mã vật tư (19/10/2026, Đợt 12): cùng file, cùng bộ lọc. Nạp SAU sản lượng và KHÔNG làm hỏng lượt này khi lỗi
+  // (vd chưa chạy SQL đợt 12): sản lượng đã ghi xong, lỗi doanh thu chỉ được báo kèm để người chạy thấy.
+  let doanhThu = null;
+  if (!ket.revenueColumn) {
+    doanhThu = { ok: false, error: 'File không có cột "Doanh thu thuần VND" — bỏ qua doanh thu.' };
+  } else {
+    const dtRows = Object.keys(ket.revenueBySku).map((sku) => ({
+      skuCode: sku, skuName: ket.skuNames[sku] || '', quantity: ket.revenueBySku[sku].quantity,
+      netRevenueVnd: ket.revenueBySku[sku].netRevenueVnd, lines: ket.revenueBySku[sku].lines
+    }));
+    try {
+      const rv = await goi('sapImportRevenue', { secret: cfg.secret, bu: BU, month: THANG_DAY, rows: dtRows });
+      doanhThu = { ok: true, written: rv.total, netRevenueVnd: rv.netRevenueVnd, skipped: rv.skipped || 0 };
+    } catch (e) {
+      doanhThu = { ok: false, error: e.message };
+    }
+  }
+
   xong({
     ok: true,
     bu: BU,
@@ -163,7 +181,8 @@ try {
     updated: kq.updated,
     quantity: kq.quantity,
     regionCode: kq.regionCode,
-    unknownSkus: kq.unknownSkus || []
+    unknownSkus: kq.unknownSkus || [],
+    revenue: doanhThu
   });
 } catch (e) {
   xong({ ok: false, error: e.message });

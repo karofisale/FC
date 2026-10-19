@@ -15,7 +15,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { parseZsd450, parseZsdMonth, ZSD450_COLUMNS, MOI_KHACH } from '../client/src/utils/zsd450.js';
+import { parseZsd450, parseZsdMonth, ZSD450_COLUMNS, ZSD450_REVENUE_COLUMN, MOI_KHACH } from '../client/src/utils/zsd450.js';
 
 const XLSX = createRequire(new URL('../client/package.json', import.meta.url))('xlsx');
 const DIR = process.argv[2] || 'D:/Operation/Claude/CLAUDE-OUTPUTS/Update Tuan';
@@ -170,6 +170,58 @@ console.log('\n5. Thieu cot thi phai noi ro, khong tra bang rong');
 const thieu = parseZsd450([['Ma khach', 'Ma vat tu'], [1, 2]], {});
 say(thieu.missingColumns.includes(ZSD450_COLUMNS.quantity), `bao thieu: ${thieu.missingColumns.join(', ')}`);
 say(Object.keys(thieu.bySku).length === 0, 'khong bia ra so nao');
+
+console.log('\n6. Doanh thu thuan VND (19/10/2026): cung bo loc khach + thang, hoan tra ve so am, thieu cot khong lam hong san luong');
+{
+  const H = ['Mã khách', 'Tên khách', 'Mã vật tư', 'Tên vật tư', 'Số lượng xuất bán', 'Tháng_Năm', 'Kênh bán hàng (Distribution channel)', ZSD450_REVENUE_COLUMN];
+  const aoa = [
+    H,
+    [1, 2, 3, 4, 5, 6, 7, 8],                                    // dòng đánh số cột — KHÔNG được cộng
+    [1009062, 'KH A', 1001040834, 'Máy A', 5, 'T08-2026', 'Khác', 12355000],
+    [1009062, 'KH A', 1001040834, 'Máy A', 2, 'T08-2026', 'Khác', 4000000],
+    [1009062, 'KH A', 1001040834, 'Máy A', -1, 'T08-2026', 'Khác', -2000000],   // trả hàng: số âm, cộng vào
+    [1009062, 'KH A', 2003000001, 'Lõi', 10, 'T08-2026', 'Khác', ''],           // ô doanh thu trống = 0 (dòng vẫn tính)
+    [1009062, 'KH A', 2003000002, 'Lõi 2', 4, 'T07-2026', 'Khác', 999],         // tháng khác
+    [2222222, 'KH B', 1001040834, 'Máy A', 9, 'T08-2026', 'Khác', 777777]        // khách khác
+  ];
+  const r = parseZsd450(aoa, { soldTo: '1009062', month: '2026-08-01' });
+  say(r.revenueColumn === true, 'nhan ra cot "' + ZSD450_REVENUE_COLUMN + '"');
+  say(r.revenueBySku['1001040834'].netRevenueVnd === 14355000, 'doanh thu thuan cong dong, gom ca hoan tra: 12.355.000 + 4.000.000 - 2.000.000 = ' + r.revenueBySku['1001040834'].netRevenueVnd);
+  say(r.revenueBySku['1001040834'].quantity === 6 && r.bySku['1001040834'] === 6, 'so luong doanh thu khop so luong san luong (' + r.revenueBySku['1001040834'].quantity + ')');
+  say(r.revenueBySku['1001040834'].lines === 3, 'dem 3 dong hoa don cua ma');
+  say(r.revenueBySku['2003000001'].netRevenueVnd === 0 && r.revenueBySku['2003000001'].lines === 1, 'o doanh thu trong = 0, dong van duoc dem');
+  say(!r.revenueBySku['2003000002'], 'khong lay thang khac');
+  say(Object.keys(r.revenueBySku).length === 2 && !('777777' in r.revenueBySku), 'khong lay khach khac / khong lay dong danh so');
+  say(Object.keys(r.bySku).join() === Object.keys(r.revenueBySku).join(), 'cung tap ma voi san luong (mot bo loc duy nhat)');
+  const hk = parseZsd450(aoa, { soldTo: MOI_KHACH, month: '2026-08-01' });
+  say(hk.revenueBySku['1001040834'].netRevenueVnd === 14355000 + 777777, 'don vi khong loc khach: cong ca khach khac');
+
+  // Thiếu cột doanh thu: sản lượng vẫn đọc bình thường, chỉ báo revenueColumn=false
+  const aoaSan = aoa.map((row) => row.slice(0, 7));
+  const k = parseZsd450(aoaSan, { soldTo: '1009062', month: '2026-08-01' });
+  say(k.revenueColumn === false && Object.keys(k.revenueBySku).length === 0 && k.bySku['1001040834'] === 6 && k.missingColumns.length === 0,
+    'file khong co cot doanh thu: san luong van doc (6), khong coi la sai bo cuc, khong bia ra doanh thu');
+  say(!parseZsd450([], {}).revenueColumn && Object.keys(parseZsd450([], {}).revenueBySku).length === 0, 'file rong: khong co doanh thu, khong loi');
+
+  // Trên file THẬT: tổng doanh thu thuần theo bộ đọc == tổng cột đó cộng thô trên chính file (hai cách tính độc lập)
+  const fileGt2 = 'D:/Operation/Claude/CLAUDE-OUTPUTS/DT-FC/ZSD450_GT2_202608.xlsx';
+  if (!existsSync(fileGt2)) { console.log('  --   bo qua: khong co file GT2 that (file nam ngoai kho)'); }
+  else {
+    const rows = sheet1(fileGt2);
+    const hdr = rows[0].map((h) => String(h ?? '').trim());
+    const iRev = hdr.indexOf(ZSD450_REVENUE_COLUMN), iSold = hdr.indexOf(ZSD450_COLUMNS.soldTo), iM = hdr.indexOf(ZSD450_COLUMNS.month), iSku = hdr.indexOf(ZSD450_COLUMNS.sku);
+    let tho = 0, soDong = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row[iSku] || String(row[iSold]) !== '1009062' || parseZsdMonth(row[iM]) !== '2026-08-01') continue;
+      const v = Number(row[iRev]); if (Number.isFinite(v)) tho += v; soDong++;
+    }
+    const g = parseZsd450(rows, { soldTo: '1009062', month: '2026-08-01' });
+    const tong = Object.values(g.revenueBySku).reduce((a, x) => a + x.netRevenueVnd, 0);
+    say(g.revenueColumn && soDong > 0 && Math.abs(tong - tho) < 0.5 && g.rowsMatched === soDong,
+      'GT2 thang 8/2026 (file that): ' + soDong + ' dong, tong doanh thu thuan ' + tong.toLocaleString('vi-VN') + ' = cong tho ' + tho.toLocaleString('vi-VN'));
+  }
+}
 
 console.log(bad ? `\n*** ${bad} cho sai ***` : '\nDoc dung file ZSD450 that va chan duoc ba cai bay.');
 process.exit(bad ? 1 : 0);

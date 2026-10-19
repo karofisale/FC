@@ -27,6 +27,13 @@ export const ZSD450_COLUMNS = {
 };
 
 /**
+ * Cột DOANH THU (19/10/2026, Đợt 12): "Doanh thu thuần VND" = sau chiết khấu thương mại và giảm giá, TRƯỚC thuế (đã chốt).
+ * Tách khỏi ZSD450_COLUMNS có chủ ý: thiếu cột này KHÔNG làm file bị coi là sai bố cục (việc đọc sản lượng vẫn chạy như cũ);
+ * parseZsd450 chỉ báo revenueColumn = false. Hoá đơn trả hàng về số âm và được cộng vào.
+ */
+export const ZSD450_REVENUE_COLUMN = 'Doanh thu thuần VND';
+
+/**
  * Mã khách mang giá trị này nghĩa là đơn vị không lọc theo khách: bản thân
  * bộ lọc VKORG + VTWEG lúc xuất đã ra đúng phần của đơn vị (XK: 0401/02;
  * OEM: 0400/01). Phải khác hẳn chuỗi rỗng, vì rỗng = chưa khai.
@@ -79,7 +86,7 @@ export function parseZsd450(aoa, { soldTo = '', month = '' } = {}) {
   const rows = (aoa || []).filter((r) => Array.isArray(r) && r.some((v) => v !== null && v !== ''));
   if (!rows.length) {
     return {
-      bySku: {}, skuNames: {}, rowsRead: 0, rowsMatched: 0,
+      bySku: {}, skuNames: {}, revenueBySku: {}, revenueColumn: false, rowsRead: 0, rowsMatched: 0,
       soldToSeen: [], monthsSeen: [], channelsSeen: [],
       missingColumns: Object.values(ZSD450_COLUMNS)
     };
@@ -97,13 +104,16 @@ export function parseZsd450(aoa, { soldTo = '', month = '' } = {}) {
   // thiếu cột nào, thay vì trả về một bảng rỗng trông như "tháng đó không bán".
   if (['soldTo', 'sku', 'quantity', 'month'].some((k) => at[k] < 0)) {
     return {
-      bySku: {}, skuNames: {}, rowsRead: 0, rowsMatched: 0,
+      bySku: {}, skuNames: {}, revenueBySku: {}, revenueColumn: false, rowsRead: 0, rowsMatched: 0,
       soldToSeen: [], monthsSeen: [], channelsSeen: [], missingColumns
     };
   }
 
+  const iRev = header.indexOf(ZSD450_REVENUE_COLUMN);
   const bySku = {};
   const skuNames = {};
+  // Doanh thu thuần theo mã (cùng bộ lọc khách + tháng với số lượng): { sku: { netRevenueVnd, quantity, lines } }
+  const revenueBySku = {};
   const soldToCount = {};
   const soldToName = {};
   const months = {};
@@ -142,12 +152,22 @@ export function parseZsd450(aoa, { soldTo = '', month = '' } = {}) {
 
     bySku[sku] = (bySku[sku] || 0) + qty;
     if (at.skuName >= 0 && !skuNames[sku]) skuNames[sku] = String(r[at.skuName] ?? '').trim();
+    if (iRev >= 0) {
+      // Ô doanh thu trống / không phải số tính là 0 (dòng vẫn được đếm), không làm rơi cả dòng.
+      const v = Number(r[iRev]);
+      const cur = revenueBySku[sku] || (revenueBySku[sku] = { netRevenueVnd: 0, quantity: 0, lines: 0 });
+      cur.netRevenueVnd += Number.isFinite(v) ? v : 0;
+      cur.quantity += qty;
+      cur.lines++;
+    }
     rowsMatched++;
   }
 
   return {
     bySku,
     skuNames,
+    revenueBySku,
+    revenueColumn: iRev >= 0,
     rowsRead,
     rowsMatched,
     soldToSeen: Object.keys(soldToCount)
