@@ -14,6 +14,7 @@ import MonthlyForecast from './pages/MonthlyForecast';
 import WeeklyForecast from './pages/WeeklyForecast';
 import Approvals from './pages/Approvals';
 import Actuals from './pages/Actuals';
+const ActualRevenue = React.lazy(() => import('./pages/ActualRevenue'));
 // Tải lười — kéo theo thư viện xlsx (~290KB), chỉ admin/viewer mới dùng
 // tới màn này, không nên bắt mọi người tải sẵn ngay từ đầu.
 const Exports = React.lazy(() => import('./pages/Exports'));
@@ -358,6 +359,11 @@ export default function App() {
                 />
               )}
               {activeTab === 'actuals' && <Actuals currentBU={currentBU} user={user} />}
+              {activeTab === 'revenue' && (
+                <React.Suspense fallback={<div className="text-xs text-slate-500 p-4">Đang tải...</div>}>
+                  <ActualRevenue currentBU={currentBU} user={user} />
+                </React.Suspense>
+              )}
               {activeTab === 'annual' && (
                 <React.Suspense fallback={<div className="text-xs text-slate-500 p-4">Đang tải...</div>}>
                   <AnnualPlan

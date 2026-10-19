@@ -134,6 +134,8 @@ export const api = {
   getNhipTim: () => callGAS('getNhipTim', auth()),
   getFcVsActual: (bu, month) => callGAS('getFcVsActual', auth({ bu, month })),
   saveActuals: (rows) => callGAS('saveActuals', auth({ rows })),
+  // Doanh thu thuần theo tháng × mã vật tư (19/10/2026, Đợt 12). params: { bu, from: 'YYYY-MM', to: 'YYYY-MM', detail?: true }
+  getActualRevenue: (params = {}) => callGAS('getActualRevenue', auth(params)),
 
   // ----- kế hoạch năm (05/10/2026) -----
   getAnnualPlanWorkspace: (params) => callGAS('getAnnualPlanWorkspace', auth(params)),

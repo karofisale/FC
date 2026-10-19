@@ -177,6 +177,23 @@ const ketQua = (action, p) => {
         comparison: { cycleFound: true, leadMonths: 0, cycleBaseMonth: '2026-09-01', versionBasis: 'approved', totalForecast: tongFc, totalActual: tongTh, totalVariance: tongTh - tongFc, totalVariancePct: Math.round((tongTh - tongFc) / tongFc * 1000) / 10, rows: SKUS.slice(0, 12).map((s, i) => ({ sku_code: s.sku_code, product_name: s.name, forecast_qty: 100 + i, actual_qty: 90 + i * 2, variance_qty: -10 + i, variance_pct: -9 + i })) }
       };
     }
+    // Doanh thu thuần theo tháng (Đợt 12). ?rev=off: máy chủ CHƯA chạy SQL đợt 12 (missing). ?rev=err: lỗi.
+    case 'getActualRevenue': {
+      const REV = q.get('rev') || 'ok';
+      if (REV === 'off') return { rows: [], months: [], missing: true };
+      if (REV === 'err') throw new Error('Máy chủ doanh thu đang bận (giả).');
+      const kyTu = String(p.from || '2000-01'), kyDen = String(p.to || '2999-12');
+      const SKU = [['1001040834', 'Máy RO Karofi KAQ-GZ', 2471000], ['2003000001', 'Lõi lọc PP', 95000], ['1008040001', 'Hàng tặng', 0]];
+      const thang = [];
+      const dem = (y, m) => (y === 2025 ? [6, 7, 12] : [1, 3, 4, 6, 7, 8, 9]).includes(m);
+      [2025, 2026].forEach((y) => { for (let m = 1; m <= 12; m++) { if (!dem(y, m)) continue;
+        const k = y + '-' + String(m).padStart(2, '0'); if (k < kyTu || k > kyDen) continue;
+        const sl = m === 6 && y === 2026 ? -1 : 10 + m * 3;
+        thang.push({ bu: p.bu || 'GT2', month: k + '-01', netRevenueVnd: m === 1 && y === 2026 ? 0 : (m === 6 && y === 2026 ? -1248148 : sl * 2471000 * (y === 2025 ? 0.8 : 1)), quantity: sl, skus: 3, importedAt: new Date().toISOString() }); } });
+      const rows = [];
+      if (p.detail) thang.forEach((t) => SKU.forEach(([c, n, g], i) => rows.push({ bu: t.bu, month: t.month, skuCode: c, skuName: n, quantity: Math.round(t.quantity / (i + 1)), netRevenueVnd: Math.round(t.netRevenueVnd * [0.7, 0.3, 0][i]), invoiceLines: i + 1 })));
+      return { missing: false, months: thang, rows };
+    }
     case 'getFcVsActual': return { cycleFound: false };
     case 'saveActuals': (p.rows || []).forEach((r) => { actuals[r.skuCode] = r.quantity; }); return { message: `Đã lưu ${(p.rows || []).length} dòng (giả).` };
     case 'getNhipTim': return { nhipTim: [] };

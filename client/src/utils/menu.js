@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, CalendarDays, CalendarRange, CheckCircle2, TrendingUp, Target, Package, Download, HelpCircle
+  LayoutDashboard, CalendarDays, CalendarRange, CheckCircle2, TrendingUp, Banknote, Target, Package, Download, HelpCircle
 } from 'lucide-react';
 import { MAN_HINH } from './glossary.js';
 
@@ -16,6 +16,7 @@ export const MENU_ITEMS = [
   { id: 'weekly', label: MAN_HINH.weekly.ten, mota: MAN_HINH.weekly.mota, icon: CalendarRange },
   { id: 'approvals', label: 'Quy trình Phê duyệt', mota: 'Duyệt hoặc từ chối forecast đã gửi; xem lịch sử các lần duyệt.', icon: CheckCircle2 },
   { id: 'actuals', label: 'Sản lượng Thực hiện', mota: 'Nhập hoặc lấy từ SAP sản lượng thực hiện từng tháng và so với forecast.', icon: TrendingUp },
+  { id: 'revenue', label: 'Doanh thu Thực hiện', mota: 'Doanh thu thuần từng tháng lấy từ SAP, xem theo năm và theo từng mã vật tư — dữ liệu để lập kế hoạch năm.', icon: Banknote },
   { id: 'annual', label: 'Kế hoạch năm', mota: 'Lập, gửi duyệt và duyệt kế hoạch doanh thu cả năm theo khách và SKU.', icon: Target },
   { id: 'products', label: 'Danh mục SKU', mota: 'Danh mục sản phẩm dùng để lập forecast: mã, tên, nhóm hàng, kênh.', icon: Package },
   { id: 'exports', label: 'Xuất Báo cáo', mota: 'Xuất file tổng hợp toàn công ty: form báo cáo FC và file upload SAP.', icon: Download, roles: ['central_admin', 'viewer'] },

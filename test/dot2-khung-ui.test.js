@@ -240,7 +240,7 @@ async function main() {
   console.log('--- 7. Mỗi mục menu / tab một icon riêng ---');
   const menuSrc = doc('utils/menu.js');
   const icons = [...menuSrc.matchAll(/icon:\s*(\w+)/g)].map((m) => m[1]);
-  check('menu có đủ 9 mục, mọi icon KHÁC NHAU', icons.length === 9 && new Set(icons).size === icons.length, icons);
+  check('menu có đủ 10 mục (thêm Doanh thu Thực hiện 19/10/2026), mọi icon KHÁC NHAU', icons.length === 10 && new Set(icons).size === icons.length, icons);
   check('Sidebar đọc menu từ utils/menu.js (một nguồn)', /MENU_ITEMS/.test(doc('components/Sidebar.jsx')) && !/LayoutDashboard/.test(doc('components/Sidebar.jsx')));
   check('tiêu đề trang dùng đúng icon của mục menu (Approvals, Products, Exports)', /MENU_ICON\.exports/.test(doc('pages/Exports.jsx')) && /MENU_ICON\.products/.test(doc('pages/Products.jsx')) && /<CheckCircle2 className="w-5 h-5 text-emerald-700" \/>\s*QUY TRÌNH/.test(doc('pages/Approvals.jsx')));
   const tabIcons = [...an.matchAll(/\['(?:base|plan|preview)',[^\]]*?, (\w+)\]/g)].map((m) => m[1]);
