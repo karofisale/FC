@@ -149,10 +149,16 @@ try {
   }
 
   const rows = Object.keys(ket.bySku).map((sku) => ({ skuCode: sku, quantity: ket.bySku[sku] }));
-  const kq = await goi('sapImportActuals', { secret: cfg.secret, bu: BU, month: THANG_DAY, rows });
+  // HAI VIỆC ĐỘC LẬP (19/10/2026, Đợt 12): sản lượng (bảng actual_sales_results) và doanh thu thuần theo mã (actual_revenue).
+  // Cái này lỗi KHÔNG chặn cái kia — vd tháng lịch sử mà mọi mã đã ngừng bán thì sản lượng bị từ chối ("không mã nào có trong danh mục")
+  // nhưng doanh thu vẫn phải được ghi (bảng doanh thu không đòi mã có trong danh mục). Cả hai lỗi mới là lỗi của lượt.
+  let kq = null, loiSanLuong = '';
+  try {
+    kq = await goi('sapImportActuals', { secret: cfg.secret, bu: BU, month: THANG_DAY, rows });
+  } catch (e) {
+    loiSanLuong = e.message;
+  }
 
-  // DOANH THU THUẦN theo mã vật tư (19/10/2026, Đợt 12): cùng file, cùng bộ lọc. Nạp SAU sản lượng và KHÔNG làm hỏng lượt này khi lỗi
-  // (vd chưa chạy SQL đợt 12): sản lượng đã ghi xong, lỗi doanh thu chỉ được báo kèm để người chạy thấy.
   let doanhThu = null;
   if (!ket.revenueColumn) {
     doanhThu = { ok: false, error: 'File không có cột "Doanh thu thuần VND" — bỏ qua doanh thu.' };
@@ -169,6 +175,9 @@ try {
     }
   }
 
+  if (!kq && !doanhThu.ok) {
+    xong({ ok: false, error: 'Không ghi được gì. Sản lượng: ' + loiSanLuong + ' · Doanh thu: ' + doanhThu.error });
+  }
   xong({
     ok: true,
     bu: BU,
@@ -176,12 +185,13 @@ try {
     nguon: NGUON,
     rowsRead: ket.rowsRead,
     rowsMatched: ket.rowsMatched,
-    written: kq.total,
-    inserted: kq.inserted,
-    updated: kq.updated,
-    quantity: kq.quantity,
-    regionCode: kq.regionCode,
-    unknownSkus: kq.unknownSkus || [],
+    written: kq ? kq.total : 0,
+    inserted: kq ? kq.inserted : 0,
+    updated: kq ? kq.updated : 0,
+    quantity: kq ? kq.quantity : 0,
+    regionCode: kq ? kq.regionCode : '',
+    unknownSkus: kq ? (kq.unknownSkus || []) : [],
+    quantityError: loiSanLuong,
     revenue: doanhThu
   });
 } catch (e) {
