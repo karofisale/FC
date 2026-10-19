@@ -155,22 +155,30 @@ export function soTuO(v) {
  */
 export function docBangPerClient(aoa) {
   const ds = Array.isArray(aoa) ? aoa : [];
-  const hang = ds.findIndex((r) => Array.isArray(r) && r.some((c) => /^ma khach\b/.test(boDau(c))));
-  if (hang < 0) return { dong: [], loi: 'Không thấy dòng tiêu đề có cột "Mã khách" — hãy dùng đúng tab Plan_Per_Client của file Xuất Excel.' };
-  const tieuDe = ds[hang];
-  const cotMa = tieuDe.findIndex((c) => /^ma khach\b/.test(boDau(c)));
-  const cotTen = tieuDe.findIndex((c) => /^ten khach\b/.test(boDau(c)));
-  const cotThang = new Array(12).fill(-1);
-  tieuDe.forEach((c, i) => {
+  // Nhận tiêu đề linh hoạt (người dùng có thể chọn tab khác tab Plan_Per_Client của file xuất): cột mã = "Mã khách" / "Mã KH" / "Search Code"…, cột tên = "Tên khách" / "Client" / "Customer",
+  // cột tháng = "DT KH T1/2027", "DT T1", "Doanh thu T1", "T1", "Tháng 1" (T1..T12 / Tháng 1..12).
+  const laMa = (c) => /^(ma khach|ma kh|search code|client code|customer code)\b/.test(boDau(c));
+  const laTen = (c) => /^(ten khach|ten kh|client|customer)\b/.test(boDau(c));
+  const soThang = (c) => {
     const t = boDau(c);
-    const mm = /^(dt|doanh thu)\b.*\bt\s*(\d{1,2})(?:\s*\/\s*\d{2,4})?(?:\s*\(.*\))?\s*$/.exec(t);
-    if (mm && Number(mm[2]) >= 1 && Number(mm[2]) <= 12 && cotThang[Number(mm[2]) - 1] < 0) cotThang[Number(mm[2]) - 1] = i;
-  });
-  if (cotThang.every((i) => i < 0)) return { dong: [], loi: 'Không thấy các cột doanh thu từng tháng (DT KH T1 … T12).' };
+    const mm = /^(?:dt|doanh thu)\b.*\bt\s*(\d{1,2})(?:\s*\/\s*\d{2,4})?(?:\s*\(.*\))?\s*$/.exec(t) || /^(?:t|thang)\s*(\d{1,2})(?:\s*\/\s*\d{2,4})?\s*$/.exec(t);
+    const n = mm ? Number(mm[1]) : 0;
+    return n >= 1 && n <= 12 ? n : 0;
+  };
+  const coMaTen = (r) => Array.isArray(r) && r.some((c) => laMa(c) || laTen(c));
+  let hang = ds.findIndex((r) => coMaTen(r) && r.some((c) => soThang(c)));
+  if (hang < 0) hang = ds.findIndex(coMaTen);
+  if (hang < 0) return { dong: [], loi: 'Không thấy dòng tiêu đề có cột "Mã khách" (hoặc "Tên khách") — hãy chọn tab khác, hoặc dùng đúng tab Plan_Per_Client của file Xuất Excel.' };
+  const tieuDe = ds[hang];
+  const cotMa = tieuDe.findIndex(laMa);
+  const cotTen = tieuDe.findIndex(laTen);
+  const cotThang = new Array(12).fill(-1);
+  tieuDe.forEach((c, i) => { const n = soThang(c); if (n && cotThang[n - 1] < 0) cotThang[n - 1] = i; });
+  if (cotThang.every((i) => i < 0)) return { dong: [], loi: 'Không thấy các cột doanh thu từng tháng (DT KH T1 … T12) trong tab này.' };
   const dong = [];
   for (let r = hang + 1; r < ds.length; r++) {
     const row = ds[r] || [];
-    const ma = String(row[cotMa] == null ? '' : row[cotMa]).trim();
+    const ma = cotMa >= 0 ? String(row[cotMa] == null ? '' : row[cotMa]).trim() : '';
     const ten = cotTen >= 0 ? String(row[cotTen] == null ? '' : row[cotTen]).trim() : '';
     if (!ma && !ten) continue;
     if (boDau(ma) === 'tong' || boDau(ten) === 'tong') continue;
@@ -206,10 +214,22 @@ export function khopBangVoiKhach(dong, state, info, nguon) {
   return { bang, khongKhop, trung };
 }
 
-/** Đọc file Excel người dùng chọn -> các dòng của tab Plan_Per_Client (hoặc tab đầu tiên có cột "Mã khách"). */
-export async function docFileBang(file) {
+/**
+ * Mở file Excel người dùng chọn: liệt kê MỌI tab để người dùng CHỌN tab chứa bảng (không cố định tab Plan_Per_Client).
+ * Trả { tabs: [{ ten, soDong, hopLe }], mac, doc(tenTab) }: `hopLe` = tab nhìn ra được bảng doanh thu khách × tháng (có tiêu đề mã/tên khách + cột tháng);
+ * `mac` = tab chọn sẵn (Plan_Per_Client nếu có, không thì tab hợp lệ đầu tiên, không thì tab đầu); `doc(tenTab)` = docBangPerClient của tab đó.
+ */
+export async function moFileExcel(file) {
   const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-  const ten = wb.SheetNames.includes('Plan_Per_Client') ? 'Plan_Per_Client' : wb.SheetNames.find((n) => (XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null }) || []).some((r) => r.some((c) => /^ma khach\b/.test(boDau(c)))));
-  if (!ten) return { dong: [], loi: 'Không tìm thấy tab Plan_Per_Client (hoặc tab có cột "Mã khách") trong file.' };
-  return docBangPerClient(XLSX.utils.sheet_to_json(wb.Sheets[ten], { header: 1, defval: null, raw: true }));
+  const aoa = (n) => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, raw: true }) || [];
+  const tabs = wb.SheetNames.map((ten) => { const a = aoa(ten); return { ten, soDong: a.length, hopLe: !docBangPerClient(a).loi }; });
+  const mac = (tabs.find((t) => t.ten === 'Plan_Per_Client') || tabs.find((t) => t.hopLe) || tabs[0] || {}).ten || '';
+  return { tabs, mac, doc: (tenTab) => (wb.Sheets[tenTab] ? docBangPerClient(aoa(tenTab)) : { dong: [], loi: 'Không có tab "' + tenTab + '" trong file.' }) };
+}
+
+/** Đọc file Excel -> các dòng của tab mặc định (Plan_Per_Client, hoặc tab hợp lệ đầu tiên). Giữ cho nơi gọi không cần chọn tab. */
+export async function docFileBang(file) {
+  const f = await moFileExcel(file);
+  if (!f.mac) return { dong: [], loi: 'File Excel không có tab nào.' };
+  return f.doc(f.mac);
 }

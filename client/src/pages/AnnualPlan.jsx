@@ -449,6 +449,21 @@ export default function AnnualPlan({ currentBU, user, choDuyetNam, onChonDonVi }
   const chepThang = (nguon, dich) => {
     if (capNhat((s) => M.saoChepThang(s, nguon, dich))) setMsg({ loai: 'ok', text: 'Đã copy SL của T' + (nguon + 1) + ' sang ' + (dich.length > 1 ? dich.length + ' tháng dự kiến' : 'T' + (dich[0] + 1)) + '.' });
   };
+  /** "Lấy từ FC": đọc SL dự báo FC của đơn vị theo tháng rồi điền vào các tháng dự kiến đã chọn (SKU FC có mà bảng chưa có thì thêm dòng mới). */
+  const layTuFc = async (dich) => {
+    setBusy(true); setMsg(null);
+    try {
+      const du = await api.getFcForecastForAnnual({ bu: currentBU, year });
+      let kq = null;
+      if (capNhat((s) => { kq = M.layTuFc(s, du, dich); return kq; }) && kq) {
+        if (kq.skuMoi.length) setSkuInfoLocal((p) => { const n = { ...p }; kq.skuMoi.forEach((x) => { if (x.category) n[x.skuCode] = { name: x.skuName, category: x.category }; }); return n; });
+        const goc = (du.thang || []).filter((t) => kq.thangDung.includes(t.m - 1))
+          .map((t) => 'T' + t.m + ': chu kỳ ' + t.cycleBaseMonth + (t.basis === 'approved' ? ' (đã duyệt)' : ' (đã chốt)')).join('; ');
+        setMsg({ loai: 'ok', text: 'Đã lấy SL từ FC vào ' + kq.thangDung.map((m) => 'T' + (m + 1)).join(', ') + ' — ' + kq.soDong + ' SKU' + (kq.soMoi ? ' (thêm ' + kq.soMoi + ' SKU mới vào bảng)' : '') + '. Nguồn: ' + goc + '.'
+          + (kq.thangThieu.length ? ' FC chưa có dự báo cho ' + kq.thangThieu.map((m) => 'T' + (m + 1)).join(', ') + ' nên để nguyên.' : '') + (du.canhBao ? ' ' + du.canhBao : '') });
+      }
+    } catch (e) { baoLoi(e); } finally { setBusy(false); }
+  };
   const guiDuyet = async () => {
     if (kiemTra.loi.length) { setMsg({ loai: 'loi', text: 'Chưa gửi duyệt được: ' + kiemTra.loi.slice(0, 3).join(' · ') }); return; }
     if (!(await appConfirm('Gửi kế hoạch năm ' + year + ' của ' + currentBU + ' để duyệt? Sau khi gửi sẽ không sửa được cho tới khi được duyệt hoặc bị từ chối.', {
@@ -613,7 +628,7 @@ export default function AnnualPlan({ currentBU, user, choDuyetNam, onChonDonVi }
               Dữ liệu cơ sở: <b>{b.lines.length}</b> dòng SKU{single ? '' : <> của <b>{b.customers.length}</b> khách</>}, thực hiện đến
               {' '}<b>{b.lastMonth >= 0 ? 'T' + (b.lastMonth + 1) + '/' + (year - 1) : 'chưa có tháng nào'}</b>;{' '}
               {donVi?.source === 'export' ? 'các tháng còn lại lấy theo đơn hàng / PI đang chạy (opened, drafted, targeted).'
-                : (donVi?.source === 'fc' || donVi?.source === 'krf' ? 'các tháng còn lại để TRỐNG — điền tay hoặc dùng nút Copy từ tháng n.'
+                : (donVi?.source === 'fc' || donVi?.source === 'krf' ? 'các tháng còn lại để TRỐNG — điền tay, dùng nút Copy từ tháng n' + (donVi?.source === 'fc' && single ? ' hoặc Lấy từ FC.' : '.')
                   : 'các tháng còn lại tự dự báo theo trung bình và xu hướng cùng kỳ.')}
               {' '}Bảng chỉ được lưu vào hệ thống khi bạn bấm <b>Lưu nháp</b>.
               {!b.lines.length && <> <b>Chưa có số liệu cũ</b> — vẫn lập được kế hoạch mới bằng cách thêm khách / thêm SKU rồi nhập số lượng từng tháng.</>}
@@ -763,7 +778,7 @@ export default function AnnualPlan({ currentBU, user, choDuyetNam, onChonDonVi }
               <span className="text-[11px] text-slate-500 ml-auto">{kieu === 'sku' && !single ? 'Sửa tổng Category / tổng SKU / SL một khách: nút vừa sửa được Fix (Category / SKU chỉ Fix TỔNG, các dòng con vẫn co giãn). Các dòng chưa Fix cùng nhóm co giãn để tổng nhóm không đổi; tổng doanh thu tháng và doanh thu từng khách luôn không đổi — không giữ được thì báo lỗi. Tick ở đầu dòng = Fix cả năm.' : 'Sửa SL một SKU: các SKU chưa Fix còn lại của cùng khách tự co giãn để doanh thu khách đó không đổi. Sửa doanh thu khách ở dòng khách. Khách mới / bớt khách: các khách khác bù để tổng tháng không đổi.'}</span>
             </div>
           )}
-          {editable && view === 'base' && !st.targetApplied && (donVi?.source === 'fc' || donVi?.source === 'krf') && <CopyThang st={st} onCopy={chepThang} />}
+          {editable && view === 'base' && !st.targetApplied && (donVi?.source === 'fc' || donVi?.source === 'krf') && <CopyThang st={st} onCopy={chepThang} onFc={donVi?.source === 'fc' && donVi?.single ? layTuFc : null} busy={busy} />}
           {editable && view === 'plan' && !single && kieu === 'khach' && (
             <label className="flex items-center gap-2 text-[11px] text-slate-600 mb-1.5" title="Đã Apply: sửa doanh thu của một khách thì các khách khác (đang hiển thị) tự co giãn để tổng tháng vẫn bằng Target × tỷ trọng">
               <input type="checkbox" checked={buKhac} onChange={(e) => setBuKhac(e.target.checked)} />
@@ -877,14 +892,19 @@ function PreviewTable({ state, single, fmt, nhan, dangLoc, nhomTT, info }) {
   );
 }
 
-/** Đơn vị Brand: tháng dự kiến để trống (thiếu dữ liệu các tháng cũ) — điền tay từng ô hoặc COPY SL của tháng n sang tháng dự kiến. */
-function CopyThang({ st, onCopy }) {
+/**
+ * Đơn vị Brand: tháng dự kiến để trống (thiếu dữ liệu các tháng cũ) — điền tay từng ô, COPY SL của tháng n sang tháng dự kiến,
+ * hoặc (đơn vị một khách có FC: GT2 / 3T / NSKX) LẤY SL từ FC (`onFc`) vào các tháng dự kiến.
+ */
+function CopyThang({ st, onCopy, onFc, busy }) {
   const dau = st.baselineLastMonth + 1;                       // tháng dự kiến đầu tiên
   const [nguon, setNguon] = useState(Math.max(0, st.baselineLastMonth));
   const [dich, setDich] = useState('tat');
+  const [dichFc, setDichFc] = useState('tat');
   const thangDuKien = M.NHAN_THANG.map((t, m) => m).filter((m) => m >= dau);
   if (!thangDuKien.length) return null;
   const chay = () => onCopy(nguon, dich === 'tat' ? thangDuKien : [Number(dich)]);
+  const chayFc = () => onFc(dichFc === 'tat' ? thangDuKien : [Number(dichFc)]);
   const o = 'border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white';
   return (
     <div className="flex flex-wrap items-center gap-2 mb-2 text-xs bg-amber-50/60 border border-amber-200 rounded-lg px-3 py-2">
@@ -897,6 +917,19 @@ function CopyThang({ st, onCopy }) {
         {thangDuKien.map((m) => <option key={m} value={m}>{M.NHAN_THANG[m]}</option>)}
       </select>
       <button className={nutPhu} onClick={chay}>Copy</button>
+      {onFc && (
+        <>
+          <span className="text-slate-500 mx-1">|</span>
+          <span>hoặc lấy SL dự báo từ FC vào</span>
+          <select value={dichFc} onChange={(e) => setDichFc(e.target.value)} className={o} aria-label="Tháng dự kiến lấy từ FC">
+            <option value="tat">tất cả tháng dự kiến</option>
+            {thangDuKien.map((m) => <option key={m} value={m}>{M.NHAN_THANG[m]}</option>)}
+          </select>
+          <button className={nutPhu} onClick={chayFc} disabled={busy} title="Lấy số lượng dự báo (bản đã duyệt / đã chốt, chu kỳ FC mới nhất phủ tháng đó) của đơn vị này trong app FC">
+            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />} Lấy từ FC
+          </button>
+        </>
+      )}
     </div>
   );
 }

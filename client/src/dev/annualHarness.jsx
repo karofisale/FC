@@ -88,6 +88,16 @@ api.createAnnualPlan = async (p) => {
 };
 api.discardAnnualPlan = async ({ planId }) => { const i = kho.plans.findIndex((x) => x.id === planId); if (i >= 0) kho.plans.splice(i, 1); return tre({ ok: true, planId }); };
 api.searchAnnualSku = async ({ q }) => { const t = String(q || '').toLowerCase(); return tre({ items: SKU.filter((x) => x[0].includes(t) || x[1].toLowerCase().includes(t)).map((x) => ({ code: x[0], name: x[1], category: /^1/.test(x[0]) ? 'Machine' : 'Component', model: '', priceVnd: x[2] })), fxRate: FX, canhBao: '' }); };
+// "Lấy từ FC" (Brand một khách): FC có dự báo T10, T11 (T12 chưa có); có một SKU mới chưa nằm trong bảng
+api.getFcForecastForAnnual = async () => {
+  const q12 = (a) => { const r = new Array(12).fill(0); a.forEach(([m, v]) => { r[m - 1] = v; }); return r; };
+  return tre({
+    items: [{ sku: SKU[0][0], name: SKU[0][1], category: 'Máy', priceVnd: SKU[0][2], qty: q12([[10, 300], [11, 350]]) },
+      { sku: SKU[2][0], name: SKU[2][1], category: 'Lõi', priceVnd: SKU[2][2], qty: q12([[10, 1200], [11, 1300]]) },
+      { sku: '2099990001', name: 'Lõi mới từ FC', category: 'Lõi', priceVnd: 70000, qty: q12([[10, 50], [11, 60]]) }],
+    thang: [{ m: 10, cycleBaseMonth: YEAR - 1 + '-10', basis: 'final' }, { m: 11, cycleBaseMonth: YEAR - 1 + '-10', basis: 'approved' }], canhBao: ''
+  });
+};
 api.saveAnnualPlan = async ({ planId, plan }) => { const p = tim(planId); Object.assign(p, sao(plan), { status: 'draft' }); return tre({ ok: true, planId, canhBao: [] }); };
 api.submitAnnualPlan = async ({ planId }) => { const p = tim(planId); p.status = 'submitted'; return tre({ ok: true, planId, canhBao: [] }); };
 api.decideAnnualPlan = async ({ planId, decision, comment }) => { const p = tim(planId); p.status = decision; p.decisionComment = comment || ''; return tre({ ok: true, planId, status: decision }); };

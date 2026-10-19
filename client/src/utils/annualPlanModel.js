@@ -405,6 +405,47 @@ export function saoChepThang(state, nguon, dich) {
   }) };
 }
 
+/**
+ * LẤY TỪ FC (20/10/2026): điền SL dự báo FC (server getFcForecastForAnnual) vào các tháng DỰ KIẾN của kế hoạch (đơn vị Brand một khách). `du` = { items: [{ sku, name, priceVnd, qty[12] }],
+ * thang: [{ m (1-12), cycleBaseMonth, basis }] }; chỉ tháng có trong du.thang là có số FC. `dich` = tháng đích (0-11) — chỉ tháng chưa có số thực hiện, chưa Apply.
+ * Với mỗi SKU của FC: dòng đã có -> ghi SL (cơ sở + kế hoạch) ở các tháng đích; SKU chưa có trong bảng -> THÊM dòng mới (giá theo server, SL tháng khác = 0).
+ * Dòng của kế hoạch mà FC không có SKU đó thì GIỮ NGUYÊN (không xóa số điền tay). Tháng đích mà FC chưa có dự báo thì không đụng.
+ * Trả { state, thangDung: [0-11], thangThieu: [0-11], soDong: số dòng được ghi, soMoi: số dòng SKU mới thêm, skuMoi: [{ skuCode, skuName, category }] }.
+ */
+export function layTuFc(state, du, dich) {
+  if (state.targetApplied) throw new Error('Target đã Apply — mở khóa trước khi lấy số từ FC.');
+  const ds = Array.from(new Set(dich || []));
+  if (!ds.length) throw new Error('Chọn tháng dự kiến cần lấy số từ FC.');
+  const sai = ds.find((m) => m <= state.baselineLastMonth);
+  if (sai !== undefined) throw new Error('Tháng ' + (sai + 1) + ' đã có số thực hiện, không ghi đè được.');
+  const coFc = new Set(((du && du.thang) || []).map((t) => t.m - 1));
+  const thangDung = ds.filter((m) => coFc.has(m)).sort((a, b) => a - b), thangThieu = ds.filter((m) => !coFc.has(m)).sort((a, b) => a - b);
+  if (!thangDung.length) throw new Error('FC chưa có dự báo cho ' + thangThieu.map((m) => 'T' + (m + 1)).join(', ') + '.');
+  const dung = new Set(thangDung);
+  let s = state, soDong = 0;
+  const skuMoi = [];
+  ((du && du.items) || []).forEach((it) => {
+    const ma = String(it.sku || '').trim();
+    if (!ma) return;
+    const idx = s.lines.findIndex((l) => l.skuCode === ma && !l.customerKey);
+    if (idx < 0) {
+      const them = themSku(s, '', { skuCode: ma, skuName: it.name || ma, priceVnd: it.priceVnd || 0 });
+      const key = '|' + ma;
+      s = { ...them, lines: them.lines.map((l) => (l.key !== key ? l : { ...l,
+        qtyBase: l.qtyBase.map((x, m) => (dung.has(m) ? Math.max(0, Math.round(so(it.qty[m]))) : x)),
+        qty: l.qty.map((x, m) => (dung.has(m) ? Math.max(0, Math.round(so(it.qty[m]))) : x)) })) };
+      skuMoi.push({ skuCode: ma, skuName: it.name || ma, category: it.category || '' });
+      soDong++;
+      return;
+    }
+    s = { ...s, lines: s.lines.map((l, i) => (i !== idx ? l : { ...l,
+      qtyBase: l.qtyBase.map((x, m) => (dung.has(m) ? Math.max(0, Math.round(so(it.qty[m]))) : x)),
+      qty: l.qty.map((x, m) => (dung.has(m) ? Math.max(0, Math.round(so(it.qty[m]))) : x)) })) };
+    soDong++;
+  });
+  return { state: s, thangDung, thangThieu, soDong, soMoi: skuMoi.length, skuMoi };
+}
+
 /** Nội dung gửi API lưu. */
 export function chuyenSangPayload(state) {
   return { targetGrowthPct: state.targetGrowthPct, targetRevenueVnd: state.targetRevenueVnd, targetApplied: !!state.targetApplied, shares: state.shares,

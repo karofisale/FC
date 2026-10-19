@@ -187,6 +187,29 @@ console.log('--- bản chưa lưu + copy từ tháng n ---');
   check('Copy: không ghi đè tháng đã có số thực hiện; cần tháng đích khác nguồn; đã Apply thì chặn; đầu vào không bị sửa', /đã có số thực hiện/.test(loi(() => M.saoChepThang(M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 }), 5, [2, 6]))) &&
     /khác tháng nguồn/.test(loi(() => M.saoChepThang(M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 }), 5, [5]))) && /Apply/.test(loi(() => M.saoChepThang({ ...M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 }), targetApplied: true }, 3, [5]))) &&
     JSON.stringify(M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 }).lines[0].qtyBase) === JSON.stringify(b.lines[0].qtyBase));
+
+  // Lấy từ FC (20/10/2026): FC có T5, T6, T8 (không có T7)
+  const fc = { items: [{ sku: 'S1', name: 'Máy S1', category: 'Máy', priceVnd: 1000000, qty: [0, 0, 0, 0, 11, 12, 0, 14, 0, 0, 0, 0] },
+    { sku: 'S9', name: 'Lõi mới S9', category: 'Lõi', priceVnd: 70000, qty: [0, 0, 0, 0, 5, 6, 0, 8, 0, 0, 0, 0] }],
+    thang: [{ m: 5, cycleBaseMonth: '2026-10', basis: 'final' }, { m: 6, cycleBaseMonth: '2026-10', basis: 'approved' }, { m: 8, cycleBaseMonth: '2026-11', basis: 'final' }] };
+  const n1 = M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 });
+  const f1 = M.layTuFc(n1, fc, [4, 5, 6, 7]);
+  const s1 = f1.state.lines.find((l) => l.skuCode === 'S1'), s2 = f1.state.lines.find((l) => l.skuCode === 'S2'), s9 = f1.state.lines.find((l) => l.skuCode === 'S9');
+  check('Lấy từ FC: dòng đã có được ghi SL ở tháng đích CÓ số FC (cả cơ sở lẫn kế hoạch); T7 (FC không có) và tháng đã thực hiện không đổi',
+    s1.qty[4] === 11 && s1.qty[5] === 12 && s1.qty[7] === 14 && s1.qtyBase[4] === 11 && s1.qty[6] === 0 && s1.qty.slice(0, 4).join() === '10,20,30,40', s1);
+  check('Lấy từ FC: SKU của FC chưa có trong bảng -> THÊM dòng mới (giá từ server, SL các tháng đích, tháng khác 0); SKU của kế hoạch mà FC không có giữ nguyên',
+    s9 && s9.priceVnd === 70000 && s9.customerKey === '' && s9.qty.join() === '0,0,0,0,5,6,0,8,0,0,0,0' && s9.qtyBase.join() === s9.qty.join() && s2.qty.join() === '100,200,300,400,0,0,0,0,0,0,0,0' && f1.soDong === 2 && f1.soMoi === 1 && f1.skuMoi[0].category === 'Lõi', f1);
+  check('Lấy từ FC: báo tháng dùng / tháng FC chưa có; đầu vào không bị sửa', f1.thangDung.join() === '4,5,7' && f1.thangThieu.join() === '6' && n1.lines.length === 2 && n1.lines[0].qty[4] === 0);
+  check('Lấy từ FC: một tháng đích duy nhất; không tháng nào có FC thì báo lỗi rõ; không ghi đè tháng đã thực hiện; đã Apply thì chặn; không chọn tháng thì lỗi',
+    M.layTuFc(M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 }), fc, [5]).state.lines[0].qty.join() === '10,20,30,40,0,12,0,0,0,0,0,0' &&
+    /FC chưa có dự báo cho T7/.test(loi(() => M.layTuFc(M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 }), fc, [6]))) &&
+    /đã có số thực hiện/.test(loi(() => M.layTuFc(M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 }), fc, [2, 4]))) &&
+    /Apply/.test(loi(() => M.layTuFc({ ...M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 }), targetApplied: true }, fc, [4]))) &&
+    /Chọn tháng/.test(loi(() => M.layTuFc(M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 }), fc, []))));
+  // SKU từng bị xóa rồi lấy lại từ FC: trả số cơ sở gốc về dòng (không đếm hai lần)
+  const daXoa = M.xoaSku(M.taoStateTuCoSo(b, { bu: 'GT2', year: 2027 }), '|S1').state;
+  const lai = M.layTuFc(daXoa, fc, [4]).state;
+  check('Lấy từ FC: SKU đã xóa trước đó được thêm lại với số cơ sở gốc các tháng đã thực hiện, tháng đích = FC; mục "đã xóa" được dọn', lai.lines.find((l) => l.skuCode === 'S1').qtyBase.slice(0, 4).join() === '10,20,30,40' && lai.lines.find((l) => l.skuCode === 'S1').qtyBase[4] === 11 && !lai.removedLines.some((l) => l.key === '|S1'), lai.removedLines);
 }
 
 console.log('--- bù theo từng khách / khách mới / xóa khách ---');

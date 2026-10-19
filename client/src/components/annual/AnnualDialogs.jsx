@@ -348,18 +348,33 @@ export function TaiDoanhThuKhachDialog({ state, info, nguon, fmt, nhan: nhanTien
   const [bang, setBang] = useState(null);                 // { bang: Map, khongKhop, trung }
   const [tenFile, setTenFile] = useState('');
   const [canBang, setCanBang] = useState(true);
+  const [fileXl, setFileXl] = useState(null);             // { tabs, mac, doc } — file đã mở, người dùng CHỌN tab chứa bảng
+  const [tab, setTab] = useState('');
+  // Đọc một tab của file đã mở và ghép với khách trong kế hoạch
+  const napTab = async (f, tenTab) => {
+    setLoi(''); setBang(null);
+    const X = await import('../../utils/annualPlanExcel');
+    const r = f.doc(tenTab);
+    if (r.loi) { setLoi(r.loi); return; }
+    const kh = X.khopBangVoiKhach(r.dong, state, info, nguon);
+    if (!kh.bang.size) { setLoi('Không dòng nào khớp với khách trong kế hoạch (so theo Mã khách rồi Tên khách) — kiểm tra đã chọn đúng tab chưa.'); return; }
+    setBang(kh);
+  };
   const chonFile = async (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
-    setDang(true); setLoi(''); setBang(null); setTenFile(f.name);
+    setDang(true); setLoi(''); setBang(null); setFileXl(null); setTab(''); setTenFile(f.name);
     try {
       const X = await import('../../utils/annualPlanExcel');
-      const r = await X.docFileBang(f);
-      if (r.loi) { setLoi(r.loi); return; }
-      const kh = X.khopBangVoiKhach(r.dong, state, info, nguon);
-      if (!kh.bang.size) { setLoi('Không dòng nào khớp với khách trong kế hoạch (so theo Mã khách rồi Tên khách).'); return; }
-      setBang(kh);
+      const m = await X.moFileExcel(f);
+      if (!m.tabs.length) { setLoi('File Excel không có tab nào.'); return; }
+      setFileXl(m); setTab(m.mac);
+      await napTab(m, m.mac);
     } catch (err) { setLoi(err.message || String(err)); } finally { setDang(false); }
+  };
+  const doiTab = async (ten) => {
+    setTab(ten); setDang(true);
+    try { await napTab(fileXl, ten); } catch (err) { setLoi(err.message || String(err)); } finally { setDang(false); }
   };
   const kq = useMemo(() => (bang ? apDungBangDoanhThu(state, bang.bang, { canBangVeTarget: canBang, catOf }) : null), [bang, state, canBang, catOf]);
   const tenKhach = (k) => { const c = state.customers.find((x) => x.key === k); return (c && c.name) || k; };
@@ -367,10 +382,20 @@ export function TaiDoanhThuKhachDialog({ state, info, nguon, fmt, nhan: nhanTien
   return (
     <Khung title="Tải Excel doanh thu khách theo tháng" onClose={onClose} rong>
       <p className="text-[11px] text-slate-600 mb-3">
-        Bấm <b>Xuất Excel</b> để lấy file, sửa các cột <b>DT KH T1…T12</b> của tab <b>Plan_Per_Client</b> (số tiền là VNĐ đầy đủ; ô để trống = không đổi), rồi tải lại ở đây.
+        Chọn file Excel rồi <b>chọn tab</b> chứa bảng doanh thu khách × tháng: có dòng tiêu đề <b>Mã khách</b> / <b>Tên khách</b> và các cột tháng <b>DT KH T1…T12</b> (hoặc T1…T12) — số tiền là VNĐ đầy đủ, ô để trống = không đổi.
+        File lấy từ <b>Xuất Excel</b> thì dùng tab <b>Plan_Per_Client</b>.
         Với mỗi khách và tháng thay đổi, SL các SKU chưa Fix của khách đó co giãn theo tỷ lệ cho đúng doanh thu mới.
       </p>
       <input type="file" accept=".xlsx,.xls" onChange={chonFile} className="text-xs mb-3" />
+      {fileXl && (
+        <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
+          <label className="font-semibold text-slate-700" htmlFor="tab-excel-dt-khach">Tab dữ liệu:</label>
+          <select id="tab-excel-dt-khach" value={tab} onChange={(e) => doiTab(e.target.value)} disabled={dang} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white max-w-xs">
+            {fileXl.tabs.map((t) => <option key={t.ten} value={t.ten}>{t.ten}{t.hopLe ? ' ✓' : ''} ({t.soDong} dòng)</option>)}
+          </select>
+          <span className="text-slate-500">✓ = nhận ra bảng doanh thu khách × tháng</span>
+        </div>
+      )}
       {dang && <div className="text-xs text-slate-500 flex items-center gap-2 mb-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Đang đọc {tenFile}…</div>}
       {loi && <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mb-2">{loi}</div>}
       {kq && (

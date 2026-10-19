@@ -112,5 +112,27 @@ console.log('--- tải lên bảng doanh thu khách (đọc lại file vừa xu�
   check('file không đúng định dạng -> thông báo lỗi', /Mã khách/.test(X.docBangPerClient([['a', 'b']]).loi) && /DT KH/.test(X.docBangPerClient([['Mã khách', 'Tên khách']]).loi));
 }
 
+console.log('--- chọn TAB khi tải lên (20/10/2026): không cố định Plan_Per_Client ---');
+{
+  const dau = ['Client', 'T1', 'T2', 'Tháng 3', 'DT T4', 'Doanh thu T5/2027', 'Ghi chú'];
+  const tuLieu = (tabs) => {
+    const w = XLSX.utils.book_new();
+    Object.entries(tabs).forEach(([ten, aoa]) => XLSX.utils.book_append_sheet(w, XLSX.utils.aoa_to_sheet(aoa), ten));
+    const buf = XLSX.write(w, { type: 'array', bookType: 'xlsx' });
+    return { arrayBuffer: async () => buf };
+  };
+  const fl = X.docBangPerClient([['Báo cáo'], dau, ['ALPHA', 100, 200, 300, 400, 500, 'x'], ['Tổng', 1, 2, 3, 4, 5, '']]);
+  check('tiêu đề linh hoạt: "Client" + "T1" / "Tháng 3" / "DT T4" / "Doanh thu T5/2027" nhận ra đúng tháng; dòng Tổng bỏ; bỏ qua dòng tiêu đề phụ phía trên',
+    !fl.loi && fl.dong.length === 1 && fl.dong[0].ten === 'ALPHA' && fl.dong[0].ma === '' && fl.dong[0].thang.slice(0, 5).join() === '100,200,300,400,500' && fl.dong[0].thang[5] === null, fl);
+  const f = await X.moFileExcel(tuLieu({ 'Ghi chu': [['hướng dẫn'], ['không phải bảng']], 'DT khach': [dau, ['ALPHA', 1, 2, 3, 4, 5]], Plan_Per_Client: pcRowsMau() }));
+  check('liệt kê mọi tab; tab có bảng được đánh dấu hợp lệ; mặc định chọn Plan_Per_Client khi có', f.tabs.map((t) => t.ten).join() === 'Ghi chu,DT khach,Plan_Per_Client' && f.tabs[0].hopLe === false && f.tabs[1].hopLe === true && f.tabs[2].hopLe === true && f.mac === 'Plan_Per_Client', f.tabs);
+  check('đọc đúng tab người dùng chọn (DT khach), tab không hợp lệ báo lỗi rõ, tab không tồn tại báo lỗi', f.doc('DT khach').dong[0].thang[0] === 1 && /chọn tab khác/.test(f.doc('Ghi chu').loi) && /Không có tab/.test(f.doc('xyz').loi));
+  const g = await X.moFileExcel(tuLieu({ 'Ghi chu': [['x']], 'Bảng A': [dau, ['ALPHA', 7]] }));
+  check('không có Plan_Per_Client: mặc định chọn tab hợp lệ ĐẦU TIÊN; docFileBang vẫn đọc tab mặc định', g.mac === 'Bảng A' && (await X.docFileBang(tuLieu({ 'Ghi chu': [['x']], 'Bảng A': [dau, ['ALPHA', 7]] }))).dong[0].thang[0] === 7);
+  const h = await X.moFileExcel(tuLieu({ A: [['x']], B: [['y']] }));
+  check('không tab nào hợp lệ: vẫn mở được, chọn tab đầu để người dùng tự đổi', h.mac === 'A' && h.tabs.every((t) => !t.hopLe) && !!h.doc('A').loi);
+  function pcRowsMau() { return [['Mã khách', 'Tên khách', 'Sale ID', 'DT năm 2026 (dự kiến)', 'DT kế hoạch năm 2027', 'DT KH T1/2027'], ['ALPHA', 'Alpha', 's', 1, 2, 3]]; }
+}
+
 console.log('\n' + pass + ' đạt, ' + fail + ' lỗi');
 process.exit(fail ? 1 : 0);
