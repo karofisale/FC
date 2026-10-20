@@ -6,6 +6,7 @@ import KarofiMark from './KarofiMark';
 import Dialog from './Dialog';
 import { appKhacDungDuoc } from '../services/karofiSession';
 import { isDirty, confirmLeaveApp } from '../services/dirtyState';
+import { lamNongTrang } from '../utils/chuyenApp';
 
 /**
  * Link RỜI HẲN sang Portal / app khác. Đây là link thật (trình duyệt tải trang mới) nên chỉ
@@ -13,17 +14,42 @@ import { isDirty, confirmLeaveApp } from '../services/dirtyState';
  * điệu với phần còn lại. Có ô chưa lưu thì hỏi bằng hộp của app trước; chấp nhận rồi mới đi.
  * Không dirty, hoặc bấm kiểu mở tab mới (Ctrl/Shift/giữa), thì để trình duyệt tự xử lý như link thường.
  */
-const roiSangApp = (hanhDong, href) => (e) => {
+const roiSangApp = (hanhDong, href, baoDangChuyen) => (e) => {
   if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-  if (!isDirty()) return;
+  if (!isDirty()) { baoDangChuyen(); return; }
   e.preventDefault();
-  confirmLeaveApp(hanhDong).then((ok) => { if (ok) window.location.href = href; });
+  confirmLeaveApp(hanhDong).then((ok) => { if (ok) { baoDangChuyen(); window.location.href = href; } });
 };
 
 export default function Header({ user, currentBU, setCurrentBU, bus, onLogout, onOpenMenu, onOpenSettings, onOpenSystemSettings, menuOpen = false }) {
   const [showPinDialog, setShowPinDialog] = useState(false);
   // Đọc một lần khi dựng: khối quyền nằm trong token, không đổi giữa các lần vẽ.
   const [appKhac] = useState(() => appKhacDungDuoc('FC'));
+
+  // Địa chỉ nút vừa được bấm — nút đó đổi sang "Đang mở…" + vòng xoay ngay, vì trang đích mất vài giây
+  // mới hiện, không có thì người dùng tưởng nút không ăn. Về lại bằng nút Back (trang lấy từ bộ nhớ đệm)
+  // thì pageshow trả nút về như cũ.
+  const [dangChuyen, setDangChuyen] = useState(null);
+  useEffect(() => {
+    const boLopPhu = (e) => { if (e.persisted) setDangChuyen(null); };
+    window.addEventListener('pageshow', boLopPhu);
+    return () => window.removeEventListener('pageshow', boLopPhu);
+  }, []);
+  // Trình duyệt hỏi "rời trang?" mà người dùng chọn Ở LẠI thì trang không đi đâu: trả nút về như cũ.
+  useEffect(() => {
+    if (!dangChuyen) return undefined;
+    const t = setTimeout(() => setDangChuyen(null), 15000);
+    return () => clearTimeout(t);
+  }, [dangChuyen]);
+  const linkChuyen = (hanhDong, href) => ({
+    href,
+    'aria-busy': dangChuyen === href || undefined,
+    onClick: roiSangApp(hanhDong, href, () => setDangChuyen(href)),
+    onPointerEnter: () => lamNongTrang(href),
+    onFocus: () => lamNongTrang(href),
+    onTouchStart: () => lamNongTrang(href)
+  });
+  const dangMo = (href) => (dangChuyen === href ? ' pointer-events-none cursor-progress text-white border-white/70 bg-blue-800/60' : '');
 
   return (
     <header className="bg-gradient-to-r from-blue-900 via-blue-800 to-blue-950 text-white shadow-md border-b border-blue-700 sticky top-0 z-30">
@@ -45,13 +71,12 @@ export default function Header({ user, currentBU, setCurrentBU, bus, onLogout, o
           {/* Đường về cổng. Cần thiết vì khi chạy như ứng dụng đã cài, cửa sổ
               không có nút back của trình duyệt. */}
           <a
-            href="/VHKD/"
-            onClick={roiSangApp('Về Karofi Portal', '/VHKD/')}
+            {...linkChuyen('Về Karofi Portal', '/VHKD/')}
             title="Về Karofi Portal"
-            className="flex items-center gap-1 text-xs text-blue-200 hover:text-white whitespace-nowrap border border-blue-600/40 rounded-lg px-2 py-1.5"
+            className={'flex items-center gap-1 text-xs text-blue-200 hover:text-white whitespace-nowrap border border-blue-600/40 rounded-lg px-2 py-1.5' + dangMo('/VHKD/')}
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Portal</span>
+            {dangChuyen === '/VHKD/' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowLeft className="w-3.5 h-3.5" />}
+            <span className={dangChuyen === '/VHKD/' ? '' : 'hidden sm:inline'}>{dangChuyen === '/VHKD/' ? 'Đang mở…' : 'Portal'}</span>
           </a>
           {/* Chuyển sang app khác mà người này được vào, không phải đi vòng qua
               cổng. Chỉ hiện khi đang dùng phiên chung — đăng nhập riêng bằng
@@ -59,12 +84,11 @@ export default function Header({ user, currentBU, setCurrentBU, bus, onLogout, o
           {appKhac.map(a => (
             <a
               key={a.key}
-              href={a.href}
-              onClick={roiSangApp('Sang ' + a.ten, a.href)}
+              {...linkChuyen('Sang ' + a.ten, a.href)}
               title={'Sang ' + a.ten}
-              className="text-xs text-blue-200 hover:text-white whitespace-nowrap border border-blue-600/40 rounded-lg px-2 py-1.5 hidden md:inline-block"
+              className={'text-xs text-blue-200 hover:text-white whitespace-nowrap border border-blue-600/40 rounded-lg px-2 py-1.5 hidden md:inline-flex items-center gap-1' + dangMo(a.href)}
             >
-              {a.nhan}
+              {dangChuyen === a.href ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Đang mở…</> : a.nhan}
             </a>
           ))}
           <div className="w-8 h-8 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-inner flex-shrink-0">
