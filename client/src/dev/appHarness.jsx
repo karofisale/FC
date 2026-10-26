@@ -160,7 +160,8 @@ const ketQua = (action, p) => {
       productCount: SKUS.length, cycle: cycles[0], cycles,
       b0Summary: GROUPS.flatMap((g, i) => THANG.map((m, j) => ({ business_unit_code: BU, business_unit_name: BUS.find((b) => b.code === BU)?.name, product_group_code: g.code, product_group_name: g.name, forecast_month: m, total_quantity: 300 + i * 120 + j * 40, total_revenue: (300 + i * 120 + j * 40) * (9_500_000 + i * 1_700_000) })))
     };
-    case 'getMonthlyWorkspace': return { cycles, products: SKUS, cycle: cycles[0], versions, version: versions[0], lines: Object.entries(monthly).map(([k, v]) => ({ sku_code: k.slice(0, k.lastIndexOf('_')), forecast_month: k.slice(k.lastIndexOf('_') + 1), quantity: v })) };
+    case 'getMonthlyWorkspace': return { cycles, products: SKUS, cycle: cycles[0], versions, version: versions[0], lines: Object.entries(monthly).map(([k, v]) => ({ sku_code: k.slice(0, k.lastIndexOf('_')), forecast_month: k.slice(k.lastIndexOf('_') + 1), quantity: v }))
+      .concat(q.get('ngoai') === '1' ? [{ sku_code: '2013100163', forecast_month: THANG[0], quantity: 300 }, { sku_code: '2013100164', forecast_month: THANG[0], quantity: 300 }] : []) };
     case 'getWeeklyWorkspace': {
       // ?ngoai=1: thử "cảnh báo lệch nhưng không thấy SKU ở bảng": 2 SKU NGOÀI danh mục đang bật (có số tuần, một mã còn có số tháng) + 1 ô ở tuần 9 (không hiện trên bảng)
       const NGOAI = q.get('ngoai') === '1';

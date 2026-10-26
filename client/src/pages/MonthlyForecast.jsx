@@ -510,6 +510,23 @@ export default function MonthlyForecast({ currentBU, user }) {
     return () => { huy = true; };
   }, [dongLechDanhMuc.maSo]);
 
+  /**
+   * "Xoá số ở đây" mà lời khuyên trong khung cảnh báo nói tới (26/10/2026): các mã ngoài danh mục không có dòng trong bảng nên không
+   * có ô để xoá — nút này đưa về 0 mọi ô tháng đang hiện của các mã đó (đi qua cùng đường sửa ô / Lưu bản thảo như mọi thay đổi khác).
+   */
+  const xoaSoMaNgoaiDanhMuc = async () => {
+    const ds = dongLechDanhMuc.maSo;
+    if (!ds.length) return;
+    if (!(await appConfirm(
+      `Đưa về 0 số dự báo của ${ds.length.toLocaleString('vi-VN')} mã không thuộc danh mục của ${currentBU} (${ds.slice(0, 6).join(', ')}${ds.length > 6 ? '…' : ''}), tổng ${dongLechDanhMuc.tongSl.toLocaleString('vi-VN')} chiếc ở các tháng đang hiện?\n\n`
+      + 'Dùng khi đó là số nhầm đơn vị (hàng của kênh khác). Chưa lưu cho tới khi bấm "Lưu bản thảo"; muốn bỏ thì tải lại trang trước khi lưu.',
+      { title: 'Xoá số của mã ngoài danh mục?', okLabel: `Đưa ${ds.length.toLocaleString('vi-VN')} mã về 0`, danger: true }
+    ))) return;
+    const updates = [];
+    ds.forEach((ma) => months.forEach((m) => { if ((forecastMap[`${ma}_${m}`] || 0) !== 0) updates.push({ rowKey: ma, col: m, value: 0 }); }));
+    if (updates.length) handleCellsChange(updates);
+  };
+
   const coHangChuaPhanLoai = months.some((m) => (khacTotals[m] || 0) > 0);
   const tongMay = months.reduce((s, m) => s + (mayTotals[m] || 0), 0);
   const tongLoi = months.reduce((s, m) => s + (loiTotals[m] || 0), 0);
@@ -644,8 +661,17 @@ export default function MonthlyForecast({ currentBU, user }) {
             </ul>
             <div className="font-sans text-[11px] text-amber-800">
               Cách xử lý: nếu đúng là hàng của {currentBU} thì sửa Kênh mặc định của mã ở trang
-              Danh mục sản phẩm; nếu không thì xoá số ở đây và nhập vào chu kỳ của đúng đơn vị.
+              Danh mục sản phẩm; nếu không thì xoá số ở đây (nút bên dưới) và nhập vào chu kỳ của đúng đơn vị.
             </div>
+            {canWrite && (
+              <button
+                type="button"
+                onClick={xoaSoMaNgoaiDanhMuc}
+                className="font-sans border border-amber-400 bg-white hover:bg-amber-100 text-amber-900 px-2.5 py-1 rounded-lg text-xs font-semibold"
+              >
+                Đưa số của {dongLechDanhMuc.maSo.length} mã này về 0
+              </button>
+            )}
           </div>
         </div>
       )}

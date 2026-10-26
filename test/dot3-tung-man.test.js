@@ -143,6 +143,9 @@ async function main() {
     && /setOAn\(oAnCuaBang\(kq\.weeklyMap, weeks, regionCodes\)\)/.test(wf) && /setOAn\(oAnCuaBang\(daLuuRef\.current, weeks, regionCodes\)\)/.test(wf));
   const vaSrc = doc('components/ValidationAlert.jsx');
   check('ValidationAlert: ghi chú nguyên nhân dưới từng SKU + bấm mã để lọc bảng (props tuỳ chọn, không đổi nơi khác)', /ghiChu = \{\}, onChon/.test(vaSrc) && /ghiChu\[String\(m\.sku_code\)\.trim\(\)\]/.test(vaSrc) && /onClick=\{\(\) => onChon\(String\(m\.sku_code\)\)\}/.test(vaSrc));
+  check('Forecast 4 tháng: khung cảnh báo mã ngoài danh mục có nút "Đưa số của n mã này về 0" (hỏi xác nhận, đi qua handleCellsChange như mọi sửa ô, chỉ khi canWrite)',
+    /const xoaSoMaNgoaiDanhMuc = async \(\) => \{/.test(mf) && /title: 'Xoá số của mã ngoài danh mục\?'/.test(mf) && /updates\.push\(\{ rowKey: ma, col: m, value: 0 \}\)/.test(mf) && /if \(updates\.length\) handleCellsChange\(updates\);/.test(mf)
+    && /\{canWrite && \(\s*<button\s+type="button"\s+onClick=\{xoaSoMaNgoaiDanhMuc\}/.test(mf));
   check('nút rải đều từng dòng dùng chung capNhatRaiDeu (một cách tính)', /capNhatRaiDeu\(skuCode, monthlyMap\[skuCode\] \|\| 0, weeks, regionCodes, tuanDon, mienDon\)/.test(wf));
 
   // ---- Ô chọn miền + Hoàn tác (25/10/2026) ----
