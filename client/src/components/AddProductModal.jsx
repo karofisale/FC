@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { NHAN_KENH_CHUNG } from '../utils/kenhChung';
 import { PackagePlus, PencilLine, X, Loader2, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 import { parseGiaNhap } from '../utils/productPaste';
@@ -20,7 +21,7 @@ import Dialog from './Dialog';
  * WeeklyRegionSplits và Actuals đều trỏ vào, đổi ở đây là bỏ rơi toàn bộ số
  * đã nhập cho mã cũ mà không có gì báo.
  */
-export default function AddProductModal({ groups, bus, defaultChannel, product, onClose, onAdded }) {
+export default function AddProductModal({ groups, bus, defaultChannel, product, canChung = false, onClose, onAdded }) {
   const suaDoi = !!product;
 
   /**
@@ -40,7 +41,8 @@ export default function AddProductModal({ groups, bus, defaultChannel, product, 
     shortName: chuoi(product?.short_name),
     productGroupCode: chuoi(product?.product_group_code) || (groups[0]?.code || ''),
     technology: chuoi(product?.technology),
-    defaultChannel: chuoi(product?.default_channel) || (defaultChannel || bus[0]?.code || ''),
+    // Sửa SKU đang dùng chung (kênh trống) thì GIỮ trống — trước đây bị gán ngầm về kênh của đơn vị đang xem rồi ghi đè khi lưu.
+    defaultChannel: product ? chuoi(product.default_channel) : (defaultChannel || bus[0]?.code || ''),
     // Hiện lại giá dạng số trần để sửa. Không định dạng nghìn ở đây: ô nhập có
     // dấu phân cách rồi lại phải đoán ngược khi đọc ra, mà đoán sai giá là sai
     // doanh thu.
@@ -159,8 +161,10 @@ export default function AddProductModal({ groups, bus, defaultChannel, product, 
             <label className="text-xs font-semibold text-slate-700 block">Kênh mặc định</label>
             <select value={form.defaultChannel} onChange={set('defaultChannel')}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500">
+              {(canChung || form.defaultChannel === '') && <option value="">{NHAN_KENH_CHUNG} — dùng ở nhiều kênh</option>}
               {bus.map((b) => <option key={b.code} value={b.code}>{b.code} - {b.name}</option>)}
             </select>
+            {form.defaultChannel === '' && <p className="text-[10px] text-slate-500">SKU hiện trong danh mục của MỌI đơn vị (OEM, XK, GT2, 3T…). Chỉ quản trị viên trung tâm sửa được SKU dùng chung.</p>}
           </div>
 
           <div className={suaDoi ? 'space-y-1' : 'col-span-2 space-y-1'}>

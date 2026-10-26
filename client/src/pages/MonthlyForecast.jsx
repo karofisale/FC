@@ -13,6 +13,7 @@ import { monthsOfCycle, monthLabel, monthLabelFull, weeksOfMonth } from '../util
 import { setDirty, confirmNavigateAway } from '../services/dirtyState';
 import { appConfirm } from '../services/dialogService';
 import { maNgoaiDanhMucThang, dongNgoaiDanhMuc } from '../utils/skuNgoai';
+import { datKenhChungChoCacMa, duocDatKenhChung } from '../utils/kenhChung';
 import { thongBao } from '../services/toastService';
 import { loadPref, savePref } from '../services/prefs';
 import { usePersistedState } from '../utils/usePersistedState';
@@ -558,6 +559,32 @@ export default function MonthlyForecast({ currentBU, user }) {
     return () => { huy = true; };
   }, [maNgoai]);
 
+  /**
+   * "Cho vào chung kênh": đặt Kênh mặc định = trống cho các mã ngoài danh mục (hàng dự báo ở nhiều kênh) — mã hiện trong danh mục của MỌI đơn vị,
+   * hết nhãn "ngoài danh mục". Chỉ quản trị viên trung tâm (server cũng chặn). Mã chưa có trong danh mục sản phẩm thì không đặt được — báo riêng.
+   */
+  const choVaoChungKenh = async () => {
+    const ds = maNgoai;
+    if (!ds.length) return;
+    if (!(await appConfirm(
+      `Cho ${ds.length.toLocaleString('vi-VN')} mã (${ds.slice(0, 6).join(', ')}${ds.length > 6 ? '…' : ''}) vào CHUNG KÊNH?\n\n`
+      + 'Kênh mặc định của các mã sẽ để trống: mã hiện trong danh mục của MỌI đơn vị (OEM, XK, GT2, 3T…), có thể dự báo ở nhiều kênh, và hết nhãn "ngoài danh mục". Không đổi số liệu dự báo nào.',
+      { title: 'Cho vào chung kênh?', okLabel: `Cho ${ds.length.toLocaleString('vi-VN')} mã vào chung kênh` }
+    ))) return;
+    setLoading(true);
+    try {
+      const kq = await datKenhChungChoCacMa(ds, (sp) => api.updateProduct(sp));
+      setMessage(kq.loi.length
+        ? { type: 'error', text: `Đã cho ${kq.xong.length} mã vào chung kênh; ${kq.loi.length} mã chưa được: ${kq.loi.slice(0, 3).map((x) => x.ma + ' (' + x.ly + ')').join('; ')}.` }
+        : { type: 'success', text: `Đã cho ${kq.xong.length} mã vào chung kênh — các mã hiện trong danh mục của mọi đơn vị.` });
+      await loadAll(selectedCycle?.id, selectedVersion?.id);
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const coHangChuaPhanLoai = months.some((m) => (khacTotals[m] || 0) > 0);
   const tongMay = months.reduce((s, m) => s + (mayTotals[m] || 0), 0);
   const tongLoi = months.reduce((s, m) => s + (loiTotals[m] || 0), 0);
@@ -694,6 +721,17 @@ export default function MonthlyForecast({ currentBU, user }) {
               Nếu đúng là hàng của {currentBU} thì giữ nguyên (số đã được tính; muốn mã nằm thường trực trong danh mục của {currentBU} thì sửa Kênh mặc định ở trang Danh mục sản phẩm —
               lưu ý mỗi mã chỉ có một kênh mặc định); nếu là số nhầm đơn vị thì bấm nút bên dưới để đưa về 0 rồi nhập vào chu kỳ của đúng đơn vị.
             </div>
+            {duocDatKenhChung(user) ? (
+              <button
+                type="button"
+                onClick={choVaoChungKenh}
+                className="font-sans border border-amber-400 bg-amber-100 hover:bg-amber-200 text-amber-900 px-2.5 py-1 rounded-lg text-xs font-semibold mr-2"
+              >
+                Cho {maNgoai.length} mã này vào chung kênh
+              </button>
+            ) : (
+              <div className="font-sans text-[11px] text-amber-800">Mã được dự báo ở nhiều kênh: nhờ quản trị viên trung tâm cho vào chung kênh (Danh mục SKU → Sửa → Kênh mặc định = Chung).</div>
+            )}
             {canWrite && (
               <button
                 type="button"

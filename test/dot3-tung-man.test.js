@@ -160,6 +160,23 @@ async function main() {
     && /setMaNgoai\(maNgoaiDanhMucThang\(dsSp \|\| productsRef\.current, map\)\)/.test(mf) && /applyLines\(ws\.lines \|\| \[\], ws\.products \|\| \[\]\)/.test(mf) && /\}, \[tatCa, forecastMap, months\]\);/.test(mf));
   check('Forecast 4 tháng: dòng ngoài danh mục có nhãn "ngoài danh mục"; khung cảnh báo nói rõ ĐƯỢC TÍNH vào tổng (không còn "KHÔNG được tính")',
     /p\._ngoai && <span/.test(mf) && /ĐƯỢC TÍNH vào hàng tổng/.test(mf) && !/KHÔNG được tính vào bảng dưới/.test(mf) && /api\.getProducts\(\{\}\)\s*\.then\(\(ds\) => \{\s*if \(huy\) return;\s*const quan = new Set\(maNgoai\)/.test(mf));
+  // ---- "Chung kênh" (26/10/2026): SKU dùng được ở nhiều kênh = Kênh mặc định TRỐNG; mỗi kênh vẫn có FC riêng ----
+  const kc = await imp('utils/kenhChung.js');
+  check('kenhChung: KENH_CHUNG là chuỗi rỗng; nhanKenh("") = "Chung (mọi kênh)", nhanKenh("XK") = "XK"; chỉ central_admin đặt được kênh chung',
+    kc.KENH_CHUNG === '' && kc.nhanKenh('') === 'Chung (mọi kênh)' && kc.nhanKenh(null) === 'Chung (mọi kênh)' && kc.nhanKenh(' XK ') === 'XK' && kc.duocDatKenhChung({ role: 'central_admin' }) === true && kc.duocDatKenhChung({ role: 'bu_editor' }) === false && kc.duocDatKenhChung(null) === false);
+  const goiKc = [];
+  const kqKc = await kc.datKenhChungChoCacMa(['A', 'B', 'C'], async (sp) => { goiKc.push(sp); if (sp.skuCode === 'B') throw new Error('Không có SKU B trong danh mục'); });
+  check('datKenhChungChoCacMa: gửi {skuCode, defaultChannel: ""} lần lượt từng mã; lỗi một mã (B) không làm hỏng mã khác; trả xong + loi',
+    JSON.stringify(goiKc) === '[{"skuCode":"A","defaultChannel":""},{"skuCode":"B","defaultChannel":""},{"skuCode":"C","defaultChannel":""}]' && kqKc.xong.join() === 'A,C' && kqKc.loi.length === 1 && kqKc.loi[0].ma === 'B' && /Không có SKU B/.test(kqKc.loi[0].ly), kqKc);
+  const apm = doc('components/AddProductModal.jsx'), pr = doc('pages/Products.jsx');
+  check('Sửa SKU: ô Kênh mặc định có lựa chọn "Chung (mọi kênh)" (giá trị rỗng) cho quản trị trung tâm hoặc khi mã đang dùng chung; SKU dùng chung được GIỮ trống khi sửa (không bị gán ngầm về kênh đang xem)',
+    /canChung = false/.test(apm) && /\{\(canChung \|\| form\.defaultChannel === ''\) && <option value="">\{NHAN_KENH_CHUNG\}/.test(apm) && /defaultChannel: product \? chuoi\(product\.default_channel\) : \(defaultChannel \|\| bus\[0\]\?\.code \|\| ''\)/.test(apm));
+  check('Danh mục SKU: cột kênh ghi "Chung (mọi kênh)" thay vì "-"; lọc kênh có mục "Chung"; truyền canChung theo vai trò',
+    /nhanKenh\(p\.default_channel\)/.test(pr) && /<option value="CHUNG">\{NHAN_KENH_CHUNG\}<\/option>/.test(pr) && /kenhHieuLuc === 'CHUNG' \? !p\.default_channel/.test(pr) && /canChung=\{duocDatKenhChung\(user\)\}/.test(pr));
+  const wfs = wf, mfs = mf;
+  check('Forecast 4 tháng + Chia tuần & miền: nút "Cho n mã này vào chung kênh" (chỉ quản trị trung tâm, hỏi xác nhận, gọi api.updateProduct từng mã rồi tải lại); người lập thường được chỉ dẫn nhờ quản trị',
+    /const choVaoChungKenh = async \(\) => \{/.test(mfs) && /datKenhChungChoCacMa\(ds, \(sp\) => api\.updateProduct\(sp\)\)/.test(mfs) && /duocDatKenhChung\(user\) \? \(/.test(mfs) && /title: 'Cho vào chung kênh\?'/.test(mfs) && /nhờ quản trị viên trung tâm cho vào chung kênh/.test(mfs)
+    && /const choVaoChungKenh = async \(\) => \{/.test(wfs) && /datKenhChungChoCacMa\(ds, \(sp\) => api\.updateProduct\(sp\)\)/.test(wfs) && /\{duocDatKenhChung\(user\)\s*\?/.test(wfs) && /title: 'Cho vào chung kênh\?'/.test(wfs));
   check('nút rải đều từng dòng dùng chung capNhatRaiDeu (một cách tính)', /capNhatRaiDeu\(skuCode, monthlyMap\[skuCode\] \|\| 0, weeks, regionCodes, tuanDon, mienDon\)/.test(wf));
 
   // ---- Ô chọn miền + Hoàn tác (25/10/2026) ----

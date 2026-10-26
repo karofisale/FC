@@ -20,6 +20,7 @@ import { SortTh, StateRow } from '../components/TableStates';
 import MoreMenu from '../components/MoreMenu';
 import { useGridEditing, parsePastedNumber, CHAN_LAN_CHUOT } from '../utils/useGridEditing';
 import { demGhiDe, cauHoiGhiDe } from '../utils/gridOverwrite';
+import { datKenhChungChoCacMa, duocDatKenhChung } from '../utils/kenhChung';
 import { capNhatRaiDeu, laDongLech, tapSkuLech, tinhRaiDeuTatCa, tuanDonHopLe, mienDonHopLe, lapBuocHoanTac, apHoanTac, skuNgoaiDanhMuc, oAnCuaBang } from '../utils/weeklyDistribute';
 import { MAN_HINH } from '../utils/glossary';
 
@@ -487,6 +488,27 @@ export default function WeeklyForecast({ currentBU, user }) {
     return ra;
   }, [validationResult, skuNgoai, oAn, currentBU]);
 
+  /** "Cho vào chung kênh": Kênh mặc định = trống cho các SKU ngoài danh mục (hàng dự báo ở nhiều kênh) -> hiện trong danh mục của mọi đơn vị. Chỉ quản trị viên trung tâm. */
+  const choVaoChungKenh = async () => {
+    const ds = skuNgoai.map((p) => String(p.sku_code).trim());
+    if (!ds.length) return;
+    if (!(await appConfirm(
+      `Cho ${ds.length.toLocaleString('vi-VN')} SKU (${ds.slice(0, 6).join(', ')}${ds.length > 6 ? '…' : ''}) vào CHUNG KÊNH?\n\n`
+      + 'Kênh mặc định của các mã sẽ để trống: mã hiện trong danh mục của MỌI đơn vị, có thể dự báo ở nhiều kênh, và hết nhãn "ngoài danh mục". Không đổi số liệu nào.',
+      { title: 'Cho vào chung kênh?', okLabel: `Cho ${ds.length.toLocaleString('vi-VN')} SKU vào chung kênh` }
+    ))) return;
+    setLoading(true);
+    try {
+      const kq = await datKenhChungChoCacMa(ds, (sp) => api.updateProduct(sp));
+      setMessage(kq.loi.length
+        ? { type: 'error', text: `Đã cho ${kq.xong.length} SKU vào chung kênh; ${kq.loi.length} SKU chưa được: ${kq.loi.slice(0, 3).map((x) => x.ma + ' (' + x.ly + ')').join('; ')}.` }
+        : { type: 'success', text: `Đã cho ${kq.xong.length} SKU vào chung kênh — các mã hiện trong danh mục của mọi đơn vị.` });
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message });
+    }
+    await loadAll(selectedCycle?.id, selectedVersion?.id);
+  };
+
   /** Đưa về 0 mọi ô đang có số nhưng nằm ở tuần/miền không hiện trên bảng (số cũ còn sót, ví dụ tuần 5 của tháng chỉ có 4 tuần). Chưa lưu cho tới khi bấm "Lưu bản thảo". */
   const xoaOAn = async () => {
     if (!oAn.length) return;
@@ -625,6 +647,10 @@ export default function WeeklyForecast({ currentBU, user }) {
               <strong>{skuNgoai.length.toLocaleString('vi-VN')} SKU có số nhưng không nằm trong danh mục đang bật của {currentBU}</strong>
               {' '}({skuNgoai.slice(0, 6).map((p) => p.sku_code).join(', ')}{skuNgoai.length > 6 ? '…' : ''}) — hiện ở bảng dưới thành dòng gắn nhãn "ngoài danh mục". Server vẫn cộng các số này khi kiểm khớp,
               nên hoặc sửa số tuần/miền cho khớp tháng 1, hoặc đưa về 0 nếu là số nhầm kênh / mã đã ngừng.
+              {' '}Nếu mã được dự báo ở nhiều kênh thì cho vào <strong>chung kênh</strong>
+              {duocDatKenhChung(user)
+                ? <> — <button type="button" onClick={choVaoChungKenh} className="underline font-semibold hover:text-amber-950">Cho {skuNgoai.length} mã này vào chung kênh</button></>
+                : ' (nhờ quản trị viên trung tâm: Danh mục SKU → Sửa → Kênh mặc định = Chung)'}.
             </div>
           )}
           {oAn.length > 0 && (

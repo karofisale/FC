@@ -4,6 +4,7 @@ import { useRowHeight } from '../utils/useRowHeight';
 import { api } from '../services/api';
 import { Search, Filter, PackagePlus, ClipboardPaste, PencilLine } from 'lucide-react';
 import AddProductModal from '../components/AddProductModal';
+import { NHAN_KENH_CHUNG, nhanKenh, duocDatKenhChung } from '../utils/kenhChung';
 import BulkProductsModal from '../components/BulkProductsModal';
 import { MENU_ICON } from '../utils/menu';
 import { SortTh, StateRow } from '../components/TableStates';
@@ -69,7 +70,7 @@ export default function Products({ currentBU, user }) {
   }, [loadData]);
 
   const nhomHieuLuc = groups.some((g) => g.code === selectedGroup) ? selectedGroup : 'ALL';
-  const kenhHieuLuc = bus.some((b) => b.code === selectedBU) ? selectedBU : 'ALL';
+  const kenhHieuLuc = selectedBU === 'CHUNG' || bus.some((b) => b.code === selectedBU) ? selectedBU : 'ALL';
 
   const filteredProducts = products.filter(p => {
     const s = search.trim().toLowerCase();
@@ -77,7 +78,7 @@ export default function Products({ currentBU, user }) {
       || String(p.sku_code).toLowerCase().includes(s)
       || String(p.name).toLowerCase().includes(s);
     const matchGroup = nhomHieuLuc === 'ALL' || p.product_group_code === nhomHieuLuc;
-    const matchBU = kenhHieuLuc === 'ALL' || p.default_channel === kenhHieuLuc;
+    const matchBU = kenhHieuLuc === 'ALL' || (kenhHieuLuc === 'CHUNG' ? !p.default_channel : p.default_channel === kenhHieuLuc);
     return matchSearch && matchGroup && matchBU;
   });
 
@@ -162,6 +163,7 @@ export default function Products({ currentBU, user }) {
             className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-700 outline-none"
           >
             <option value="ALL">Tất cả Kênh mặc định</option>
+            <option value="CHUNG">{NHAN_KENH_CHUNG}</option>
             {bus.map(b => (
               <option key={b.code} value={b.code}>{b.code} - {b.name}</option>
             ))}
@@ -204,7 +206,7 @@ export default function Products({ currentBU, user }) {
                         <td className="py-2.5 px-4 font-sans text-slate-600">{p.short_name || '-'}</td>
                         <td className="py-2.5 px-4 font-sans text-slate-700">{p.product_group_name}</td>
                         <td className="py-2.5 px-4 font-sans text-slate-500">{p.technology || '-'}</td>
-                        <td className="py-2.5 px-4 font-sans font-semibold text-slate-800">{p.default_channel || '-'}</td>
+                        <td className="py-2.5 px-4 font-sans font-semibold text-slate-800">{nhanKenh(p.default_channel)}</td>
                         <td className="py-2.5 px-4 text-right font-bold text-slate-900">
                           {p.avg_price ? p.avg_price.toLocaleString('vi-VN') : '-'}
                         </td>
@@ -232,6 +234,7 @@ export default function Products({ currentBU, user }) {
           groups={groups}
           bus={bus}
           defaultChannel={currentBU}
+          canChung={duocDatKenhChung(user)}
           product={dangSua}
           onClose={() => { setThemMoi(false); setDangSua(null); }}
           onAdded={(sp, message) => {

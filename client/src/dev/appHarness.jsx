@@ -182,6 +182,7 @@ const ketQua = (action, p) => {
     }
     case 'validateWeekly': return { isValid: false, mismatchesCount: 6, mismatches: [] };
     case 'saveMonthlyLines': case 'saveWeeklySplits': return { message: 'Đã lưu (giả).' };
+    case 'updateProduct': trangThai.capNhatSp = (trangThai.capNhatSp || []).concat([p.product]); return { message: 'Đã cập nhật SKU ' + p.product.skuCode + ' (giả).', changed: ['default_channel'], product: { sku_code: p.product.skuCode } };
     case 'submitCycle': return { message: 'Đã gửi duyệt (giả).' };
     case 'getActualsWorkspace': {
       const tongFc = 5200, tongTh = Object.values(actuals).reduce((s, v) => s + v, 0);
