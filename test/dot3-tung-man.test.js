@@ -126,6 +126,23 @@ async function main() {
     && ['A', 'B', 'D', 'E'].every((k) => wd.tongTuanCua(k, sauTatCa, tuan, mien) === monthly[k]) && !kqTatCa.updates.some((u) => u.rowKey === 'C'), [kqTatCa.dong, kqTatCa.boQua, sauTatCa]);
   check('không có tatCa: A (đang khớp) KHÔNG bị đụng (hành vi cũ giữ nguyên)', !wd.tinhRaiDeuTatCa({ danhSach: ds, monthlyMap: monthly, weeklyMap: weekly, tuan, mien, tuanDon: 1 }).updates.some((u) => u.rowKey === 'A'));
   check('Bảng 1: có nút "Rải đều / Dồn tất cả các dòng" (hỏi xác nhận, chỉ dòng đang hiển thị) dùng chung hàm raiDeuTatCaLech(true)', /onClick=\{\(\) => raiDeuTatCaLech\(true\)\}/.test(wf) && /onClick=\{\(\) => raiDeuTatCaLech\(false\)\}/.test(wf) && /Rải đều tất cả các dòng/.test(wf) && /Dồn tất cả các dòng vào \$\{tenDon\}/.test(wf) && /Rải đều TẤT CẢ các dòng\?/.test(wf) && /tuanDon, mienDon, tatCa \}\)/.test(wf));
+
+  // ---- Cảnh báo lệch mà "không thấy SKU ở bảng nào": SKU ngoài danh mục + ô tuần/miền không hiện (26/10/2026) ----
+  const dmBat = [{ sku_code: 'A' }, { sku_code: 'B' }];
+  const ngoai = wd.skuNgoaiDanhMuc(dmBat, { A: 10, X1: 40, X2: 0 }, { A_1_MB: 10, X2_2_MB: 12, '2013100164_1_MN': 5, B_3_MN: 0 }, { X2: 'Lõi XK', '2013100164': 'Lõi 164' });
+  check('skuNgoaiDanhMuc: SKU có số tháng (X1) hoặc số ô tuần/miền (X2, 2013100164) mà không có trong danh mục -> dòng riêng có nhãn _ngoai, tên lấy từ server; mã trong danh mục / ô = 0 không tính',
+    ngoai.map((x) => x.sku_code).join() === '2013100164,X1,X2' && ngoai.every((x) => x._ngoai === true) && ngoai.find((x) => x.sku_code === 'X2').name === 'Lõi XK' && ngoai.find((x) => x.sku_code === 'X1').name === 'X1', ngoai);
+  check('skuCuaKhoa: bỏ đúng hai hậu tố cuối (mã có dấu gạch dưới vẫn đúng)', wd.skuCuaKhoa('A_B_2_MB') === 'A_B' && wd.skuCuaKhoa('1001_1_MN') === '1001');
+  const oan = wd.oAnCuaBang({ A_1_MB: 5, A_9_MB: 7, A_2_XX: 3, A_2_MB: 0, B_1_MN: 4 }, [1, 2, 3], ['MB', 'MN']);
+  check('oAnCuaBang: ô có số ở tuần 9 và miền XX là "ẩn"; ô trong bảng và ô = 0 không phải', oan.map((o) => o.khoa).join() === 'A_9_MB,A_2_XX' && oan[0].sl === 7 && oan[0].sku === 'A' && oan[1].mien === 'XX', oan);
+  check('Bảng 1: dòng ngoài danh mục (tatCa = danh mục + skuNgoai) vào bảng, hàng tổng, đếm dòng lệch, lọc lệch; có nhãn "ngoài danh mục"; ghi chú nguyên nhân cho từng SKU trong cảnh báo',
+    /const tatCa = useMemo\(\(\) => \{/.test(wf) && /return tatCa\.filter\(\(p\) => \{/.test(wf) && /tatCa\.filter\(\(p\) => laDongLech/.test(wf) && /tatCa\.forEach\(\(p\) => \{\s*thang \+=/.test(wf)
+    && /skuNgoaiDanhMuc\(c\.products, mMap, wMap, tenMa\)/.test(wf) && /p\._ngoai && <span/.test(wf) && /ghiChu=\{ghiChuLech\}/.test(wf) && /onChon=\{\(ma\) =>/.test(wf));
+  check('Xoá số ở ô không hiển thị: hỏi xác nhận, thành một bước Hoàn tác, hoàn tác / bỏ thay đổi tính lại danh sách ô ẩn',
+    /const xoaOAn = async \(\) => \{/.test(wf) && /title: 'Xoá số ở ô không hiển thị\?'/.test(wf) && /setLichSu\(\(h\) => \[\.\.\.h\.slice\(-29\), buoc\]\);\s*setWeeklyMap\(\(prev\) => \{ const next = \{ \.\.\.prev \}; oAn\.forEach/.test(wf)
+    && /setOAn\(oAnCuaBang\(kq\.weeklyMap, weeks, regionCodes\)\)/.test(wf) && /setOAn\(oAnCuaBang\(daLuuRef\.current, weeks, regionCodes\)\)/.test(wf));
+  const vaSrc = doc('components/ValidationAlert.jsx');
+  check('ValidationAlert: ghi chú nguyên nhân dưới từng SKU + bấm mã để lọc bảng (props tuỳ chọn, không đổi nơi khác)', /ghiChu = \{\}, onChon/.test(vaSrc) && /ghiChu\[String\(m\.sku_code\)\.trim\(\)\]/.test(vaSrc) && /onClick=\{\(\) => onChon\(String\(m\.sku_code\)\)\}/.test(vaSrc));
   check('nút rải đều từng dòng dùng chung capNhatRaiDeu (một cách tính)', /capNhatRaiDeu\(skuCode, monthlyMap\[skuCode\] \|\| 0, weeks, regionCodes, tuanDon, mienDon\)/.test(wf));
 
   // ---- Ô chọn miền + Hoàn tác (25/10/2026) ----

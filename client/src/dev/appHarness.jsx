@@ -161,12 +161,24 @@ const ketQua = (action, p) => {
       b0Summary: GROUPS.flatMap((g, i) => THANG.map((m, j) => ({ business_unit_code: BU, business_unit_name: BUS.find((b) => b.code === BU)?.name, product_group_code: g.code, product_group_name: g.name, forecast_month: m, total_quantity: 300 + i * 120 + j * 40, total_revenue: (300 + i * 120 + j * 40) * (9_500_000 + i * 1_700_000) })))
     };
     case 'getMonthlyWorkspace': return { cycles, products: SKUS, cycle: cycles[0], versions, version: versions[0], lines: Object.entries(monthly).map(([k, v]) => ({ sku_code: k.slice(0, k.lastIndexOf('_')), forecast_month: k.slice(k.lastIndexOf('_') + 1), quantity: v })) };
-    case 'getWeeklyWorkspace': return {
-      cycles, products: SKUS, regions: REGIONS, cycle: cycles[0], versions, version: versions[0],
-      monthlyQuantities: Object.fromEntries(SKUS.map((s) => [s.sku_code, monthly[`${s.sku_code}_${THANG[0]}`] || 0]).filter(([, v]) => v > 0)),
-      splits: Object.entries(weekly).map(([k, v]) => { const a = k.split('_'); return { sku_code: a[0], week_number: Number(a[1]), region_code: a[2], quantity: v }; }),
-      validation: { isValid: false, mismatchesCount: 6, mismatches: [] }
-    };
+    case 'getWeeklyWorkspace': {
+      // ?ngoai=1: thử "cảnh báo lệch nhưng không thấy SKU ở bảng": 2 SKU NGOÀI danh mục đang bật (có số tuần, một mã còn có số tháng) + 1 ô ở tuần 9 (không hiện trên bảng)
+      const NGOAI = q.get('ngoai') === '1';
+      const monthlyQ = Object.fromEntries(SKUS.map((s) => [s.sku_code, monthly[`${s.sku_code}_${THANG[0]}`] || 0]).filter(([, v]) => v > 0));
+      const splits = Object.entries(weekly).map(([k, v]) => { const a = k.split('_'); return { sku_code: a[0], week_number: Number(a[1]), region_code: a[2], quantity: v }; });
+      let validation = { isValid: false, mismatchesCount: 6, mismatches: [] };
+      if (NGOAI) {
+        monthlyQ['2013100163'] = 40;
+        splits.push({ sku_code: '2013100163', week_number: 2, region_code: 'MB', quantity: 25, product_name: 'Lõi lọc ngừng bán' }, { sku_code: '2013100164', week_number: 1, region_code: 'MN', quantity: 12, product_name: 'Lõi lọc kênh XK' },
+          { sku_code: SKUS[0].sku_code, week_number: 9, region_code: 'MB', quantity: 7, product_name: SKUS[0].name });
+        const t0 = monthly[`${SKUS[0].sku_code}_${THANG[0]}`] || 0;
+        validation = { isValid: false, mismatchesCount: 3, mismatches: [
+          { sku_code: '2013100163', product_name: 'Lõi lọc ngừng bán', month_qty: 40, week_sum: 25, variance: -15 },
+          { sku_code: '2013100164', product_name: 'Lõi lọc kênh XK', month_qty: 0, week_sum: 12, variance: 12 },
+          { sku_code: SKUS[0].sku_code, product_name: SKUS[0].name, month_qty: t0, week_sum: t0 + 7, variance: 7 }] };
+      }
+      return { cycles, products: SKUS, regions: REGIONS, cycle: cycles[0], versions, version: versions[0], monthlyQuantities: monthlyQ, splits, validation };
+    }
     case 'validateWeekly': return { isValid: false, mismatchesCount: 6, mismatches: [] };
     case 'saveMonthlyLines': case 'saveWeeklySplits': return { message: 'Đã lưu (giả).' };
     case 'submitCycle': return { message: 'Đã gửi duyệt (giả).' };

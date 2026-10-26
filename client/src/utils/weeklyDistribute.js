@@ -116,3 +116,49 @@ export function apHoanTac(buoc, weeklyMap, dirtyKeys, daLuuMap) {
   });
   return { weeklyMap: next, dirty };
 }
+
+/* ----------------------------------------------------------------------------------------------
+ * Chẩn đoán "cảnh báo lệch tuần nhưng không thấy SKU ở bảng nào" (26/10/2026).
+ * Kiểm tra khớp số của server cộng MỌI dòng của bản (kể cả SKU ngoài danh mục đang bật của đơn vị, và các ô tuần/miền không có
+ * trên màn hình), còn bảng chỉ vẽ danh mục đang bật × tuần/miền hiện có — nên có số lệch mà không có chỗ nào để sửa.
+ * ---------------------------------------------------------------------------------------------- */
+
+/** Mã SKU của khoá ô `${sku}_${tuần}_${miền}` — bỏ đúng hai hậu tố cuối, vì mã SKU có thể chứa dấu gạch dưới. */
+export function skuCuaKhoa(khoa) {
+  const k = String(khoa);
+  const cuoi = k.lastIndexOf('_');
+  const kia = k.lastIndexOf('_', cuoi - 1);
+  return kia > 0 ? k.slice(0, kia) : k;
+}
+
+/**
+ * SKU có số (tháng 1 hoặc bất kỳ ô tuần/miền) nhưng KHÔNG nằm trong danh mục đang hiển thị — để vẽ thành dòng riêng (có nhãn)
+ * thay vì ẩn đi. tenMa: { mã -> tên } lấy từ dữ liệu server (không có thì dùng chính mã).
+ */
+export function skuNgoaiDanhMuc(products, monthlyMap, weeklyMap, tenMa) {
+  const co = new Set(products.map((p) => String(p.sku_code).trim()));
+  const ngoai = new Map();
+  const them = (sku) => {
+    const ma = String(sku).trim();
+    if (!ma || co.has(ma) || ngoai.has(ma)) return;
+    ngoai.set(ma, { sku_code: ma, name: (tenMa && tenMa[ma]) || ma, _ngoai: true });
+  };
+  Object.keys(monthlyMap).forEach((sku) => { if ((monthlyMap[sku] || 0) !== 0) them(sku); });
+  Object.keys(weeklyMap).forEach((khoa) => { if ((weeklyMap[khoa] || 0) !== 0) them(skuCuaKhoa(khoa)); });
+  return [...ngoai.values()].sort((a, b) => String(a.sku_code).localeCompare(String(b.sku_code)));
+}
+
+/** Các ô có số khác 0 nhưng tuần không thuộc tháng đang xem hoặc miền không hiện trên bảng: [{ khoa, sku, tuan, mien, sl }]. */
+export function oAnCuaBang(weeklyMap, tuan, mien) {
+  const ra = [];
+  Object.keys(weeklyMap).forEach((khoa) => {
+    const sl = weeklyMap[khoa] || 0;
+    if (!sl) return;
+    const phan = String(khoa).split('_');
+    const mienO = phan.pop();
+    const tuanO = Number(phan.pop());
+    if (tuan.indexOf(tuanO) >= 0 && mien.indexOf(mienO) >= 0) return;
+    ra.push({ khoa, sku: phan.join('_'), tuan: tuanO, mien: mienO, sl });
+  });
+  return ra;
+}

@@ -20,7 +20,7 @@ import { SortTh, StateRow } from '../components/TableStates';
 import MoreMenu from '../components/MoreMenu';
 import { useGridEditing, parsePastedNumber, CHAN_LAN_CHUOT } from '../utils/useGridEditing';
 import { demGhiDe, cauHoiGhiDe } from '../utils/gridOverwrite';
-import { capNhatRaiDeu, laDongLech, tapSkuLech, tinhRaiDeuTatCa, tuanDonHopLe, mienDonHopLe, lapBuocHoanTac, apHoanTac } from '../utils/weeklyDistribute';
+import { capNhatRaiDeu, laDongLech, tapSkuLech, tinhRaiDeuTatCa, tuanDonHopLe, mienDonHopLe, lapBuocHoanTac, apHoanTac, skuNgoaiDanhMuc, oAnCuaBang } from '../utils/weeklyDistribute';
 import { MAN_HINH } from '../utils/glossary';
 
 // Bảng này nặng nhất trong app — kênh XK 756 SKU × (số tuần × số miền)
@@ -42,6 +42,10 @@ export default function WeeklyForecast({ currentBU, user }) {
   const [versions, setVersions] = useState([]);
   const [selectedVersion, setSelectedVersion] = useState(null);
   const [products, setProducts] = useState([]);
+  // SKU có số nhưng không nằm trong danh mục đang bật của đơn vị + ô có số ở tuần/miền không hiện trên bảng (xem utils/weeklyDistribute.js).
+  // Server vẫn cộng chúng vào kiểm tra khớp số, nên phải HIỆN ra để sửa được — trước đây bị ẩn nên cảnh báo lệch "không tìm thấy ở đâu".
+  const [skuNgoai, setSkuNgoai] = useState([]);
+  const [oAn, setOAn] = useState([]);
   const [regions, setRegions] = useState([]);
   const [groups, setGroups] = useState([]);
   const [bus, setBus] = useState([]);
@@ -128,7 +132,13 @@ export default function WeeklyForecast({ currentBU, user }) {
     setLichSu([]);
     setNonZeroSkus(computeNonZero(mMap, wMap));
     const c = nho || ctxRef.current;
-    setLechSkus(tapSkuLech(c.products, mMap, wMap, c.weeks, c.regionCodes));
+    const tenMa = {};
+    (splits || []).forEach((sp) => { tenMa[String(sp.sku_code).trim()] = sp.product_name; });
+    ((valRes && valRes.mismatches) || []).forEach((m) => { if (!tenMa[String(m.sku_code).trim()]) tenMa[String(m.sku_code).trim()] = m.product_name; });
+    const ngoai = skuNgoaiDanhMuc(c.products, mMap, wMap, tenMa);
+    setSkuNgoai(ngoai);
+    setOAn(oAnCuaBang(wMap, c.weeks, c.regionCodes));
+    setLechSkus(tapSkuLech(c.products.concat(ngoai), mMap, wMap, c.weeks, c.regionCodes));
     setValidationResult(valRes || null);
     setDirtyKeys(new Set());
   }, [computeNonZero]);
@@ -270,6 +280,7 @@ export default function WeeklyForecast({ currentBU, user }) {
     const kq = apHoanTac(buoc, weeklyMap, dirtyKeys, daLuuRef.current);
     setWeeklyMap(kq.weeklyMap);
     setDirtyKeys(kq.dirty);
+    setOAn(oAnCuaBang(kq.weeklyMap, weeks, regionCodes));   // hoàn tác "Xoá số ở ô không hiển thị" thì báo ô ẩn trở lại
     setLichSu((h) => h.slice(0, -1));
     setMessage({ type: 'success', text: `Đã hoàn tác bước gần nhất (${buoc.length.toLocaleString('vi-VN')} ô).` });
   };
@@ -283,6 +294,7 @@ export default function WeeklyForecast({ currentBU, user }) {
     ))) return;
     setWeeklyMap({ ...daLuuRef.current });
     setDirtyKeys(new Set());
+    setOAn(oAnCuaBang(daLuuRef.current, weeks, regionCodes));
     setLichSu([]);
     setMessage({ type: 'success', text: 'Đã bỏ các thay đổi chưa lưu.' });
   };
@@ -412,7 +424,7 @@ export default function WeeklyForecast({ currentBU, user }) {
 
   const handleToggleLech = (checked) => {
     setChiLech(checked);
-    if (checked) setLechSkus(tapSkuLech(products, monthlyMap, weeklyMap, weeks, regionCodes));
+    if (checked) setLechSkus(tapSkuLech(tatCa, monthlyMap, weeklyMap, weeks, regionCodes));
   };
 
   const getSkuWeeklySum = (skuCode) =>
@@ -426,9 +438,15 @@ export default function WeeklyForecast({ currentBU, user }) {
    * render, và vì đọc thẳng weeklyMap đang sửa nên xoá ô cuối cùng của một
    * dòng là dòng đó biến mất ngay dưới con trỏ.
    */
+  // Danh mục đang bật + SKU ngoài danh mục có số (dòng riêng, có nhãn). Mã vừa được thêm vào danh mục thì không lặp.
+  const tatCa = useMemo(() => {
+    const co = new Set(products.map((p) => String(p.sku_code).trim()));
+    return products.concat(skuNgoai.filter((p) => !co.has(String(p.sku_code).trim())));
+  }, [products, skuNgoai]);
+
   const filteredProducts = useMemo(() => {
     const s = search.trim().toLowerCase();
-    return products.filter((p) => {
+    return tatCa.filter((p) => {
       const matchSearch = !s
         || String(p.sku_code).toLowerCase().includes(s)
         || String(p.name).toLowerCase().includes(s);
@@ -440,15 +458,50 @@ export default function WeeklyForecast({ currentBU, user }) {
       const matchLech = !chiLech || lechSkus.has(String(p.sku_code));
       return matchSearch && matchNonZero && matchLech;
     });
-  }, [products, search, onlyNonZero, nonZeroSkus, chiLech, lechSkus]);
+  }, [tatCa, search, onlyNonZero, nonZeroSkus, chiLech, lechSkus]);
 
   // Số dòng đang lệch NGAY LÚC NÀY (chỉ để hiện con số trên nút — danh sách lọc dùng bản đã chốt ở trên).
   const soDongLech = useMemo(
-    () => products.filter((p) => laDongLech(p.sku_code, monthlyMap, weeklyMap, weeks, regionCodes)).length,
-    [products, monthlyMap, weeklyMap, weeks, regionCodes]
+    () => tatCa.filter((p) => laDongLech(p.sku_code, monthlyMap, weeklyMap, weeks, regionCodes)).length,
+    [tatCa, monthlyMap, weeklyMap, weeks, regionCodes]
   );
 
   const columnCount = 3 + weeks.length * regionCodes.length + 2;
+
+  // Nguyên nhân từng SKU trong cảnh báo lệch: ngoài danh mục (dòng riêng, có nhãn) / có số ở ô không hiện trên bảng.
+  const ghiChuLech = useMemo(() => {
+    const ra = {};
+    const ngoaiSet = new Set(skuNgoai.map((p) => String(p.sku_code).trim()));
+    const anTheoSku = {};
+    oAn.forEach((o) => { (anTheoSku[o.sku] = anTheoSku[o.sku] || []).push(o); });
+    ((validationResult && validationResult.mismatches) || []).forEach((m) => {
+      const ma = String(m.sku_code).trim();
+      const phan = [];
+      if (ngoaiSet.has(ma)) phan.push(`SKU không nằm trong danh mục đang bật của ${currentBU} (đã ngừng / kênh khác / chưa có trong danh mục) — đã hiện thành dòng riêng ở bảng dưới, gắn nhãn "ngoài danh mục"`);
+      if (anTheoSku[ma]) {
+        const tong = anTheoSku[ma].reduce((a, o) => a + o.sl, 0);
+        phan.push(`${tong.toLocaleString('vi-VN')} chiếc nằm ở ô tuần/miền không hiện trên bảng (${anTheoSku[ma].slice(0, 3).map((o) => `T${o.tuan}·${o.mien}`).join(', ')}${anTheoSku[ma].length > 3 ? '…' : ''}) — dùng nút "Xoá số ở ô không hiển thị"`);
+      }
+      if (phan.length) ra[ma] = phan.join('; ');
+    });
+    return ra;
+  }, [validationResult, skuNgoai, oAn, currentBU]);
+
+  /** Đưa về 0 mọi ô đang có số nhưng nằm ở tuần/miền không hiện trên bảng (số cũ còn sót, ví dụ tuần 5 của tháng chỉ có 4 tuần). Chưa lưu cho tới khi bấm "Lưu bản thảo". */
+  const xoaOAn = async () => {
+    if (!oAn.length) return;
+    const tong = oAn.reduce((a, o) => a + o.sl, 0);
+    if (!(await appConfirm(
+      `Đưa về 0 ${oAn.length.toLocaleString('vi-VN')} ô đang có tổng ${tong.toLocaleString('vi-VN')} chiếc ở tuần/miền KHÔNG hiện trên bảng này.\n\nChưa lưu cho tới khi bấm "Lưu bản thảo"; có thể "Bỏ thay đổi chưa lưu" để quay lại.`,
+      { title: 'Xoá số ở ô không hiển thị?', okLabel: `Xoá ${oAn.length.toLocaleString('vi-VN')} ô`, danger: true }
+    ))) return;
+    const buoc = oAn.map((o) => ({ key: o.khoa, cu: o.sl }));
+    setLichSu((h) => [...h.slice(-29), buoc]);
+    setWeeklyMap((prev) => { const next = { ...prev }; oAn.forEach((o) => { next[o.khoa] = 0; }); return next; });
+    setDirtyKeys((prev) => { const next = new Set(prev); oAn.forEach((o) => next.add(o.khoa)); return next; });
+    setOAn([]);
+    setMessage({ type: 'success', text: `Đã đưa về 0 ${oAn.length.toLocaleString('vi-VN')} ô không hiển thị — bấm "Lưu bản thảo" để lưu.` });
+  };
 
   // Sắp xếp theo cột. Thứ tự CHỐT lúc bấm tiêu đề (xem useTableSort): gõ số không làm dòng nhảy chỗ,
   // và sắp xếp không đụng tới dữ liệu đang sửa — chỉ đảo thứ tự hiển thị.
@@ -467,7 +520,7 @@ export default function WeeklyForecast({ currentBU, user }) {
     const cot = {};
     let thang = 0;
     let tuan = 0;
-    products.forEach((p) => {
+    tatCa.forEach((p) => {
       thang += monthlyMap[p.sku_code] || 0;
       weeks.forEach((w) => regionCodes.forEach((r) => {
         const q = weeklyMap[`${p.sku_code}_${w}_${r}`] || 0;
@@ -477,7 +530,7 @@ export default function WeeklyForecast({ currentBU, user }) {
       }));
     });
     return { cot, thang, tuan };
-  }, [products, monthlyMap, weeklyMap, weeks, regionCodes]);
+  }, [tatCa, monthlyMap, weeklyMap, weeks, regionCodes]);
 
   const scrollParentRef = useRef(null);
   // Chiều cao dòng ước lượng theo mật độ bảng (Cài đặt → Giao diện): Gọn thấp hơn 8px (utils/density.js).
@@ -563,7 +616,32 @@ export default function WeeklyForecast({ currentBU, user }) {
         onChanged={(cycleId, versionId) => loadAll(cycleId, versionId)}
       />
 
-      <ValidationAlert validationResult={validationResult} />
+      <ValidationAlert validationResult={validationResult} ghiChu={ghiChuLech} onChon={(ma) => { setSearch(ma); setOnlyNonZero(false); setChiLech(false); }} />
+
+      {(skuNgoai.length > 0 || oAn.length > 0) && (
+        <div className="bg-amber-50 border border-amber-300 text-amber-900 text-xs rounded-lg p-3 space-y-1">
+          {skuNgoai.length > 0 && (
+            <div>
+              <strong>{skuNgoai.length.toLocaleString('vi-VN')} SKU có số nhưng không nằm trong danh mục đang bật của {currentBU}</strong>
+              {' '}({skuNgoai.slice(0, 6).map((p) => p.sku_code).join(', ')}{skuNgoai.length > 6 ? '…' : ''}) — hiện ở bảng dưới thành dòng gắn nhãn "ngoài danh mục". Server vẫn cộng các số này khi kiểm khớp,
+              nên hoặc sửa số tuần/miền cho khớp tháng 1, hoặc đưa về 0 nếu là số nhầm kênh / mã đã ngừng.
+            </div>
+          )}
+          {oAn.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span>
+                <strong>{oAn.length.toLocaleString('vi-VN')} ô có số ở tuần/miền không hiện trên bảng này</strong>
+                {' '}(tổng {oAn.reduce((a, o) => a + o.sl, 0).toLocaleString('vi-VN')} chiếc, ví dụ {oAn.slice(0, 3).map((o) => `${o.sku} T${o.tuan}·${o.mien}`).join(', ')}) — vẫn bị tính vào kiểm khớp.
+              </span>
+              {canWrite && (
+                <button type="button" onClick={xoaOAn} className="border border-amber-400 bg-white hover:bg-amber-100 text-amber-900 px-2.5 py-1 rounded-lg font-semibold whitespace-nowrap">
+                  Xoá số ở ô không hiển thị
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {choDuyet && isEditor && (
         <div className="bg-amber-50 border border-amber-300 text-amber-900 text-xs rounded-lg p-3">
@@ -815,7 +893,10 @@ export default function WeeklyForecast({ currentBU, user }) {
 
                   return (
                     <tr key={p.sku_code} className="hover:bg-blue-50/50 transition">
-                      <td className="sticky left-0 z-10 bg-white shadow-[inset_-1px_0_0_#e2e8f0] py-2 px-3 border-r border-slate-200 font-bold text-slate-800">{p.sku_code}</td>
+                      <td className="sticky left-0 z-10 bg-white shadow-[inset_-1px_0_0_#e2e8f0] py-2 px-3 border-r border-slate-200 font-bold text-slate-800">
+                        {p.sku_code}
+                        {p._ngoai && <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-semibold font-sans align-middle" title={`SKU này có số nhưng không nằm trong danh mục đang bật của ${currentBU} (đã ngừng / kênh khác / chưa có trong danh mục). Hiện ở đây để sửa được số tuần/miền.`}>ngoài danh mục</span>}
+                      </td>
                       <td className="py-2 px-3 border-r border-slate-200 font-sans font-medium text-slate-900 truncate max-w-xs">
                         <div className="flex items-center gap-2">
                           <span className="truncate">{p.name}</span>
@@ -876,7 +957,7 @@ export default function WeeklyForecast({ currentBU, user }) {
               )}
             </tbody>
 
-            {!loading && !loiTai && selectedVersion && products.length > 0 && (
+            {!loading && !loiTai && selectedVersion && tatCa.length > 0 && (
               <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-900 sticky bottom-0 z-10">
                 <tr>
                   <td className="sticky left-0 z-10 bg-slate-100 shadow-[inset_-1px_0_0_#cbd5e1] py-2.5 px-3 uppercase text-slate-700 text-xs">Tổng</td>

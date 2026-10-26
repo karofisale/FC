@@ -1,7 +1,7 @@
 import React from 'react';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 
-export default function ValidationAlert({ validationResult }) {
+export default function ValidationAlert({ validationResult, ghiChu = {}, onChon }) {
   if (!validationResult) return null;
 
   const { isValid, mismatchesCount, mismatches = [] } = validationResult;
@@ -31,11 +31,20 @@ export default function ValidationAlert({ validationResult }) {
       {mismatches.length > 0 && (
         <div className="max-h-40 overflow-y-auto bg-white border border-rose-200 rounded p-2 text-slate-700 space-y-1 font-mono text-[11px]">
           {mismatches.map(m => (
-            <div key={m.sku_code} className="flex justify-between items-center py-0.5 border-b border-slate-100 last:border-0">
-              <span className="font-bold text-slate-800">{m.sku_code} ({m.product_name}):</span>
-              <span className="text-rose-600">
-                Tháng 1: <strong>{m.month_qty}</strong> | Tuần+Miền: <strong>{m.week_sum}</strong> | Lệch: <strong>{m.variance > 0 ? `+${m.variance}` : m.variance}</strong>
-              </span>
+            <div key={m.sku_code} className="py-0.5 border-b border-slate-100 last:border-0">
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-slate-800">
+                  {onChon
+                    ? <button type="button" onClick={() => onChon(String(m.sku_code))} title="Lọc bảng theo mã này" className="underline decoration-dotted hover:text-blue-700">{m.sku_code}</button>
+                    : m.sku_code} ({m.product_name}):
+                </span>
+                <span className="text-rose-600">
+                  Tháng 1: <strong>{m.month_qty}</strong> | Tuần+Miền: <strong>{m.week_sum}</strong> | Lệch: <strong>{m.variance > 0 ? `+${m.variance}` : m.variance}</strong>
+                </span>
+              </div>
+              {ghiChu[String(m.sku_code).trim()] && (
+                <div className="font-sans text-[11px] text-amber-800 pl-1">↳ {ghiChu[String(m.sku_code).trim()]}</div>
+              )}
             </div>
           ))}
         </div>
