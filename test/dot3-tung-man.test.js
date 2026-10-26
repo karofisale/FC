@@ -115,9 +115,32 @@ async function main() {
   check('không có dòng lệch -> dong = 0, không có cập nhật nào', wd.tinhRaiDeuTatCa({ danhSach: [{ sku_code: 'A' }], monthlyMap: monthly, weeklyMap: weekly, tuan, mien }).updates.length === 0);
   check('Bảng 1: cột Mã SKU dính trái (header + thân + dòng tổng), có viền bóng thay cho border-collapse', (wf.match(/sticky left-0 z-(30|10)/g) || []).length >= 3 && /sticky left-0 z-30 bg-slate-800 shadow-\[inset_-1px_0_0_#475569\]/.test(wf) && /sticky left-0 z-10 bg-white shadow-\[inset_-1px_0_0_#e2e8f0\]/.test(wf));
   check('Bảng 1: ô lọc "Chỉ dòng lệch (n)" + nút "Rải đều tất cả dòng lệch"; danh sách lệch được CHỐT (không nhảy dòng khi gõ)', /Chỉ dòng lệch \(\{soDongLech/.test(wf) && /Rải đều tất cả dòng lệch/.test(wf) && /lechSkus\.has\(String\(p\.sku_code\)\)/.test(wf) && /tapSkuLech\(/.test(wf));
-  check('Rải đều tất cả: xem trước (số dòng, số ô đổi, số dòng bỏ qua) + appConfirm danger TRƯỚC khi ghi; dùng lại tinhRaiDeuTatCa, không công thức mới', /const raiDeuTatCaLech = async/.test(wf) && /tinhRaiDeuTatCa\(\{ danhSach: filteredProducts/.test(wf) && /title: 'Rải đều tất cả dòng lệch\?', okLabel: `Rải đều \$\{kq\.dong\.toLocaleString\('vi-VN'\)\} dòng`, danger: true/.test(wf)
+  check('Rải đều tất cả: xem trước (số dòng, số ô đổi, số dòng bỏ qua) + appConfirm danger TRƯỚC khi ghi; dùng lại tinhRaiDeuTatCa, không công thức mới', /const raiDeuTatCaLech = async/.test(wf) && /tinhRaiDeuTatCa\(\{ danhSach: filteredProducts, monthlyMap, weeklyMap, tuan: weeks, mien: regionCodes, tuanDon \}/.test(wf) && /title: tuanDon === undefined \? 'Rải đều tất cả dòng lệch\?' : `Dồn tất cả dòng lệch vào \$\{tenDon\}\?`, okLabel: `\$\{tuanDon === undefined \? 'Rải đều' : 'Dồn vào ' \+ tenDon\} \$\{kq\.dong\.toLocaleString\('vi-VN'\)\} dòng`, danger: true/.test(wf)
     && wf.indexOf('appConfirm(', wf.indexOf('const raiDeuTatCaLech')) < wf.indexOf('handleCellsChange(kq.updates)'));
-  check('nút rải đều từng dòng dùng chung capNhatRaiDeu (một cách tính)', /capNhatRaiDeu\(skuCode, monthlyMap\[skuCode\] \|\| 0, weeks, regionCodes\)/.test(wf));
+  check('nút rải đều từng dòng dùng chung capNhatRaiDeu (một cách tính)', /capNhatRaiDeu\(skuCode, monthlyMap\[skuCode\] \|\| 0, weeks, regionCodes, tuanDon\)/.test(wf));
+
+  // ---- Phân bổ tháng đầu vào MỘT tuần (25/10/2026): soạn tay, không nhập từ file ----
+  const don2 = wd.capNhatRaiDeu('S', 100, [1, 2, 3, 4, 5], ['MB', 'MN'], 3);
+  const giaTri = (arr, w, r) => arr.find((u) => u.col.week === w && u.col.region === r).value;
+  check('dồn vào tuần 3: 10 ô được ghi (đủ MỌI ô), tuần 3 nhận hết (MB 50 + MN 50), các tuần khác = 0', don2.length === 10 && giaTri(don2, 3, 'MB') === 50 && giaTri(don2, 3, 'MN') === 50 && don2.filter((u) => u.col.week !== 3).every((u) => u.value === 0));
+  const don3 = wd.capNhatRaiDeu('S', 101, [1, 2, 3], ['MB', 'MN', 'MT'], 2);
+  check('dồn vào tuần 2 với 3 miền: 101 = 33 + 33 + 35 (phần dư vào miền cuối), tổng luôn = số tháng', giaTri(don3, 2, 'MB') === 33 && giaTri(don3, 2, 'MN') === 33 && giaTri(don3, 2, 'MT') === 35 && don3.reduce((a, u) => a + u.value, 0) === 101);
+  check('không truyền tuần / tuần không thuộc tháng / tuần rỗng -> RẢI ĐỀU như cũ (không đổi kết quả)', JSON.stringify(wd.capNhatRaiDeu('S', 99, [1, 2], ['MB', 'MN'])) === JSON.stringify(wd.capNhatRaiDeu('S', 99, [1, 2], ['MB', 'MN'], 9)) && JSON.stringify(wd.capNhatRaiDeu('S', 99, [1, 2], ['MB', 'MN'])) === JSON.stringify(wd.capNhatRaiDeu('S', 99, [1, 2], ['MB', 'MN'], '')) && JSON.stringify(wd.capNhatRaiDeu('S', 99, [1, 2], ['MB', 'MN'])) === JSON.stringify(wd.capNhatRaiDeu('S', 99, [1, 2], ['MB', 'MN'], null)));
+  check('tuanDonHopLe: "3" (chuỗi từ ô chọn) hợp lệ, 0 / 9 / "x" / 2.5 không', wd.tuanDonHopLe('3', [1, 2, 3]) === 3 && wd.tuanDonHopLe(0, [1, 2, 3]) === undefined && wd.tuanDonHopLe(9, [1, 2, 3]) === undefined && wd.tuanDonHopLe('x', [1, 2, 3]) === undefined && wd.tuanDonHopLe(2.5, [1, 2, 3]) === undefined);
+  check('số tháng = 0 -> dồn vào tuần ghi toàn 0 (giống rải đều: xoá sạch ô)', wd.capNhatRaiDeu('S', 0, [1, 2], ['MB', 'MN'], 1).every((u) => u.value === 0));
+  const kqDon = wd.tinhRaiDeuTatCa({ danhSach: ds, monthlyMap: monthly, weeklyMap: weekly, tuan, mien, tuanDon: 2 });
+  const sauDon = { ...weekly };
+  kqDon.updates.forEach((u) => { sauDon[`${u.rowKey}_${u.col.week}_${u.col.region}`] = u.value; });
+  check('dồn tất cả dòng lệch vào tuần 2: B và D hết lệch, mọi số nằm ở tuần 2, tuần 1 = 0; C (số tháng 0) bỏ qua; A, E không bị đụng',
+    kqDon.dong === 2 && kqDon.boQua === 1 && wd.tongTuanCua('B', sauDon, tuan, mien) === 40 && wd.tongTuanCua('D', sauDon, tuan, mien) === 30
+    && sauDon.B_1_MB === 0 && sauDon.B_1_MN === 0 && sauDon.B_2_MB === 20 && sauDon.B_2_MN === 20 && sauDon.D_1_MB === 0 && sauDon.D_2_MB === 15 && sauDon.D_2_MN === 15
+    && !kqDon.updates.some((u) => u.rowKey === 'A' || u.rowKey === 'E'), [kqDon.dong, kqDon.boQua, sauDon]);
+  check('oGhiDe của chế độ dồn tính đúng: B (10,10,10,20 -> 0,0,20,20: 3 ô đổi) + D (31 -> 0, ô khác trống: 1 ô đổi) = 4', kqDon.oGhiDe === 4, kqDon.oGhiDe);
+  check('Bảng 1: có ô chọn "Phân bổ tháng đầu" (rải đều / dồn hết vào từng tuần), nhớ lựa chọn, tuần không có ở chu kỳ khác thì quay về rải đều',
+    /Phân bổ tháng đầu:/.test(wf) && /<option value="deu">Rải đều các tuần × miền<\/option>/.test(wf) && /Dồn hết vào \{weekLabel\(baseMonth, w\)\}/.test(wf)
+    && /usePersistedState\('weeklyCheDoRai', 'deu'/.test(wf) && /tuanDonHopLe\(cheDoRai\.startsWith\('w'\) \? cheDoRai\.slice\(1\) : undefined, weeks\)/.test(wf)
+    && /aria-label="Cách phân bổ số tháng 1 vào bảng tuần"/.test(wf));
+  check('ô chọn + nút dồn chỉ hiện cho người sửa được (canWrite); nút đũa phép từng dòng đổi gợi ý theo lựa chọn', (wf.match(/\{canWrite && \(\s*<label className="flex items-center gap-1\.5 text-xs text-slate-600 whitespace-nowrap" title="Cách phân bổ/g) || []).length === 1 && /Dồn toàn bộ số tháng 1 vào \$\{tenDon\}/.test(wf));
 
   // =====================================================================
   console.log('--- 4. Thực hiện: phím mũi tên + dán Excel, hợp nhất khi cào SAP / nhập ZSD450 ---');

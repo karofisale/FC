@@ -215,7 +215,7 @@ async function main() {
   check('App: đổi tab (Sidebar), đổi đơn vị, nút Back/Forward (hashchange) đều await confirmNavigateAway', /setActiveTab=\{async \(tab\) => \{ if \(await confirmNavigateAway\(\)\)/.test(appSrc) && /setCurrentBU=\{async \(bu\) => \{ if \(await confirmNavigateAway\('Đổi đơn vị'\)\)/.test(appSrc) && /const handler = async \(\) => \{[\s\S]*?await confirmNavigateAway\(\)/.test(appSrc));
   check('App: Đăng xuất dùng confirmLeaveApp (gỡ cờ trước khi rời để beforeunload không hỏi lần hai)', /await confirmLeaveApp\('Đăng xuất'\)/.test(appSrc));
   const hd = doc('components/Header.jsx');
-  check('Header: link Portal + link sang app khác hỏi trước khi rời nếu có ô chưa lưu (không chặn Ctrl+click)', /roiSangApp\('Về Karofi Portal'/.test(hd) && /roiSangApp\('Sang ' \+ a\.ten/.test(hd) && /e\.ctrlKey \|\| e\.metaKey/.test(hd) && /isDirty\(\)/.test(hd) && /confirmLeaveApp/.test(hd));
+  check('Header: link Portal + link sang app khác hỏi trước khi rời nếu có ô chưa lưu (không chặn Ctrl+click)', /linkChuyen\('Về Karofi Portal'/.test(hd) && /linkChuyen\('Sang ' \+ a\.ten/.test(hd) && /onClick: roiSangApp\(hanhDong, href/.test(hd) && /e\.ctrlKey \|\| e\.metaKey/.test(hd) && /isDirty\(\)/.test(hd) && /confirmLeaveApp/.test(hd));
   check('đổi chu kỳ / bản cập nhật (CycleBar), tháng (Actuals), năm + bản (Kế hoạch năm) hỏi trước và đọc giá trị ô chọn TRƯỚC await', /const id = e\.target\.value;/.test(doc('components/CycleBar.jsx')) && /const v = e\.target\.value;/.test(doc('pages/Actuals.jsx')) && /const v = Number\(e\.target\.value\); if \(await confirmNavigateAway/.test(an));
 
   // =====================================================================
