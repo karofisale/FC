@@ -12,6 +12,7 @@ import { Save, Send, Search, Filter, AlertCircle, Loader2, ArrowDownToLine, Pack
 import { monthsOfCycle, monthLabel, monthLabelFull, weeksOfMonth } from '../utils/period';
 import { setDirty, confirmNavigateAway } from '../services/dirtyState';
 import { appConfirm } from '../services/dialogService';
+import { maNgoaiDanhMucThang, dongNgoaiDanhMuc } from '../utils/skuNgoai';
 import { thongBao } from '../services/toastService';
 import { loadPref, savePref } from '../services/prefs';
 import { usePersistedState } from '../utils/usePersistedState';
@@ -55,6 +56,11 @@ export default function MonthlyForecast({ currentBU, user }) {
   const [versions, setVersions] = useState([]);
   const [selectedVersion, setSelectedVersion] = useState(null);
   const [products, setProducts] = useState([]);
+  // Mã ngoài danh mục của đơn vị nhưng có số tháng -> dòng riêng có nhãn, TÍNH vào tổng (xem utils/skuNgoai.js). Chốt lúc tải.
+  const [maNgoai, setMaNgoai] = useState([]);
+  const [thongTinNgoai, setThongTinNgoai] = useState({});
+  const productsRef = useRef([]);
+  useEffect(() => { productsRef.current = products; }, [products]);   // thêm SKU bằng hộp thoại cũng cập nhật mốc "danh mục" cho lần tải sau
   const [groups, setGroups] = useState([]);
   const [bus, setBus] = useState([]);
   const [regions, setRegions] = useState([]);
@@ -107,12 +113,13 @@ export default function MonthlyForecast({ currentBU, user }) {
     return s;
   }, []);
 
-  const applyLines = useCallback((lines) => {
+  const applyLines = useCallback((lines, dsSp) => {
     const map = {};
     lines.forEach((l) => {
       map[`${l.sku_code}_${l.forecast_month}`] = Number(l.quantity) || 0;
     });
     setForecastMap(map);
+    setMaNgoai(maNgoaiDanhMucThang(dsSp || productsRef.current, map));
     setNonZeroSkus(computeNonZero(map));
     setDirtyKeys(new Set());
   }, [computeNonZero]);
@@ -153,6 +160,7 @@ export default function MonthlyForecast({ currentBU, user }) {
 
       setCycles(ws.cycles || []);
       setProducts(ws.products || []);
+      productsRef.current = ws.products || [];
       setGroups(groupList);
       setBus(buList);
       setRegions(regionList);
@@ -160,7 +168,7 @@ export default function MonthlyForecast({ currentBU, user }) {
       setSelectedCycle(ws.cycle || null);
       setVersions(ws.versions || []);
       setSelectedVersion(ws.version || null);
-      applyLines(ws.lines || []);
+      applyLines(ws.lines || [], ws.products || []);
       // Nhớ chu kỳ đang xem (theo đơn vị; dùng chung với Bảng 1) — Đợt 2 mục 9.
       if (ws.cycle?.id) savePref('cycle:' + currentBU, ws.cycle.id);
     } catch (err) {
@@ -241,7 +249,7 @@ export default function MonthlyForecast({ currentBU, user }) {
   const handleCopyLastMonth = async () => {
     const targetMonth = months[months.length - 1];
     if (!copySrcMonth || !targetMonth || copySrcMonth === targetMonth) return;
-    const updates = products.map((p) => ({
+    const updates = tatCa.map((p) => ({
       rowKey: p.sku_code,
       col: targetMonth,
       value: forecastMap[`${p.sku_code}_${copySrcMonth}`] || 0
@@ -372,9 +380,15 @@ export default function MonthlyForecast({ currentBU, user }) {
   // Nhóm hàng đã nhớ nhưng không còn trong danh sách (đổi tên / bị gỡ) thì coi như "Tất cả", kẻo bảng trống mà không rõ vì sao.
   const nhomHieuLuc = groups.some((g) => g.code === selectedGroup) ? selectedGroup : 'ALL';
 
+  // Danh mục của đơn vị + các mã ngoài danh mục có số (dòng riêng). Mã vừa được thêm vào danh mục thì không lặp.
+  const tatCa = useMemo(() => {
+    const co = new Set(products.map((p) => String(p.sku_code).trim()));
+    return products.concat(dongNgoaiDanhMuc(maNgoai.filter((ma) => !co.has(ma)), thongTinNgoai));
+  }, [products, maNgoai, thongTinNgoai]);
+
   const filteredProducts = useMemo(() => {
     const s = search.trim().toLowerCase();
-    return products.filter((p) => {
+    return tatCa.filter((p) => {
       const matchSearch = !s
         || String(p.sku_code).toLowerCase().includes(s)
         || String(p.name).toLowerCase().includes(s);
@@ -386,7 +400,7 @@ export default function MonthlyForecast({ currentBU, user }) {
       const matchNonZero = !onlyNonZero || nonZeroSkus.has(String(p.sku_code));
       return matchSearch && matchGroup && matchNonZero;
     });
-  }, [products, search, nhomHieuLuc, onlyNonZero, nonZeroSkus]);
+  }, [tatCa, search, nhomHieuLuc, onlyNonZero, nonZeroSkus]);
 
   /**
    * Bật lại bộ lọc thì chốt lại danh sách theo số hiện tại (kể cả số vừa gõ
@@ -423,7 +437,7 @@ export default function MonthlyForecast({ currentBU, user }) {
       const thieuGia = new Set();
       let slThieu = 0;
 
-      products.forEach((p) => {
+      tatCa.forEach((p) => {
         const nhom = String(p.product_group_code || '').trim();
         const bucket = NHOM_MAY.includes(nhom) ? may : NHOM_LOI.includes(nhom) ? loi : khac;
         // Mã chưa có giá thì doanh thu tính bằng 0 — cố ý, theo đúng yêu cầu.
@@ -450,7 +464,7 @@ export default function MonthlyForecast({ currentBU, user }) {
         soSkuThieuGia: thieuGia.size,
         slThieuGia: slThieu
       };
-    }, [products, forecastMap, months]);
+    }, [tatCa, forecastMap, months]);
 
   /**
    * Dòng dự báo có số nhưng KHÔNG thuộc danh mục màn hình này nhìn thấy.
@@ -526,6 +540,23 @@ export default function MonthlyForecast({ currentBU, user }) {
     ds.forEach((ma) => months.forEach((m) => { if ((forecastMap[`${ma}_${m}`] || 0) !== 0) updates.push({ rowKey: ma, col: m, value: 0 }); }));
     if (updates.length) handleCellsChange(updates);
   };
+
+  // Tên / nhóm / giá của các mã ngoài danh mục: danh mục MỌI kênh (có cache riêng ở tầng api, chỉ tốn một lượt cho cả phiên).
+  // Chưa tra được thì dòng chỉ có mã, số vẫn được tính (doanh thu = 0 vì chưa có giá, và được đếm vào chú thích "thiếu giá").
+  useEffect(() => {
+    if (!maNgoai.length) return undefined;
+    let huy = false;
+    api.getProducts({})
+      .then((ds) => {
+        if (huy) return;
+        const quan = new Set(maNgoai);
+        const map = {};
+        ds.forEach((sp) => { const ma = String(sp.sku_code).trim(); if (quan.has(ma)) map[ma] = sp; });
+        setThongTinNgoai(map);
+      })
+      .catch(() => { /* tra không được thì dòng vẫn hiện, chỉ thiếu tên / nhóm / giá */ });
+    return () => { huy = true; };
+  }, [maNgoai]);
 
   const coHangChuaPhanLoai = months.some((m) => (khacTotals[m] || 0) > 0);
   const tongMay = months.reduce((s, m) => s + (mayTotals[m] || 0), 0);
@@ -637,7 +668,7 @@ export default function MonthlyForecast({ currentBU, user }) {
           <div className="space-y-1">
             <div className="font-semibold">
               {dongLechDanhMuc.maSo.length} mã có số dự báo nhưng không nằm trong danh mục của {currentBU} —{' '}
-              {dongLechDanhMuc.tongSl.toLocaleString('vi-VN')} chiếc KHÔNG được tính vào bảng dưới.
+              {dongLechDanhMuc.tongSl.toLocaleString('vi-VN')} chiếc đã hiện thành dòng "ngoài danh mục" ở bảng dưới và ĐƯỢC TÍNH vào hàng tổng.
             </div>
             <ul className="space-y-0.5">
               {dongLechDanhMuc.maSo.slice(0, 8).map((ma) => {
@@ -660,8 +691,8 @@ export default function MonthlyForecast({ currentBU, user }) {
               )}
             </ul>
             <div className="font-sans text-[11px] text-amber-800">
-              Cách xử lý: nếu đúng là hàng của {currentBU} thì sửa Kênh mặc định của mã ở trang
-              Danh mục sản phẩm; nếu không thì xoá số ở đây (nút bên dưới) và nhập vào chu kỳ của đúng đơn vị.
+              Nếu đúng là hàng của {currentBU} thì giữ nguyên (số đã được tính; muốn mã nằm thường trực trong danh mục của {currentBU} thì sửa Kênh mặc định ở trang Danh mục sản phẩm —
+              lưu ý mỗi mã chỉ có một kênh mặc định); nếu là số nhầm đơn vị thì bấm nút bên dưới để đưa về 0 rồi nhập vào chu kỳ của đúng đơn vị.
             </div>
             {canWrite && (
               <button
@@ -916,7 +947,10 @@ export default function MonthlyForecast({ currentBU, user }) {
                     const p = sapXep[vRow.index];
                     return (
                       <tr key={p.sku_code} className="hover:bg-blue-50/50 transition">
-                        <td className="py-2 px-3 border-r border-slate-200 font-bold text-slate-800">{p.sku_code}</td>
+                        <td className="py-2 px-3 border-r border-slate-200 font-bold text-slate-800">
+                          {p.sku_code}
+                          {p._ngoai && <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-semibold font-sans align-middle" title={`Mã này không nằm trong danh mục của ${currentBU}${p.default_channel ? ' (kênh mặc định ' + p.default_channel + ')' : ''} nhưng có số dự báo trong chu kỳ — hiện ở đây và được tính vào tổng.`}>ngoài danh mục</span>}
+                        </td>
                         <td className="py-2 px-3 border-r border-slate-200 font-sans font-medium text-slate-900 truncate max-w-xs">{p.name}</td>
                         <td className="py-2 px-3 border-r border-slate-200 font-sans text-slate-600 text-[11px]">
                           {p.product_group_name || p.product_group_code}

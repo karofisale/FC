@@ -146,6 +146,20 @@ async function main() {
   check('Forecast 4 tháng: khung cảnh báo mã ngoài danh mục có nút "Đưa số của n mã này về 0" (hỏi xác nhận, đi qua handleCellsChange như mọi sửa ô, chỉ khi canWrite)',
     /const xoaSoMaNgoaiDanhMuc = async \(\) => \{/.test(mf) && /title: 'Xoá số của mã ngoài danh mục\?'/.test(mf) && /updates\.push\(\{ rowKey: ma, col: m, value: 0 \}\)/.test(mf) && /if \(updates\.length\) handleCellsChange\(updates\);/.test(mf)
     && /\{canWrite && \(\s*<button\s+type="button"\s+onClick=\{xoaSoMaNgoaiDanhMuc\}/.test(mf));
+  // ---- Forecast 4 tháng: mã ngoài danh mục hiện thành dòng riêng VÀ tính vào tổng (26/10/2026) ----
+  const sn = await imp('utils/skuNgoai.js');
+  const dm = [{ sku_code: 'A' }, { sku_code: '1001' }];
+  const fmap = { 'A_2026-10-01': 5, '1001_2026-10-01': 0, '2013100163_2026-10-01': 300, '2013100163_2026-11-01': 0, '2013100164_2026-11-01': 300, 'X_Y_2026-10-01': 0, '2001020023_2026-12-01': 150 };
+  check('maNgoaiDanhMucThang: mã có số ở bất kỳ tháng nào mà không có trong danh mục (3 mã), bỏ mã trong danh mục và mã chỉ có ô 0; sắp theo mã',
+    sn.maNgoaiDanhMucThang(dm, fmap).join() === '2001020023,2013100163,2013100164', sn.maNgoaiDanhMucThang(dm, fmap));
+  const dn = sn.dongNgoaiDanhMuc(['2013100163', 'ZZ'], { '2013100163': { sku_code: '2013100163', name: 'Bình nóng 1L', product_group_code: 'G1', avg_price: 5, default_channel: 'XK' } });
+  check('dongNgoaiDanhMuc: có thông tin thì lấy tên / nhóm / giá / kênh; chưa tra được thì chỉ có mã; luôn gắn _ngoai',
+    dn[0].name === 'Bình nóng 1L' && dn[0].avg_price === 5 && dn[0].default_channel === 'XK' && dn[0]._ngoai === true && dn[1].name === 'ZZ' && dn[1].product_group_code === '' && dn[1]._ngoai === true, dn);
+  check('Forecast 4 tháng: tatCa = danh mục + mã ngoài danh mục dùng cho bảng, bộ lọc, HÀNG TỔNG / doanh thu và Copy từ tháng; danh sách chốt lúc tải (setMaNgoai trong applyLines)',
+    /const tatCa = useMemo\(\(\) => \{/.test(mf) && /return tatCa\.filter\(\(p\) => \{/.test(mf) && /tatCa\.forEach\(\(p\) => \{\s*const nhom = /.test(mf) && /const updates = tatCa\.map\(\(p\) => \(\{/.test(mf)
+    && /setMaNgoai\(maNgoaiDanhMucThang\(dsSp \|\| productsRef\.current, map\)\)/.test(mf) && /applyLines\(ws\.lines \|\| \[\], ws\.products \|\| \[\]\)/.test(mf) && /\}, \[tatCa, forecastMap, months\]\);/.test(mf));
+  check('Forecast 4 tháng: dòng ngoài danh mục có nhãn "ngoài danh mục"; khung cảnh báo nói rõ ĐƯỢC TÍNH vào tổng (không còn "KHÔNG được tính")',
+    /p\._ngoai && <span/.test(mf) && /ĐƯỢC TÍNH vào hàng tổng/.test(mf) && !/KHÔNG được tính vào bảng dưới/.test(mf) && /api\.getProducts\(\{\}\)\s*\.then\(\(ds\) => \{\s*if \(huy\) return;\s*const quan = new Set\(maNgoai\)/.test(mf));
   check('nút rải đều từng dòng dùng chung capNhatRaiDeu (một cách tính)', /capNhatRaiDeu\(skuCode, monthlyMap\[skuCode\] \|\| 0, weeks, regionCodes, tuanDon, mienDon\)/.test(wf));
 
   // ---- Ô chọn miền + Hoàn tác (25/10/2026) ----
