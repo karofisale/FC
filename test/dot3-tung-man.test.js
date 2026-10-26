@@ -115,25 +115,48 @@ async function main() {
   check('không có dòng lệch -> dong = 0, không có cập nhật nào', wd.tinhRaiDeuTatCa({ danhSach: [{ sku_code: 'A' }], monthlyMap: monthly, weeklyMap: weekly, tuan, mien }).updates.length === 0);
   check('Bảng 1: cột Mã SKU dính trái (header + thân + dòng tổng), có viền bóng thay cho border-collapse', (wf.match(/sticky left-0 z-(30|10)/g) || []).length >= 3 && /sticky left-0 z-30 bg-slate-800 shadow-\[inset_-1px_0_0_#475569\]/.test(wf) && /sticky left-0 z-10 bg-white shadow-\[inset_-1px_0_0_#e2e8f0\]/.test(wf));
   check('Bảng 1: ô lọc "Chỉ dòng lệch (n)" + nút "Rải đều tất cả dòng lệch"; danh sách lệch được CHỐT (không nhảy dòng khi gõ)', /Chỉ dòng lệch \(\{soDongLech/.test(wf) && /Rải đều tất cả dòng lệch/.test(wf) && /lechSkus\.has\(String\(p\.sku_code\)\)/.test(wf) && /tapSkuLech\(/.test(wf));
-  check('Rải đều tất cả: xem trước (số dòng, số ô đổi, số dòng bỏ qua) + appConfirm danger TRƯỚC khi ghi; dùng lại tinhRaiDeuTatCa, không công thức mới', /const raiDeuTatCaLech = async/.test(wf) && /tinhRaiDeuTatCa\(\{ danhSach: filteredProducts, monthlyMap, weeklyMap, tuan: weeks, mien: regionCodes, tuanDon, tatCa \}/.test(wf) && /title: tatCa \? \(tuanDon === undefined \? 'Rải đều TẤT CẢ các dòng\?' : `Dồn TẤT CẢ các dòng vào \$\{tenDon\}\?`\) : \(tuanDon === undefined \? 'Rải đều tất cả dòng lệch\?' : `Dồn tất cả dòng lệch vào \$\{tenDon\}\?`\), okLabel: `\$\{tuanDon === undefined \? 'Rải đều' : 'Dồn vào ' \+ tenDon\} \$\{kq\.dong\.toLocaleString\('vi-VN'\)\} dòng`, danger: true/.test(wf)
+  check('Rải đều tất cả: xem trước (số dòng, số ô đổi, số dòng bỏ qua) + appConfirm danger TRƯỚC khi ghi; dùng lại tinhRaiDeuTatCa, không công thức mới', /const raiDeuTatCaLech = async/.test(wf) && /tinhRaiDeuTatCa\(\{ danhSach: filteredProducts, monthlyMap, weeklyMap, tuan: weeks, mien: regionCodes, tuanDon, mienDon, tatCa \}/.test(wf) && /title: tatCa \? \(tuanDon === undefined \? 'Rải đều TẤT CẢ các dòng\?' : `Dồn TẤT CẢ các dòng vào \$\{tenDon\}\?`\) : \(tuanDon === undefined \? 'Rải đều tất cả dòng lệch\?' : `Dồn tất cả dòng lệch vào \$\{tenDon\}\?`\), okLabel: `\$\{tuanDon === undefined \? 'Rải đều' : 'Dồn vào ' \+ tenDon\} \$\{kq\.dong\.toLocaleString\('vi-VN'\)\} dòng`, danger: true/.test(wf)
     && wf.indexOf('appConfirm(', wf.indexOf('const raiDeuTatCaLech')) < wf.indexOf('handleCellsChange(kq.updates)'));
   // ---- Phân bổ lại TẤT CẢ các dòng (kể cả dòng đang khớp): sửa bản thảo phân bổ sai cách ----
   const kqTatCa = wd.tinhRaiDeuTatCa({ danhSach: ds, monthlyMap: monthly, weeklyMap: weekly, tuan, mien, tuanDon: 1, tatCa: true });
   const sauTatCa = { ...weekly };
   kqTatCa.updates.forEach((u) => { sauTatCa[`${u.rowKey}_${u.col.week}_${u.col.region}`] = u.value; });
-  check('tatCa: A (đang khớp, rải đều) cũng được dồn vào tuần 1 (50 + 50), tuần 2 = 0; C (tháng 0, đang lệch) bỏ qua và được ĐẾM để báo; mọi dòng có số tháng > 0 hết lệch',
-    kqTatCa.dong === 4 && kqTatCa.boQua === 1 && sauTatCa.A_1_MB === 50 && sauTatCa.A_1_MN === 50 && sauTatCa.A_2_MB === 0 && sauTatCa.A_2_MN === 0
+  check('tatCa: A (đang khớp, rải đều) cũng được dồn vào tuần 1 miền MB (100), miền MN và tuần 2 = 0; C (tháng 0, đang lệch) bỏ qua và được ĐẾM để báo; mọi dòng có số tháng > 0 hết lệch',
+    kqTatCa.dong === 4 && kqTatCa.boQua === 1 && sauTatCa.A_1_MB === 100 && sauTatCa.A_1_MN === 0 && sauTatCa.A_2_MB === 0 && sauTatCa.A_2_MN === 0
     && ['A', 'B', 'D', 'E'].every((k) => wd.tongTuanCua(k, sauTatCa, tuan, mien) === monthly[k]) && !kqTatCa.updates.some((u) => u.rowKey === 'C'), [kqTatCa.dong, kqTatCa.boQua, sauTatCa]);
   check('không có tatCa: A (đang khớp) KHÔNG bị đụng (hành vi cũ giữ nguyên)', !wd.tinhRaiDeuTatCa({ danhSach: ds, monthlyMap: monthly, weeklyMap: weekly, tuan, mien, tuanDon: 1 }).updates.some((u) => u.rowKey === 'A'));
-  check('Bảng 1: có nút "Rải đều / Dồn tất cả các dòng" (hỏi xác nhận, chỉ dòng đang hiển thị) dùng chung hàm raiDeuTatCaLech(true)', /onClick=\{\(\) => raiDeuTatCaLech\(true\)\}/.test(wf) && /onClick=\{\(\) => raiDeuTatCaLech\(false\)\}/.test(wf) && /Rải đều tất cả các dòng/.test(wf) && /Dồn tất cả các dòng vào \$\{tenDon\}/.test(wf) && /Rải đều TẤT CẢ các dòng\?/.test(wf) && /tuanDon, tatCa \}\)/.test(wf));
-  check('nút rải đều từng dòng dùng chung capNhatRaiDeu (một cách tính)', /capNhatRaiDeu\(skuCode, monthlyMap\[skuCode\] \|\| 0, weeks, regionCodes, tuanDon\)/.test(wf));
+  check('Bảng 1: có nút "Rải đều / Dồn tất cả các dòng" (hỏi xác nhận, chỉ dòng đang hiển thị) dùng chung hàm raiDeuTatCaLech(true)', /onClick=\{\(\) => raiDeuTatCaLech\(true\)\}/.test(wf) && /onClick=\{\(\) => raiDeuTatCaLech\(false\)\}/.test(wf) && /Rải đều tất cả các dòng/.test(wf) && /Dồn tất cả các dòng vào \$\{tenDon\}/.test(wf) && /Rải đều TẤT CẢ các dòng\?/.test(wf) && /tuanDon, mienDon, tatCa \}\)/.test(wf));
+  check('nút rải đều từng dòng dùng chung capNhatRaiDeu (một cách tính)', /capNhatRaiDeu\(skuCode, monthlyMap\[skuCode\] \|\| 0, weeks, regionCodes, tuanDon, mienDon\)/.test(wf));
+
+  // ---- Ô chọn miền + Hoàn tác (25/10/2026) ----
+  check('Bảng 1: khi dồn vào một tuần có ô chọn "Miền" (mặc định MB, nhớ lựa chọn, miền lạ quay về MB); nhãn nút / tiêu đề kèm miền',
+    /usePersistedState\('weeklyMienDon', 'MB', laChuoi\)/.test(wf) && /mienDonHopLe\(mienDonChon, regionCodes\)/.test(wf) && /const tenDon = tuanDon === undefined \? '' : `Tuần \$\{tuanDon\} · \$\{mienDon\}`/.test(wf)
+    && /aria-label="Miền nhận số khi dồn vào một tuần"/.test(wf) && /\{canWrite && tuanDon !== undefined && \(/.test(wf) && /một ô, không chia cho miền khác/.test(wf));
+  const luu = { A_1_MB: 5, A_1_MN: 5 };
+  const bUp = [{ rowKey: 'A', col: { week: 1, region: 'MB' }, value: '10' }, { rowKey: 'A', col: { week: 1, region: 'MN' }, value: 0 }, { rowKey: 'B', col: { week: 2, region: 'MB' }, value: 7 }];
+  const buoc = wd.lapBuocHoanTac(bUp, luu);
+  check('lapBuocHoanTac: ghi lại số CŨ của từng ô (A_1_MB 5, A_1_MN 5, B_2_MB 0)', JSON.stringify(buoc) === '[{"key":"A_1_MB","cu":5},{"key":"A_1_MN","cu":5},{"key":"B_2_MB","cu":0}]', buoc);
+  check('lapBuocHoanTac: đợt không đổi ô nào -> null (không thành bước)', wd.lapBuocHoanTac([{ rowKey: 'A', col: { week: 1, region: 'MB' }, value: 5 }], luu) === null);
+  const hien = { A_1_MB: 10, A_1_MN: 0, B_2_MB: 7 };
+  const dirtyTruoc = new Set(['A_1_MB', 'A_1_MN', 'B_2_MB']);
+  const ht = wd.apHoanTac(buoc, hien, dirtyTruoc, luu);
+  check('apHoanTac: ô về đúng số cũ; ô trở về số ĐÃ LƯU thì hết "chưa lưu" (A_1_MB, A_1_MN, B_2_MB đều về mốc đã lưu -> dirty rỗng)', ht.weeklyMap.A_1_MB === 5 && ht.weeklyMap.A_1_MN === 5 && ht.weeklyMap.B_2_MB === 0 && ht.dirty.size === 0, [ht.weeklyMap, [...ht.dirty]]);
+  const buoc2 = wd.lapBuocHoanTac([{ rowKey: 'A', col: { week: 1, region: 'MB' }, value: 20 }], { A_1_MB: 10 });
+  const ht2 = wd.apHoanTac(buoc2, { A_1_MB: 20 }, new Set(['A_1_MB']), luu);
+  check('hoàn tác nhiều lớp: về số 10 (chưa phải số đã lưu 5) thì ô VẪN "chưa lưu"', ht2.weeklyMap.A_1_MB === 10 && ht2.dirty.has('A_1_MB'));
+  check('Bảng 1: nút "Hoàn tác" (bước gần nhất: dán / điền / phân bổ) + "Bỏ thay đổi chưa lưu" (hỏi xác nhận); bước hoàn tác được lập trong handleCellsChange, xoá sau khi lưu / tải',
+    /const hoanTac = \(\) => \{/.test(wf) && /const boThayDoi = async \(\) => \{/.test(wf) && /onClick=\{hoanTac\}/.test(wf) && /onClick=\{boThayDoi\}/.test(wf) && /disabled=\{lichSu\.length === 0\}/.test(wf) && /disabled=\{dirtyKeys\.size === 0\}/.test(wf)
+    && /lapBuocHoanTac\(updates\.map/.test(wf) && /apHoanTac\(buoc, weeklyMap, dirtyKeys, daLuuRef\.current\)/.test(wf) && /title: 'Bỏ thay đổi chưa lưu\?', okLabel: 'Bỏ thay đổi', danger: true/.test(wf)
+    && /daLuuRef\.current = \{ \.\.\.wMap \};\s*setLichSu\(\[\]\);/.test(wf) && /daLuuRef\.current = \{ \.\.\.weeklyMap \};\s*setLichSu\(\[\]\);/.test(wf));
 
   // ---- Phân bổ tháng đầu vào MỘT tuần (25/10/2026): soạn tay, không nhập từ file ----
   const don2 = wd.capNhatRaiDeu('S', 100, [1, 2, 3, 4, 5], ['MB', 'MN'], 3);
   const giaTri = (arr, w, r) => arr.find((u) => u.col.week === w && u.col.region === r).value;
-  check('dồn vào tuần 3: 10 ô được ghi (đủ MỌI ô), tuần 3 nhận hết (MB 50 + MN 50), các tuần khác = 0', don2.length === 10 && giaTri(don2, 3, 'MB') === 50 && giaTri(don2, 3, 'MN') === 50 && don2.filter((u) => u.col.week !== 3).every((u) => u.value === 0));
-  const don3 = wd.capNhatRaiDeu('S', 101, [1, 2, 3], ['MB', 'MN', 'MT'], 2);
-  check('dồn vào tuần 2 với 3 miền: 101 = 33 + 33 + 35 (phần dư vào miền cuối), tổng luôn = số tháng', giaTri(don3, 2, 'MB') === 33 && giaTri(don3, 2, 'MN') === 33 && giaTri(don3, 2, 'MT') === 35 && don3.reduce((a, u) => a + u.value, 0) === 101);
+  check('dồn vào tuần 3 (không chọn miền -> MB): 10 ô được ghi (đủ MỌI ô), CHỈ ô tuần 3 × MB nhận hết 100, mọi ô khác = 0 (không tự chia 2 miền)', don2.length === 10 && giaTri(don2, 3, 'MB') === 100 && giaTri(don2, 3, 'MN') === 0 && don2.filter((u) => !(u.col.week === 3 && u.col.region === 'MB')).every((u) => u.value === 0));
+  const don3 = wd.capNhatRaiDeu('S', 101, [1, 2, 3], ['MB', 'MN', 'MT'], 2, 'MT');
+  check('dồn vào tuần 2, chọn miền MT trong 3 miền: MT nhận đủ 101, MB / MN = 0, tổng = số tháng', giaTri(don3, 2, 'MT') === 101 && giaTri(don3, 2, 'MB') === 0 && giaTri(don3, 2, 'MN') === 0 && don3.reduce((a, u) => a + u.value, 0) === 101);
+  check('mienDonHopLe: miền chọn có trong danh sách -> dùng; không có / rỗng -> MB; không có MB -> miền đầu tiên', wd.mienDonHopLe('MN', ['MB', 'MN']) === 'MN' && wd.mienDonHopLe('XX', ['MB', 'MN']) === 'MB' && wd.mienDonHopLe('', ['MB', 'MN']) === 'MB' && wd.mienDonHopLe(undefined, ['MN', 'MT']) === 'MN' && wd.mienDonHopLe(' MT ', ['MN', 'MT']) === 'MT');
+  check('miền mặc định khi không truyền = MB: ô tuần 1 × MB nhận hết, ô MN = 0; chọn MN thì ngược lại', giaTri(wd.capNhatRaiDeu('S', 7, [1, 2], ['MB', 'MN'], 1), 1, 'MB') === 7 && giaTri(wd.capNhatRaiDeu('S', 7, [1, 2], ['MB', 'MN'], 1, 'MN'), 1, 'MN') === 7 && giaTri(wd.capNhatRaiDeu('S', 7, [1, 2], ['MB', 'MN'], 1, 'MN'), 1, 'MB') === 0);
   check('không truyền tuần / tuần không thuộc tháng / tuần rỗng -> RẢI ĐỀU như cũ (không đổi kết quả)', JSON.stringify(wd.capNhatRaiDeu('S', 99, [1, 2], ['MB', 'MN'])) === JSON.stringify(wd.capNhatRaiDeu('S', 99, [1, 2], ['MB', 'MN'], 9)) && JSON.stringify(wd.capNhatRaiDeu('S', 99, [1, 2], ['MB', 'MN'])) === JSON.stringify(wd.capNhatRaiDeu('S', 99, [1, 2], ['MB', 'MN'], '')) && JSON.stringify(wd.capNhatRaiDeu('S', 99, [1, 2], ['MB', 'MN'])) === JSON.stringify(wd.capNhatRaiDeu('S', 99, [1, 2], ['MB', 'MN'], null)));
   check('tuanDonHopLe: "3" (chuỗi từ ô chọn) hợp lệ, 0 / 9 / "x" / 2.5 không', wd.tuanDonHopLe('3', [1, 2, 3]) === 3 && wd.tuanDonHopLe(0, [1, 2, 3]) === undefined && wd.tuanDonHopLe(9, [1, 2, 3]) === undefined && wd.tuanDonHopLe('x', [1, 2, 3]) === undefined && wd.tuanDonHopLe(2.5, [1, 2, 3]) === undefined);
   check('số tháng = 0 -> dồn vào tuần ghi toàn 0 (giống rải đều: xoá sạch ô)', wd.capNhatRaiDeu('S', 0, [1, 2], ['MB', 'MN'], 1).every((u) => u.value === 0));
@@ -142,9 +165,11 @@ async function main() {
   kqDon.updates.forEach((u) => { sauDon[`${u.rowKey}_${u.col.week}_${u.col.region}`] = u.value; });
   check('dồn tất cả dòng lệch vào tuần 2: B và D hết lệch, mọi số nằm ở tuần 2, tuần 1 = 0; C (số tháng 0) bỏ qua; A, E không bị đụng',
     kqDon.dong === 2 && kqDon.boQua === 1 && wd.tongTuanCua('B', sauDon, tuan, mien) === 40 && wd.tongTuanCua('D', sauDon, tuan, mien) === 30
-    && sauDon.B_1_MB === 0 && sauDon.B_1_MN === 0 && sauDon.B_2_MB === 20 && sauDon.B_2_MN === 20 && sauDon.D_1_MB === 0 && sauDon.D_2_MB === 15 && sauDon.D_2_MN === 15
+    && sauDon.B_1_MB === 0 && sauDon.B_1_MN === 0 && sauDon.B_2_MB === 40 && sauDon.B_2_MN === 0 && sauDon.D_1_MB === 0 && sauDon.D_2_MB === 30 && sauDon.D_2_MN === 0
     && !kqDon.updates.some((u) => u.rowKey === 'A' || u.rowKey === 'E'), [kqDon.dong, kqDon.boQua, sauDon]);
-  check('oGhiDe của chế độ dồn tính đúng: B (10,10,10,20 -> 0,0,20,20: 3 ô đổi) + D (31 -> 0, ô khác trống: 1 ô đổi) = 4', kqDon.oGhiDe === 4, kqDon.oGhiDe);
+  check('oGhiDe của chế độ dồn tính đúng: B (10,10,10,20 -> 0,0,40,0: cả 4 ô đang có số đều đổi) + D (31 -> 0 = 1 ô; ô tuần 2 × MB đang trống nên không tính) = 5', kqDon.oGhiDe === 5, kqDon.oGhiDe);
+  const kqMN = wd.tinhRaiDeuTatCa({ danhSach: ds, monthlyMap: monthly, weeklyMap: weekly, tuan, mien, tuanDon: 2, mienDon: 'MN' });
+  check('dồn tất cả dòng lệch vào tuần 2 × MN: B = 40 ở B_2_MN, D = 30 ở D_2_MN, ô MB = 0', kqMN.updates.find((u) => u.rowKey === 'B' && u.col.week === 2 && u.col.region === 'MN').value === 40 && kqMN.updates.find((u) => u.rowKey === 'D' && u.col.week === 2 && u.col.region === 'MN').value === 30 && kqMN.updates.find((u) => u.rowKey === 'B' && u.col.week === 2 && u.col.region === 'MB').value === 0);
   check('Bảng 1: có ô chọn "Phân bổ tháng đầu" (rải đều / dồn hết vào từng tuần), nhớ lựa chọn, tuần không có ở chu kỳ khác thì quay về rải đều',
     /Phân bổ tháng đầu:/.test(wf) && /<option value="deu">Rải đều các tuần × miền<\/option>/.test(wf) && /Dồn hết vào \{weekLabel\(baseMonth, w\)\}/.test(wf)
     && /usePersistedState\('weeklyCheDoRai', 'deu'/.test(wf) && /tuanDonHopLe\(cheDoRai\.startsWith\('w'\) \? cheDoRai\.slice\(1\) : undefined, weeks\)/.test(wf)

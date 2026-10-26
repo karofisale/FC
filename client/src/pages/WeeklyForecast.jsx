@@ -8,7 +8,7 @@ import AddProductModal from '../components/AddProductModal';
 // Tải lười — kéo theo thư viện xlsx (~290KB) chỉ để đọc file Excel, đa số
 // người dùng không bấm "Nhập từ file" mỗi lần vào trang này.
 const ImportForecastModal = React.lazy(() => import('../components/ImportForecastModal'));
-import { Save, Send, Search, Loader2, Wand2, ArrowDownToLine, PackagePlus, FileSpreadsheet, ListChecks } from 'lucide-react';
+import { Save, Send, Search, Loader2, Wand2, ArrowDownToLine, PackagePlus, FileSpreadsheet, ListChecks, Undo2, RotateCcw } from 'lucide-react';
 import { monthsOfCycle, weeksOfMonth, weekLabel, monthLabel, monthLabelFull, normalizeMonth } from '../utils/period';
 import { setDirty } from '../services/dirtyState';
 import { appConfirm } from '../services/dialogService';
@@ -20,7 +20,7 @@ import { SortTh, StateRow } from '../components/TableStates';
 import MoreMenu from '../components/MoreMenu';
 import { useGridEditing, parsePastedNumber, CHAN_LAN_CHUOT } from '../utils/useGridEditing';
 import { demGhiDe, cauHoiGhiDe } from '../utils/gridOverwrite';
-import { capNhatRaiDeu, laDongLech, tapSkuLech, tinhRaiDeuTatCa, tuanDonHopLe } from '../utils/weeklyDistribute';
+import { capNhatRaiDeu, laDongLech, tapSkuLech, tinhRaiDeuTatCa, tuanDonHopLe, mienDonHopLe, lapBuocHoanTac, apHoanTac } from '../utils/weeklyDistribute';
 import { MAN_HINH } from '../utils/glossary';
 
 // Bảng này nặng nhất trong app — kênh XK 756 SKU × (số tuần × số miền)
@@ -50,6 +50,9 @@ export default function WeeklyForecast({ currentBU, user }) {
   const [monthlyMap, setMonthlyMap] = useState({});
   const [weeklyMap, setWeeklyMap] = useState({});
   const [dirtyKeys, setDirtyKeys] = useState(() => new Set());
+  // Số đã lưu / vừa tải (mốc để Hoàn tác biết ô nào đã trở về như server) + các bước hoàn tác (mỗi lần dán / điền / phân bổ là một bước).
+  const daLuuRef = useRef({});
+  const [lichSu, setLichSu] = useState([]);
 
   // Chặn đổi tab/đổi đơn vị làm mất ô chưa lưu mà không hỏi lại
   useEffect(() => {
@@ -78,7 +81,10 @@ export default function WeeklyForecast({ currentBU, user }) {
   // Nhớ giữa các lần mở; chu kỳ khác không có tuần đó thì tự coi như rải đều (không báo lỗi, không đổi lựa chọn đã nhớ).
   const [cheDoRai, setCheDoRai] = usePersistedState('weeklyCheDoRai', 'deu', (v) => laChuoi(v) && /^(deu|w\d{1,2})$/.test(v));
   const tuanDon = tuanDonHopLe(cheDoRai.startsWith('w') ? cheDoRai.slice(1) : undefined, weeks);
-  const tenDon = tuanDon === undefined ? '' : `Tuần ${tuanDon}`;
+  // Dồn vào một tuần = dồn vào MỘT miền (mặc định MB), không tự chia cho các miền (user chốt 25/10/2026).
+  const [mienDonChon, setMienDonChon] = usePersistedState('weeklyMienDon', 'MB', laChuoi);
+  const mienDon = regionCodes.length ? mienDonHopLe(mienDonChon, regionCodes) : undefined;
+  const tenDon = tuanDon === undefined ? '' : `Tuần ${tuanDon} · ${mienDon}`;
 
   /** Tập SKU có số ở bảng tháng HOẶC ở bất kỳ ô tuần/miền nào. */
   const computeNonZero = useCallback((mMap, wMap) => {
@@ -118,6 +124,8 @@ export default function WeeklyForecast({ currentBU, user }) {
       wMap[`${s.sku_code}_${s.week_number}_${s.region_code}`] = Number(s.quantity) || 0;
     });
     setWeeklyMap(wMap);
+    daLuuRef.current = { ...wMap };
+    setLichSu([]);
     setNonZeroSkus(computeNonZero(mMap, wMap));
     const c = nho || ctxRef.current;
     setLechSkus(tapSkuLech(c.products, mMap, wMap, c.weeks, c.regionCodes));
@@ -239,6 +247,8 @@ export default function WeeklyForecast({ currentBU, user }) {
 
   /** Áp nhiều ô cùng lúc (dán khối từ Excel, fill-down, Ctrl+D) trong 1 lần cập nhật. */
   const handleCellsChange = (updates) => {
+    const buoc = lapBuocHoanTac(updates.map((u) => ({ ...u, value: parsePastedNumber(u.value) })), weeklyMap);
+    if (buoc) setLichSu((h) => [...h.slice(-29), buoc]);
     setWeeklyMap((prev) => {
       const next = { ...prev };
       updates.forEach(({ rowKey, col, value }) => {
@@ -253,9 +263,33 @@ export default function WeeklyForecast({ currentBU, user }) {
     });
   };
 
-  /** Phân bổ số tháng 1 của một SKU ra các ô tuần × miền theo cách đang chọn: rải đều (phần dư dồn ô cuối) hoặc dồn hết vào một tuần (tính ở utils/weeklyDistribute.js). */
+  /** Hoàn tác bước gần nhất (dán / điền / phân bổ): trả các ô về số trước đó. Gõ tay từng ô không thành bước riêng — dùng "Bỏ thay đổi chưa lưu". */
+  const hoanTac = () => {
+    const buoc = lichSu[lichSu.length - 1];
+    if (!buoc) return;
+    const kq = apHoanTac(buoc, weeklyMap, dirtyKeys, daLuuRef.current);
+    setWeeklyMap(kq.weeklyMap);
+    setDirtyKeys(kq.dirty);
+    setLichSu((h) => h.slice(0, -1));
+    setMessage({ type: 'success', text: `Đã hoàn tác bước gần nhất (${buoc.length.toLocaleString('vi-VN')} ô).` });
+  };
+
+  /** Bỏ MỌI thay đổi chưa lưu: bảng về đúng số đã lưu / vừa tải. */
+  const boThayDoi = async () => {
+    if (!dirtyKeys.size) return;
+    if (!(await appConfirm(
+      `Bỏ ${dirtyKeys.size.toLocaleString('vi-VN')} ô đang sửa chưa lưu và quay về số đã lưu gần nhất? Không hoàn lại được.`,
+      { title: 'Bỏ thay đổi chưa lưu?', okLabel: 'Bỏ thay đổi', danger: true }
+    ))) return;
+    setWeeklyMap({ ...daLuuRef.current });
+    setDirtyKeys(new Set());
+    setLichSu([]);
+    setMessage({ type: 'success', text: 'Đã bỏ các thay đổi chưa lưu.' });
+  };
+
+  /** Phân bổ số tháng 1 của một SKU ra các ô tuần × miền theo cách đang chọn: rải đều (phần dư dồn ô cuối) hoặc dồn hết vào MỘT ô tuần × miền (tính ở utils/weeklyDistribute.js). */
   const distributeEvenly = (skuCode) => {
-    const updates = capNhatRaiDeu(skuCode, monthlyMap[skuCode] || 0, weeks, regionCodes, tuanDon);
+    const updates = capNhatRaiDeu(skuCode, monthlyMap[skuCode] || 0, weeks, regionCodes, tuanDon, mienDon);
     if (updates.length) handleCellsChange(updates);
   };
 
@@ -264,7 +298,7 @@ export default function WeeklyForecast({ currentBU, user }) {
    * Có xem trước (bao nhiêu dòng, bao nhiêu ô đang có số sẽ bị thay) và hỏi xác nhận; chưa lưu cho tới khi bấm "Lưu bản thảo".
    */
   const raiDeuTatCaLech = async (tatCa = false) => {
-    const kq = tinhRaiDeuTatCa({ danhSach: filteredProducts, monthlyMap, weeklyMap, tuan: weeks, mien: regionCodes, tuanDon, tatCa });
+    const kq = tinhRaiDeuTatCa({ danhSach: filteredProducts, monthlyMap, weeklyMap, tuan: weeks, mien: regionCodes, tuanDon, mienDon, tatCa });
     const doiTuong = tatCa ? 'SKU có số tháng 1' : 'SKU đang lệch';
     if (!kq.dong) {
       setMessage({ type: 'error', text: kq.boQua
@@ -276,8 +310,8 @@ export default function WeeklyForecast({ currentBU, user }) {
     const cachChia = tuanDon === undefined
       ? `Rải đều số tháng 1 ra ${weeks.length} tuần × ${regionCodes.length} miền cho ${kq.dong.toLocaleString('vi-VN')} ${doiTuong}${phamVi}.\n\n`
         + `Số tuần/miền đang nhập của các SKU này sẽ bị thay bằng số chia đều${kq.oGhiDe ? ` (${kq.oGhiDe.toLocaleString('vi-VN')} ô đang có số sẽ đổi)` : ''}; phần dư dồn vào ô cuối. `
-      : `Dồn TOÀN BỘ số tháng 1 vào ${weekLabel(baseMonth, tuanDon)} (chia đều ${regionCodes.length} miền của tuần đó) cho ${kq.dong.toLocaleString('vi-VN')} ${doiTuong}${phamVi}.\n\n`
-        + `Số tuần/miền đang nhập của các SKU này sẽ bị thay: ${tenDon} nhận hết, các tuần còn lại về 0${kq.oGhiDe ? ` (${kq.oGhiDe.toLocaleString('vi-VN')} ô đang có số sẽ đổi)` : ''}; phần dư dồn vào miền cuối. `;
+      : `Dồn TOÀN BỘ số tháng 1 vào ${weekLabel(baseMonth, tuanDon)} · miền ${mienDon} (một ô, không chia cho miền khác) cho ${kq.dong.toLocaleString('vi-VN')} ${doiTuong}${phamVi}.\n\n`
+        + `Số tuần/miền đang nhập của các SKU này sẽ bị thay: ${tenDon} nhận hết, mọi ô khác về 0${kq.oGhiDe ? ` (${kq.oGhiDe.toLocaleString('vi-VN')} ô đang có số sẽ đổi)` : ''}. `;
     if (!(await appConfirm(
       cachChia
       + (kq.boQua ? `${kq.boQua.toLocaleString('vi-VN')} SKU lệch nhưng có số tháng 1 bằng 0 sẽ KHÔNG bị đụng tới. ` : '')
@@ -306,6 +340,8 @@ export default function WeeklyForecast({ currentBU, user }) {
 
     const res = await api.saveWeeklySplits(selectedVersion.id, splits);
     setDirtyKeys(new Set());
+    daLuuRef.current = { ...weeklyMap };
+    setLichSu([]);
     return res;
   };
 
@@ -567,6 +603,43 @@ export default function WeeklyForecast({ currentBU, user }) {
               {weeks.map((w) => <option key={w} value={`w${w}`}>Dồn hết vào {weekLabel(baseMonth, w)}</option>)}
             </select>
           </label>
+        )}
+        {canWrite && tuanDon !== undefined && (
+          <label className="flex items-center gap-1.5 text-xs text-slate-600 whitespace-nowrap" title="Miền nhận toàn bộ số tháng 1 khi dồn vào một tuần (mặc định MB)">
+            Miền:
+            <select
+              value={mienDon}
+              onChange={(e) => setMienDonChon(e.target.value)}
+              aria-label="Miền nhận số khi dồn vào một tuần"
+              className="border border-slate-300 rounded-lg bg-white px-2 py-1.5 text-xs text-slate-700"
+            >
+              {regionCodes.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </label>
+        )}
+        {canWrite && (
+          <>
+            <button
+              type="button"
+              onClick={hoanTac}
+              disabled={lichSu.length === 0}
+              title="Hoàn tác bước gần nhất (dán, điền xuống, phân bổ). Gõ tay từng ô không tính — dùng 'Bỏ thay đổi chưa lưu'."
+              className="flex items-center gap-1.5 border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
+            >
+              <Undo2 className="w-3.5 h-3.5" aria-hidden="true" />
+              Hoàn tác{lichSu.length > 0 ? ` (${lichSu.length})` : ''}
+            </button>
+            <button
+              type="button"
+              onClick={boThayDoi}
+              disabled={dirtyKeys.size === 0}
+              title="Bỏ mọi ô đang sửa chưa lưu, quay về số đã lưu gần nhất"
+              className="flex items-center gap-1.5 border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
+            >
+              <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+              Bỏ thay đổi chưa lưu
+            </button>
+          </>
         )}
         {canWrite && (
           <button

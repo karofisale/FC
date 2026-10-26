@@ -19,19 +19,28 @@ export function tuanDonHopLe(tuanDon, tuan) {
   return Number.isInteger(n) && tuan.indexOf(n) >= 0 ? n : undefined;
 }
 
+/** Miền nhận khi dồn vào một tuần: miền được chọn nếu có trong danh sách, ngược lại MB, ngược lại miền đầu tiên. */
+export function mienDonHopLe(mienDon, mien) {
+  const m = String(mienDon === undefined || mienDon === null ? '' : mienDon).trim();
+  if (m && mien.indexOf(m) >= 0) return m;
+  return mien.indexOf('MB') >= 0 ? 'MB' : mien[0];
+}
+
 /**
  * Các bản cập nhật ({rowKey, col, value}) để phân bổ số tháng của MỘT SKU ra mọi ô tuần × miền.
  *  - tuanDon bỏ trống: RẢI ĐỀU ra mọi ô (cách cũ, giữ nguyên);
- *  - tuanDon = số tuần: DỒN TOÀN BỘ sản lượng tháng vào tuần đó (chia đều cho các miền của tuần, phần dư vào miền cuối),
- *    các tuần còn lại về 0 — giống rải đều ở chỗ ghi đủ MỌI ô, nên tổng tuần/miền luôn khớp số tháng.
+ *  - tuanDon = số tuần: DỒN TOÀN BỘ sản lượng tháng vào MỘT ô = tuần đó × một miền (mienDon; bỏ trống / không có trong danh sách thì
+ *    lấy MB, không có MB thì miền đầu tiên) — KHÔNG tự chia cho các miền; mọi ô khác về 0. Giống rải đều ở chỗ ghi đủ MỌI ô,
+ *    nên tổng tuần/miền luôn khớp số tháng.
  */
-export function capNhatRaiDeu(sku, tongThang, tuan, mien, tuanDon) {
+export function capNhatRaiDeu(sku, tongThang, tuan, mien, tuanDon, mienDon) {
   const cot = tuan.flatMap((week) => mien.map((region) => ({ week, region })));
   if (!cot.length) return [];
   const don = tuanDonHopLe(tuanDon, tuan);
   if (don !== undefined) {
-    const { moiO, phanDu } = chiaDeu(tongThang, mien.length);
-    return cot.map((c) => ({ rowKey: sku, col: c, value: c.week !== don ? 0 : (c.region === mien[mien.length - 1] ? moiO + phanDu : moiO) }));
+    const mienDich = mienDonHopLe(mienDon, mien);
+    const tong = Number(tongThang) || 0;
+    return cot.map((c) => ({ rowKey: sku, col: c, value: c.week === don && c.region === mienDich ? tong : 0 }));
   }
   const { moiO, phanDu } = chiaDeu(tongThang, cot.length);
   return cot.map((c, i) => ({ rowKey: sku, col: c, value: i === cot.length - 1 ? moiO + phanDu : moiO }));
@@ -53,14 +62,14 @@ export function tapSkuLech(danhSach, monthlyMap, weeklyMap, tuan, mien) {
 
 /**
  * Tính trước "rải đều tất cả dòng lệch" để HIỆN CHO NGƯỜI DÙNG xem trước rồi mới ghi:
- *  - tuanDon: nếu có thì dồn cả số tháng vào tuần đó thay vì rải đều (xem capNhatRaiDeu);
+ *  - tuanDon (+ mienDon): nếu có thì dồn cả số tháng vào ô tuần × miền đó thay vì rải đều (xem capNhatRaiDeu);
  *  - tatCa: true = áp cho MỌI dòng có số tháng 1 > 0 (kể cả dòng đang khớp), không chỉ dòng lệch;
  *  - dong: số SKU sẽ được rải (lệch và có số tháng 1 > 0);
  *  - boQua: SKU lệch nhưng số tháng 1 = 0 — không rải (rải ra chỉ là xoá hết số tuần/miền; việc đó để người dùng tự làm);
  *  - oGhiDe: số ô đang có số khác 0 sẽ đổi giá trị;
  *  - updates: dạng onCellsChange.
  */
-export function tinhRaiDeuTatCa({ danhSach, monthlyMap, weeklyMap, tuan, mien, tuanDon, tatCa }) {
+export function tinhRaiDeuTatCa({ danhSach, monthlyMap, weeklyMap, tuan, mien, tuanDon, mienDon, tatCa }) {
   const updates = [];
   let dong = 0;
   let boQua = 0;
@@ -72,11 +81,38 @@ export function tinhRaiDeuTatCa({ danhSach, monthlyMap, weeklyMap, tuan, mien, t
     const tong = monthlyMap[sku] || 0;
     if (!(tong > 0)) { if (lech) boQua += 1; return; }   // số tháng 0: không rải; chỉ ĐẾM dòng lệch để báo (dòng 0 khớp 0 không đáng báo)
     dong += 1;
-    capNhatRaiDeu(sku, tong, tuan, mien, tuanDon).forEach((u) => {
+    capNhatRaiDeu(sku, tong, tuan, mien, tuanDon, mienDon).forEach((u) => {
       const cu = weeklyMap[`${sku}_${u.col.week}_${u.col.region}`] || 0;
       if (cu !== 0 && cu !== u.value) oGhiDe += 1;
       updates.push(u);
     });
   });
   return { dong, boQua, oGhiDe, updates };
+}
+
+/**
+ * Hoàn tác (25/10/2026): từ một đợt cập nhật ô ({rowKey, col, value}) và bảng hiện tại, lập "bước" ghi lại số CŨ của từng ô bị đổi.
+ * Trả null nếu đợt đó không đổi ô nào (không đáng thành một bước hoàn tác).
+ */
+export function lapBuocHoanTac(updates, weeklyMap) {
+  const cu = new Map();
+  updates.forEach(({ rowKey, col, value }) => {
+    const key = `${rowKey}_${col.week}_${col.region}`;
+    if (cu.has(key)) return;   // cùng một ô xuất hiện hai lần: giữ số cũ NHẤT
+    cu.set(key, weeklyMap[key] || 0);
+  });
+  const buoc = [...cu.entries()].map(([key, so]) => ({ key, cu: so }));
+  const doi = updates.some(({ rowKey, col, value }) => (weeklyMap[`${rowKey}_${col.week}_${col.region}`] || 0) !== (Number(value) || 0));
+  return doi ? buoc : null;
+}
+
+/** Áp một bước hoàn tác lên bảng: trả { weeklyMap, dirty } mới; ô trở về đúng số đã lưu thì hết "chưa lưu". */
+export function apHoanTac(buoc, weeklyMap, dirtyKeys, daLuuMap) {
+  const next = { ...weeklyMap };
+  const dirty = new Set(dirtyKeys);
+  buoc.forEach(({ key, cu }) => {
+    next[key] = cu;
+    if (cu === (daLuuMap[key] || 0)) dirty.delete(key); else dirty.add(key);
+  });
+  return { weeklyMap: next, dirty };
 }
