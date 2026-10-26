@@ -263,25 +263,26 @@ export default function WeeklyForecast({ currentBU, user }) {
    * "Rải đều tất cả dòng lệch": cùng cách tính với nút rải đều từng dòng, áp cho mọi SKU đang lệch trong danh sách đang hiển thị.
    * Có xem trước (bao nhiêu dòng, bao nhiêu ô đang có số sẽ bị thay) và hỏi xác nhận; chưa lưu cho tới khi bấm "Lưu bản thảo".
    */
-  const raiDeuTatCaLech = async () => {
-    const kq = tinhRaiDeuTatCa({ danhSach: filteredProducts, monthlyMap, weeklyMap, tuan: weeks, mien: regionCodes, tuanDon });
+  const raiDeuTatCaLech = async (tatCa = false) => {
+    const kq = tinhRaiDeuTatCa({ danhSach: filteredProducts, monthlyMap, weeklyMap, tuan: weeks, mien: regionCodes, tuanDon, tatCa });
+    const doiTuong = tatCa ? 'SKU có số tháng 1' : 'SKU đang lệch';
     if (!kq.dong) {
       setMessage({ type: 'error', text: kq.boQua
         ? `Không có dòng nào phân bổ được: ${kq.boQua} SKU lệch nhưng số tháng 1 bằng 0 (phân bổ chỉ là xoá số tuần/miền — hãy tự kiểm tra các dòng đó).`
-        : 'Không có dòng nào đang lệch.' });
+        : (tatCa ? 'Không có dòng nào có số tháng 1 để phân bổ.' : 'Không có dòng nào đang lệch.') });
       return;
     }
-    const phamVi = search.trim() !== '' ? ' trong các dòng khớp ô tìm kiếm' : '';
+    const phamVi = search.trim() !== '' ? ' trong các dòng khớp ô tìm kiếm' : (onlyNonZero ? ' trong các dòng đang hiển thị' : '');
     const cachChia = tuanDon === undefined
-      ? `Rải đều số tháng 1 ra ${weeks.length} tuần × ${regionCodes.length} miền cho ${kq.dong.toLocaleString('vi-VN')} SKU đang lệch${phamVi}.\n\n`
+      ? `Rải đều số tháng 1 ra ${weeks.length} tuần × ${regionCodes.length} miền cho ${kq.dong.toLocaleString('vi-VN')} ${doiTuong}${phamVi}.\n\n`
         + `Số tuần/miền đang nhập của các SKU này sẽ bị thay bằng số chia đều${kq.oGhiDe ? ` (${kq.oGhiDe.toLocaleString('vi-VN')} ô đang có số sẽ đổi)` : ''}; phần dư dồn vào ô cuối. `
-      : `Dồn TOÀN BỘ số tháng 1 vào ${weekLabel(baseMonth, tuanDon)} (chia đều ${regionCodes.length} miền của tuần đó) cho ${kq.dong.toLocaleString('vi-VN')} SKU đang lệch${phamVi}.\n\n`
+      : `Dồn TOÀN BỘ số tháng 1 vào ${weekLabel(baseMonth, tuanDon)} (chia đều ${regionCodes.length} miền của tuần đó) cho ${kq.dong.toLocaleString('vi-VN')} ${doiTuong}${phamVi}.\n\n`
         + `Số tuần/miền đang nhập của các SKU này sẽ bị thay: ${tenDon} nhận hết, các tuần còn lại về 0${kq.oGhiDe ? ` (${kq.oGhiDe.toLocaleString('vi-VN')} ô đang có số sẽ đổi)` : ''}; phần dư dồn vào miền cuối. `;
     if (!(await appConfirm(
       cachChia
       + (kq.boQua ? `${kq.boQua.toLocaleString('vi-VN')} SKU lệch nhưng có số tháng 1 bằng 0 sẽ KHÔNG bị đụng tới. ` : '')
       + 'Chưa lưu cho tới khi bấm "Lưu bản thảo".',
-      { title: tuanDon === undefined ? 'Rải đều tất cả dòng lệch?' : `Dồn tất cả dòng lệch vào ${tenDon}?`, okLabel: `${tuanDon === undefined ? 'Rải đều' : 'Dồn vào ' + tenDon} ${kq.dong.toLocaleString('vi-VN')} dòng`, danger: true }
+      { title: tatCa ? (tuanDon === undefined ? 'Rải đều TẤT CẢ các dòng?' : `Dồn TẤT CẢ các dòng vào ${tenDon}?`) : (tuanDon === undefined ? 'Rải đều tất cả dòng lệch?' : `Dồn tất cả dòng lệch vào ${tenDon}?`), okLabel: `${tuanDon === undefined ? 'Rải đều' : 'Dồn vào ' + tenDon} ${kq.dong.toLocaleString('vi-VN')} dòng`, danger: true }
     ))) return;
     handleCellsChange(kq.updates);
     setMessage({ type: 'success', text: `Đã ${tuanDon === undefined ? 'rải đều' : 'dồn vào ' + tenDon} ${kq.dong.toLocaleString('vi-VN')} SKU — bấm "Lưu bản thảo" để lưu.` });
@@ -570,7 +571,7 @@ export default function WeeklyForecast({ currentBU, user }) {
         {canWrite && (
           <button
             type="button"
-            onClick={raiDeuTatCaLech}
+            onClick={() => raiDeuTatCaLech(false)}
             disabled={soDongLech === 0}
             title={tuanDon === undefined
               ? 'Chia đều số tháng 1 ra các ô tuần × miền cho mọi SKU đang lệch (có xem trước và hỏi xác nhận)'
@@ -579,6 +580,21 @@ export default function WeeklyForecast({ currentBU, user }) {
           >
             <ListChecks className="w-3.5 h-3.5" aria-hidden="true" />
             {tuanDon === undefined ? 'Rải đều tất cả dòng lệch' : `Dồn tất cả dòng lệch vào ${tenDon}`}
+          </button>
+        )}
+        {canWrite && (
+          <button
+            type="button"
+            onClick={() => raiDeuTatCaLech(true)}
+            disabled={Object.keys(monthlyMap).every((k) => !(monthlyMap[k] > 0))}
+            title={(tuanDon === undefined
+              ? 'Rải đều số tháng 1 cho MỌI SKU có số tháng 1, kể cả dòng đang khớp — dùng khi bản thảo phân bổ sai cách và cần làm lại'
+              : `Dồn toàn bộ số tháng 1 vào ${tenDon} cho MỌI SKU có số tháng 1, kể cả dòng đang khớp — dùng khi bản thảo phân bổ sai cách và cần làm lại`)
+              + ' (có xem trước và hỏi xác nhận; chỉ các dòng đang hiển thị)'}
+            className="flex items-center gap-1.5 border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
+          >
+            <ListChecks className="w-3.5 h-3.5" aria-hidden="true" />
+            {tuanDon === undefined ? 'Rải đều tất cả các dòng' : `Dồn tất cả các dòng vào ${tenDon}`}
           </button>
         )}
         {isEditor && (

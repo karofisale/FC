@@ -54,21 +54,23 @@ export function tapSkuLech(danhSach, monthlyMap, weeklyMap, tuan, mien) {
 /**
  * Tính trước "rải đều tất cả dòng lệch" để HIỆN CHO NGƯỜI DÙNG xem trước rồi mới ghi:
  *  - tuanDon: nếu có thì dồn cả số tháng vào tuần đó thay vì rải đều (xem capNhatRaiDeu);
+ *  - tatCa: true = áp cho MỌI dòng có số tháng 1 > 0 (kể cả dòng đang khớp), không chỉ dòng lệch;
  *  - dong: số SKU sẽ được rải (lệch và có số tháng 1 > 0);
  *  - boQua: SKU lệch nhưng số tháng 1 = 0 — không rải (rải ra chỉ là xoá hết số tuần/miền; việc đó để người dùng tự làm);
  *  - oGhiDe: số ô đang có số khác 0 sẽ đổi giá trị;
  *  - updates: dạng onCellsChange.
  */
-export function tinhRaiDeuTatCa({ danhSach, monthlyMap, weeklyMap, tuan, mien, tuanDon }) {
+export function tinhRaiDeuTatCa({ danhSach, monthlyMap, weeklyMap, tuan, mien, tuanDon, tatCa }) {
   const updates = [];
   let dong = 0;
   let boQua = 0;
   let oGhiDe = 0;
   danhSach.forEach((p) => {
     const sku = p.sku_code;
-    if (!laDongLech(sku, monthlyMap, weeklyMap, tuan, mien)) return;
+    const lech = laDongLech(sku, monthlyMap, weeklyMap, tuan, mien);
+    if (!tatCa && !lech) return;   // tatCa: phân bổ lại cả dòng đang KHỚP (sửa bản thảo phân bổ sai cách, tổng vẫn khớp)
     const tong = monthlyMap[sku] || 0;
-    if (!(tong > 0)) { boQua += 1; return; }
+    if (!(tong > 0)) { if (lech) boQua += 1; return; }   // số tháng 0: không rải; chỉ ĐẾM dòng lệch để báo (dòng 0 khớp 0 không đáng báo)
     dong += 1;
     capNhatRaiDeu(sku, tong, tuan, mien, tuanDon).forEach((u) => {
       const cu = weeklyMap[`${sku}_${u.col.week}_${u.col.region}`] || 0;
