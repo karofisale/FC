@@ -136,7 +136,20 @@ export function claimFor(appKey) {
 }
 
 const BOUNCE_KEY = 'karofi.bounced';
-const PORTAL_HOST = 'karofisale.github.io';
+/**
+ * Các origin mà cổng + ba app CÙNG chạy (dùng chung một kho localStorage), kèm đường dẫn của cổng ở origin đó.
+ *   karofisale.github.io     cổng ở /VHKD/
+ *   sales.karofiglobal.com   cổng ở / (Cloudflare Pages — xem Karofi-VHKD/CLOUDFLARE.md)
+ * Trước 10/11/2026 chỉ có github.io: ở tên miền công ty, app không đưa người chưa có phiên về cổng mà hiện form
+ * đăng nhập RIÊNG của app — bấm chuyển app là gặp form riêng dù hệ có đăng nhập một lần.
+ */
+const PORTAL_PATHS = { 'karofisale.github.io': '/VHKD/', 'sales.karofiglobal.com': '/' };
+
+/** Đường dẫn của cổng ở origin hiện tại, hoặc null khi đang ở nơi không có cổng (localhost, URL /exec của Apps Script). */
+export function duongDanCong() {
+  const h = String(location.hostname || '').toLowerCase();
+  return Object.prototype.hasOwnProperty.call(PORTAL_PATHS, h) ? PORTAL_PATHS[h] : null;
+}
 
 /**
  * Chưa đăng nhập thì đưa thẳng về cổng VHKD thay vì hiện form riêng của app,
@@ -157,7 +170,8 @@ export function bounceToPortal() {
   // localStorage của origin đó, nên ở nơi khác — máy chủ phát triển localhost,
   // hay bản chạy thẳng từ URL /exec của Apps Script — đăng nhập một lần vốn
   // không hoạt động, mà '/VHKD/' lại là một đường dẫn không tồn tại.
-  if (location.hostname !== PORTAL_HOST) return false;
+  const cong = duongDanCong();
+  if (!cong) return false;
 
   if (/[?&]direct=1(&|$)/.test(location.search)) return false;
 
@@ -174,7 +188,7 @@ export function bounceToPortal() {
   const next = encodeURIComponent(location.pathname + location.search);
   // replace chứ không phải href: trang này chưa hiện gì, để lại trong lịch sử
   // thì bấm back từ cổng sẽ rơi vào đúng nó rồi bị đá về cổng lần nữa.
-  location.replace('/VHKD/?next=' + next);
+  location.replace(cong + '?next=' + next);
   return true;
 }
 
@@ -212,8 +226,9 @@ export function clearBounceFlag() {
 export function veCongSauDangXuat() {
   clearSharedSession();
   clearBounceFlag();
-  if (location.hostname !== PORTAL_HOST) return false;
-  location.replace('/VHKD/');
+  const cong = duongDanCong();
+  if (!cong) return false;
+  location.replace(cong);
   return true;
 }
 
