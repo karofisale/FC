@@ -32,6 +32,14 @@ export const KAROFI_APPS = [
     href: '/export/pi-app.html',
     mo_ta: 'Lập PI, sinh chứng từ và theo dõi lô hàng xuất khẩu.',
     api: 'https://zzbnxyvjpiuhxauagbgh.supabase.co/functions/v1/export-api'   // cắt luồng Export 29/09/2026
+  },
+  {
+    key: 'GT2',
+    ten: 'GT2 Portal',
+    nhan: 'GT2',
+    href: '/GT2/',
+    mo_ta: 'Đặt hàng, theo dõi ngày giao và công nợ kênh GT2 (NSKX, 3T, BHT).',
+    api: 'https://zzbnxyvjpiuhxauagbgh.supabase.co/functions/v1/gt2-api'   // gt2-api — 11/11/2026
   }
 ];
 
